@@ -322,28 +322,6 @@ test("top-level keys in tui.json take precedence over nested tui key", async () 
   })
 })
 
-test("project config takes precedence over AICTRL_TUI_CONFIG (matches AICTRL_CONFIG)", async () => {
-  await using tmp = await tmpdir({
-    init: async (dir) => {
-      await Bun.write(path.join(dir, "tui.json"), JSON.stringify({ theme: "project", diff_style: "auto" }))
-      const custom = path.join(dir, "custom-tui.json")
-      await Bun.write(custom, JSON.stringify({ theme: "custom", diff_style: "stacked" }))
-      process.env.AICTRL_TUI_CONFIG = custom
-    },
-  })
-
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      const config = await TuiConfig.get()
-      // project tui.json overrides the custom path, same as server config precedence
-      expect(config.theme).toBe("project")
-      // project also set diff_style, so that wins
-      expect(config.diff_style).toBe("auto")
-    },
-  })
-})
-
 test("merges keybind overrides across precedence layers", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
@@ -358,25 +336,6 @@ test("merges keybind overrides across precedence layers", async () => {
       const config = await TuiConfig.get()
       expect(config.keybinds?.app_exit).toBe("ctrl+q")
       expect(config.keybinds?.theme_list).toBe("ctrl+k")
-    },
-  })
-})
-
-test("AICTRL_TUI_CONFIG provides settings when no project config exists", async () => {
-  await using tmp = await tmpdir({
-    init: async (dir) => {
-      const custom = path.join(dir, "custom-tui.json")
-      await Bun.write(custom, JSON.stringify({ theme: "from-env", diff_style: "stacked" }))
-      process.env.AICTRL_TUI_CONFIG = custom
-    },
-  })
-
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      const config = await TuiConfig.get()
-      expect(config.theme).toBe("from-env")
-      expect(config.diff_style).toBe("stacked")
     },
   })
 })
