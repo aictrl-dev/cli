@@ -1,0 +1,10 @@
+<svg viewBox="0 0 240 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Icon mark: indigo hexagon with white A glyph -->
+  <path d="M32 2L58 17V47L32 62L6 47V17L32 2Z" fill="#4c6ef5"/>
+  <path d="M32 12L18 46 M32 12L46 46" stroke="#fafafa" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <circle cx="32" cy="35" r="4" fill="#fafafa"/>
+  <!-- Text logotype: aictrl.dev — light background tokens -->
+  <text x="74" y="42" font-family="monospace" font-weight="700" font-size="28" letter-spacing="-0.5">
+    <tspan fill="#4c6ef5">ai</tspan><tspan fill="#18181b">ctrl</tspan><tspan fill="#a1a1aa">.</tspan><tspan fill="#52525b">dev</tspan>
+  </text>
+</svg>
