@@ -651,11 +651,13 @@ export namespace SessionPrompt {
       const system = [...(await SystemPrompt.environment(model)), ...(await InstructionPrompt.system())]
 
       // Automatically load all skills into system prompt
-      const { Skill } = await import("../skill/skill")
-      const allSkills = await Skill.all()
-      for (const skill of allSkills) {
-        system.unshift(`AVAILABLE SKILL: ${skill.name}\n\n${skill.content}`)
-      }
+      try {
+        const { Skill } = await import("../skill/skill")
+        const allSkills = await Skill.all()
+        for (const skill of allSkills) {
+          system.unshift(`AVAILABLE SKILL: ${skill.name}\n\n${skill.content}`)
+        }
+      } catch {}
 
       const format = lastUser.format ?? { type: "text" }
       if (format.type === "json_schema") {
