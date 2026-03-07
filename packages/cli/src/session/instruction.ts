@@ -131,16 +131,22 @@ export namespace InstructionPrompt {
         }
       }
     }
-    const fetches = urls.map(async (url) => {
+
+    async function safeFetch(url: string): Promise<string> {
       try {
-        const res = await fetch(url, { signal: AbortSignal.timeout(5000) })
-        if (!res.ok) return ""
-        const text = await res.text()
+        const response = await fetch(url, { signal: AbortSignal.timeout(5000) })
+        if (!response || !response.ok) {
+          return ""
+        }
+        const text = await response.text()
         return text ? "Instructions from: " + url + "\n" + text : ""
-      } catch {
+      } catch (e) {
+        log.warn("failed to fetch instructions", { url, error: e })
         return ""
       }
-    })
+    }
+
+    const fetches = urls.map((url) => safeFetch(url))
 
     return Promise.all([...files, ...fetches]).then((result) => result.filter(Boolean))
   }
