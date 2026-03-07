@@ -11,7 +11,7 @@
   "homepage": "https://aictrl.ai",
   "repository": {
     "type": "git",
-    "url": "https://github.com/aictrl-dev/aictrl"
+    "url": "https://github.com/aictrl-dev/cli"
   },
   "private": false,
   "scripts": {
@@ -30,7 +30,6 @@
   "bin": {
     "aictrl": "./bin/aictrl"
   },
-  "randomField": "this-is-a-random-value-12345",
   "exports": {
     "./*": "./src/*.ts"
   },
