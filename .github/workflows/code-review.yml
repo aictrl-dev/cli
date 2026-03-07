@@ -17,6 +17,11 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
+    env:
+      PR_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+      IS_MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -28,9 +33,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          SHA=${{ github.event.pull_request.head.sha || github.sha }}
-          PR_NUMBER=${{ github.event.pull_request.number }}
-          
           if [ -z "$PR_NUMBER" ]; then
             echo "Not a pull request, proceeding."
             echo "skip=false" >> $GITHUB_OUTPUT
@@ -38,28 +40,27 @@ jobs:
           fi
 
           # 1. Check if this SHA was already reviewed
-          echo "Checking if SHA $SHA was already reviewed..."
-          REVIEW_COMMENTS=$(gh pr view $PR_NUMBER --json comments --jq '.comments[].body' | grep -c "Reviewed SHA:" || true)
-          LAST_REVIEW_SHA=$(gh pr view $PR_NUMBER --json comments --jq '.comments[].body' | grep -o "Reviewed SHA: [a-f0-9]\{40\}" | tail -n 1 | cut -d' ' -f3)
+          echo "Checking if SHA $PR_SHA was already reviewed..."
+          REVIEW_COMMENTS=$(gh pr view "$PR_NUMBER" --json comments --jq '.comments[].body' | grep -c "Reviewed SHA:" || true)
+          LAST_REVIEW_SHA=$(gh pr view "$PR_NUMBER" --json comments --jq '.comments[].body' | grep -o "Reviewed SHA: [a-f0-9]\{40\}" | tail -n 1 | cut -d' ' -f3)
 
-          if [ "$LAST_REVIEW_SHA" == "$SHA" ]; then
-            echo "This commit ($SHA) has already been reviewed. Skipping."
+          if [ "$LAST_REVIEW_SHA" == "$PR_SHA" ]; then
+            echo "This commit ($PR_SHA) has already been reviewed. Skipping."
             echo "skip=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
           # 2. Skip if 2+ reviews already exist (unless manually triggered)
-          IS_MANUAL="${{ github.event_name == 'workflow_dispatch' }}"
           if [ "$REVIEW_COMMENTS" -ge 2 ] && [ "$IS_MANUAL" != "true" ]; then
             echo "PR already has $REVIEW_COMMENTS AI reviews. Skipping (use workflow_dispatch to force)."
             echo "skip=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          # 3. Check if there are any "actual code" changes
+          # 3. Check if there are any actual code changes
           echo "Checking changed files..."
-          CODE_CHANGES=$(git diff --name-only origin/${{ github.base_ref }}...$SHA | grep -E '\.(ts|js|json|sh|yml|yaml)$' | grep -vE '^docs/|.*\.md$' || true)
-          
+          CODE_CHANGES=$(git diff --name-only "origin/$PR_BASE_REF...$PR_SHA" | grep -E '\.(ts|js|json|sh|yml|yaml)$' | grep -vE '^docs/|.*\.md$' || true)
+
           if [ -z "$CODE_CHANGES" ]; then
             echo "No actual code changes detected. Skipping review."
             echo "skip=true" >> $GITHUB_OUTPUT
@@ -69,59 +70,34 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Setup Headless Inputs
+      - name: Setup OpenCode
         if: steps.check_changes.outputs.skip != 'true'
         run: |
-          mkdir -p .inputs .outputs
-          echo "# Task: Code Review" > .inputs/TASK.md
-          echo "Please review the changes in PR #${{ github.event.pull_request.number }} for the aictrl CLI." >> .inputs/TASK.md
-          echo "## PR Context" >> .inputs/TASK.md
-          echo "PR Number: ${{ github.event.pull_request.number }}" >> .inputs/TASK.md
-          echo "SHA: ${{ github.event.pull_request.head.sha }}" >> .inputs/TASK.md
-          echo "## Diff" >> .inputs/TASK.md
-          echo '```diff' >> .inputs/TASK.md
-          git diff origin/${{ github.base_ref }}...HEAD >> .inputs/TASK.md
-          echo '```' >> .inputs/TASK.md
-          
-          echo "# Inputs README" > .inputs/README.md
-          echo "TASK.md contains the PR diff and metadata." >> .inputs/README.md
-
-      - name: Setup Bun
-        if: steps.check_changes.outputs.skip != 'true'
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install Dependencies
-        if: steps.check_changes.outputs.skip != 'true'
-        run: |
-          bun install --frozen-lockfile
-          bun turbo build --filter=@aictrl/cli...
-
-      - name: Build Lite Binary
-        if: steps.check_changes.outputs.skip != 'true'
-        run: |
-          cd packages/cli
-          rm -rf dist
-          bun run script/build.ts --single --baseline --lite
-        env:
-          AICTRL_BUILD_SINGLE: "true"
+          curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path
+          echo "$HOME/.opencode/bin" >> $GITHUB_PATH
 
       - name: Run OpenCode Review
         if: steps.check_changes.outputs.skip != 'true'
-        run: |
-          ./packages/cli/dist/@aictrl/cli-linux-x64-lite/bin/aictrl run "Review the changes in PR #${{ github.event.pull_request.number }}. Focus on:
-          1. **Redaction Logic**: Ensure PII patterns are robust.
-          2. **Streaming Integrity**: Check SSE/streaming proxy logic for buffering issues.
-          3. **Security**: Look for potential leaks or insecure token handling.
-          4. **Reliability**: Ensure graceful error handling.
-
-          Post findings using the github-comment tool. 
-          CRITICAL: You MUST include the string 'Reviewed SHA: ${{ github.event.pull_request.head.sha }}' at the very end of your final summary comment." --agent hush
+        timeout-minutes: 15
         env:
-          ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
+          ZHIPU_API_KEY: ${{ secrets.ZHIPUAI_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          GH_OWNER: ${{ github.repository_owner }}
-          GH_REPO: ${{ github.event.repository.name }}
-          AICTRL_HEADLESS: "true"
+        run: |
+          echo "Starting review with zai/glm-5 for PR #$PR_NUMBER SHA $PR_SHA..."
+
+          $HOME/.opencode/bin/opencode run --model zai/glm-5 "Review the changes in PR #$PR_NUMBER for the aictrl CLI.
+
+          **IMPORTANT**: This is a code review only. Do NOT run tests, npm commands, or build commands. Only read source files and git diffs.
+
+          Focus areas:
+          1. **Code Quality**: Look for bugs, logic errors, and maintainability issues.
+          2. **Security**: Look for potential leaks or insecure handling of secrets/tokens.
+          3. **Streaming Integrity**: Check that SSE/streaming proxy logic doesn't buffer unnecessarily or break flows.
+          4. **Reliability**: Ensure error handling is robust and graceful.
+
+          Keep the review concise and high-signal. Post findings as a single markdown comment using:
+            gh pr comment $PR_NUMBER --body \"<your review>\"
+
+          Do NOT try to auto-detect the PR number — use exactly $PR_NUMBER.
+
+          **CRITICAL**: Include the string 'Reviewed SHA: $PR_SHA' at the very end of your comment so we can track which commits have been reviewed."
