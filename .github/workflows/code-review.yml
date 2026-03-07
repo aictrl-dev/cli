@@ -77,11 +77,15 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Setup OpenCode
+      - name: Setup Bun
         if: steps.check_changes.outputs.skip != 'true'
-        run: |
-          curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path
-          echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies
+        if: steps.check_changes.outputs.skip != 'true'
+        run: bun install --frozen-lockfile
 
       - name: Run Aictrl Review
         if: steps.check_changes.outputs.skip != 'true'
@@ -92,8 +96,7 @@ jobs:
         run: |
           echo "Starting review with zai-coding-plan/glm-5 for PR #$PR_NUMBER SHA $PR_SHA..."
 
-          # TODO: replace with aictrl run once the run command server is restored
-          $HOME/.opencode/bin/opencode run --model zai-coding-plan/glm-5 "Review the changes in PR #$PR_NUMBER for the aictrl CLI.
+          bun run --conditions=browser packages/cli/src/index.ts run --model zai-coding-plan/glm-5 "Review the changes in PR #$PR_NUMBER for the aictrl CLI.
 
           **IMPORTANT**: This is a code review only. Do NOT run tests, npm commands, or build commands. Only read source files and git diffs.
 
