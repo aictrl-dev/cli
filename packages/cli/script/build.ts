@@ -157,7 +157,7 @@ await $`rm -rf dist`
 const binaries: Record<string, string> = {}
 if (!skipInstall && !liteFlag) {
   await $`bun install --os="*" --cpu="*" @opentui/core@${pkg.dependencies["@opentui/core"]}`
-  await $`bun install --os="*" --cpu="*" @parcel/watcher@${pkg.dependencies["@parcel/watcher"]}`
+  await $`bun install --os="*" --cpu="*" @parcel/watcher@${(pkg as any).optionalDependencies["@parcel/watcher"]}`
 }
 for (const item of targets) {
   const name = [
