@@ -21,6 +21,10 @@ jobs:
         with:
           node-version: 22
 
+      - name: Configure npm registry
+        run: |
+          echo "registry=https://registry.npmjs.org/" > ~/.npmrc
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
