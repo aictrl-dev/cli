@@ -96,7 +96,6 @@ jobs:
         run: |
           echo "Starting review with zai-coding-plan/glm-5 for PR #$PR_NUMBER SHA $PR_SHA..."
 
-          # TODO: switch to `aictrl run` after v0.1.3 is published to npm
           bun run --conditions=browser packages/cli/src/index.ts run --model zai-coding-plan/glm-5 "Review the changes in PR #$PR_NUMBER for the aictrl CLI.
 
           **IMPORTANT**: This is a code review only. Do NOT run tests, npm commands, or build commands. Only read source files and git diffs.
