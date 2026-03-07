@@ -29,17 +29,21 @@ jobs:
         run: bun turbo build
 
       - name: Publish @aictrl/util
-        run: npx npm publish --access public --provenance
         working-directory: packages/util
+        run: bun pm pack && npx npm publish *.tgz --access public --provenance
 
       - name: Publish @aictrl/plugin
-        run: npx npm publish --access public --provenance
         working-directory: packages/plugin
+        run: bun pm pack && npx npm publish *.tgz --access public --provenance
 
       - name: Publish @aictrl/sdk
-        run: npx npm publish --access public --provenance
         working-directory: packages/sdk
+        run: bun pm pack && npx npm publish *.tgz --access public --provenance
+
+      - name: Publish @aictrl/cli-linux-x64
+        working-directory: packages/cli/dist/@aictrl/cli-linux-x64
+        run: npx npm publish --access public --provenance
 
       - name: Publish @aictrl/cli
-        run: npx npm publish --access public --provenance
         working-directory: packages/cli
+        run: bun pm pack && npx npm publish *.tgz --access public --provenance

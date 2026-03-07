@@ -1,6 +1,10 @@
-# Aictrl CLI
+<p align="center">
+  <img src=".github/logo.svg" alt="aictrl.dev" width="240" />
+</p>
 
-The Lightweight Headless Runtime for AI Agent Skills.
+<h3 align="center">The Lightweight Headless Runtime for AI Agent Skills</h3>
+
+---
 
 Aictrl CLI is a 100% headless, server-side execution harness designed for autonomous agentic workflows. It provides a secure, modular environment to run, measure, and scale agent skills without the bloat of a desktop or terminal UI.
 

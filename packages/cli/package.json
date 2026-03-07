@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "name": "@aictrl/cli",
   "description": "Headless execution engine for AI agent skills",
   "type": "module",
@@ -83,7 +83,6 @@
     "@ai-sdk/vercel": "1.0.33",
     "@ai-sdk/xai": "2.0.51",
     "@aictrl/plugin": "workspace:*",
-    "@aictrl/script": "workspace:*",
     "@aictrl/sdk": "workspace:*",
     "@aictrl/util": "workspace:*",
     "@aws-sdk/credential-providers": "3.993.0",
@@ -134,6 +133,9 @@
     "yargs": "18.0.0",
     "zod": "catalog:",
     "zod-to-json-schema": "3.24.5"
+  },
+  "optionalDependencies": {
+    "@aictrl/cli-linux-x64": "0.1.1"
   },
   "overrides": {
     "drizzle-orm": "1.0.0-beta.12-a5629fb"

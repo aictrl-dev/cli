@@ -167,13 +167,36 @@ function findBinary(startDir) {
 }
 
 const resolved = findBinary(scriptDir)
-if (!resolved) {
-  console.error(
-    "It seems that your package manager failed to install the right version of the aictrl CLI for your platform. You can try manually installing " +
-      names.map((n) => `\"${n}\"`).join(" or ") +
-      " package",
-  )
-  process.exit(1)
+if (resolved) {
+  run(resolved)
 }
 
-run(resolved)
+// No compiled binary found — fall back to running from source with Bun
+const bunEntry = path.join(scriptDir, "..", "src", "index.ts")
+if (fs.existsSync(bunEntry)) {
+  const result = childProcess.spawnSync(
+    "bun",
+    ["run", "--conditions=browser", bunEntry, ...process.argv.slice(2)],
+    { stdio: "inherit" },
+  )
+  if (result.error) {
+    if (result.error.code === "ENOENT") {
+      console.error(
+        "No compiled binary found for your platform and Bun is not installed.\n" +
+          "Either install Bun (https://bun.sh) or install the platform package: " +
+          names.map((n) => `"${n}"`).join(" or "),
+      )
+    } else {
+      console.error(result.error.message)
+    }
+    process.exit(1)
+  }
+  process.exit(typeof result.status === "number" ? result.status : 0)
+}
+
+console.error(
+  "It seems that your package manager failed to install the right version of the aictrl CLI for your platform. You can try manually installing " +
+    names.map((n) => `"${n}"`).join(" or ") +
+    " package, or install Bun (https://bun.sh) to run from source.",
+)
+process.exit(1)

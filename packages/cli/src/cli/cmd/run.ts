@@ -12,6 +12,11 @@ import type { Message, ToolPart } from "@aictrl/sdk/v2"
 import { Provider } from "../../provider/provider"
 import { Agent } from "../../agent/agent"
 import { PermissionNext } from "../../permission/next"
+import { Session } from "../../session"
+import { SessionPrompt } from "../../session/prompt"
+import { Config } from "../../config/config"
+import { GlobalBus } from "../../bus/global"
+import { Instance } from "../../project/instance"
 import { Tool } from "../../tool/tool"
 import { GlobTool } from "../../tool/glob"
 import { GrepTool } from "../../tool/grep"
@@ -595,7 +600,7 @@ export const RunCommand = cmd({
                   `permission requested: ${permission.permission} (${permission.patterns.join(", ")}); auto-rejecting`,
               )
             }
-            await sdk.permission.reply({
+            await PermissionNext.reply({
               requestID: permission.id,
               reply: "reject",
             })
@@ -681,10 +686,82 @@ export const RunCommand = cmd({
     }
 
     await bootstrap(process.cwd(), async () => {
-      const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
-        const request = new Request(input, init)
-      }) as unknown as typeof globalThis.fetch
-      const sdk = createAictrlClient({ baseUrl: "http://aictrl.internal", fetch: fetchFn })
+      const sdk = {
+        session: {
+          async list() {
+            return { data: [...Session.list()] }
+          },
+          async create(opts: any) {
+            const session = await Session.createNext({
+              title: opts.title,
+              permission: opts.permission,
+              directory: Instance.directory,
+            })
+            return { data: session }
+          },
+          async fork(opts: any) {
+            const session = await Session.fork({
+              sessionID: opts.sessionID,
+              messageID: opts.messageID,
+            })
+            return { data: session }
+          },
+          async share(opts: any) {
+            const share = await Session.share(opts.sessionID)
+            return { data: { share } }
+          },
+          async prompt(opts: any) {
+            SessionPrompt.prompt({
+              sessionID: opts.sessionID,
+              parts: opts.parts,
+              agent: opts.agent,
+              model: opts.model,
+              variant: opts.variant,
+            }).catch(() => {})
+          },
+          async command(opts: any) {
+            SessionPrompt.command({
+              sessionID: opts.sessionID,
+              command: opts.command,
+              arguments: opts.arguments ?? "",
+              agent: opts.agent,
+              model: opts.model,
+              variant: opts.variant,
+            }).catch(() => {})
+          },
+        },
+        config: {
+          async get() {
+            return { data: await Config.get() }
+          },
+        },
+        event: {
+          async subscribe() {
+            const stream = (async function* () {
+              const queue: any[] = []
+              let resolve: (() => void) | null = null
+              const handler = (event: { payload: any }) => {
+                queue.push(event.payload)
+                resolve?.()
+              }
+              GlobalBus.on("event", handler)
+              try {
+                while (true) {
+                  while (queue.length > 0) {
+                    yield queue.shift()
+                  }
+                  await new Promise<void>((r) => {
+                    resolve = r
+                  })
+                }
+              } finally {
+                GlobalBus.off("event", handler)
+              }
+            })()
+            return { stream }
+          },
+        },
+      }
       await execute(sdk)
     })
   },

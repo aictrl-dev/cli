@@ -25,7 +25,7 @@
     },
     "packages/cli": {
       "name": "@aictrl/cli",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "bin": {
         "aictrl": "./bin/aictrl",
       },
@@ -53,7 +53,6 @@
         "@ai-sdk/vercel": "1.0.33",
         "@ai-sdk/xai": "2.0.51",
         "@aictrl/plugin": "workspace:*",
-        "@aictrl/script": "workspace:*",
         "@aictrl/sdk": "workspace:*",
         "@aictrl/util": "workspace:*",
         "@aws-sdk/credential-providers": "3.993.0",
@@ -131,6 +130,9 @@
         "why-is-node-running": "3.2.2",
         "zod-to-json-schema": "3.24.5",
       },
+      "optionalDependencies": {
+        "@aictrl/cli-linux-x64": "0.1.1",
+      },
     },
     "packages/plugin": {
       "name": "@aictrl/plugin",
@@ -155,7 +157,7 @@
     },
     "packages/sdk": {
       "name": "@aictrl/sdk",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "devDependencies": {
         "@hey-api/openapi-ts": "0.90.10",
         "@tsconfig/node22": "catalog:",
@@ -293,6 +295,8 @@
     "@ai-sdk/xai": ["@ai-sdk/xai@2.0.51", "", { "dependencies": { "@ai-sdk/openai-compatible": "1.0.30", "@ai-sdk/provider": "2.0.1", "@ai-sdk/provider-utils": "3.0.20" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-AI3le03qiegkZvn9hpnpDwez49lOvQLj4QUBT8H41SMbrdTYOxn3ktTwrsSu90cNDdzKGMvoH0u2GHju1EdnCg=="],
 
     "@aictrl/cli": ["@aictrl/cli@workspace:packages/cli"],
+
+    "@aictrl/cli-linux-x64": ["@aictrl/cli-linux-x64@0.1.1", "", { "os": "linux", "cpu": "x64" }, "sha512-RCyxzvMZblR5JBDzQ+H39SzYkE5GWpTnCZFmpZDStFS7COHa5BaS8ItJLZA9MVQFX5mqU4G57oMaX7BnDlfXxg=="],
 
     "@aictrl/plugin": ["@aictrl/plugin@workspace:packages/plugin"],
 
