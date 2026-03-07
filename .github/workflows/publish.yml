@@ -19,14 +19,26 @@ jobs:
       - name: Build Packages
         run: bun turbo build
 
-      - name: Publish @aictrl/cli
-        run: bun publish
-        working-directory: packages/cli
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Setup npm
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
 
-      - name: Publish @aictrl-ai/sdk
-        run: bun publish
-        working-directory: packages/sdk/js
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish @aictrl/script
+        run: bun publish --access public
+        working-directory: packages/script
+
+      - name: Publish @aictrl/util
+        run: bun publish --access public
+        working-directory: packages/util
+
+      - name: Publish @aictrl/plugin
+        run: bun publish --access public
+        working-directory: packages/plugin
+
+      - name: Publish @aictrl/sdk
+        run: bun publish --access public
+        working-directory: packages/sdk
+
+      - name: Publish @aictrl/cli
+        run: bun publish --access public
+        working-directory: packages/cli
