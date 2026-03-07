@@ -98,19 +98,4 @@ jobs:
           aictrl --version || true
           echo "ZHIPU_API_KEY length: ${#ZHIPU_API_KEY}"
 
-          aictrl run --format json --model zai-coding-plan/glm-5 "Review the changes in PR #$PR_NUMBER for the aictrl CLI.
-
-          **IMPORTANT**: This is a code review only. Do NOT run tests, npm commands, or build commands. Only read source files and git diffs.
-
-          Focus areas:
-          1. **Code Quality**: Look for bugs, logic errors, and maintainability issues.
-          2. **Security**: Look for potential leaks or insecure handling of secrets/tokens.
-          3. **Streaming Integrity**: Check that SSE/streaming proxy logic doesn't buffer unnecessarily or break flows.
-          4. **Reliability**: Ensure error handling is robust and graceful.
-
-          Keep the review concise and high-signal. Post findings as a single markdown comment using:
-            gh pr comment $PR_NUMBER --body \"<your review>\"
-
-          Do NOT try to auto-detect the PR number — use exactly $PR_NUMBER.
-
-          **CRITICAL**: Include the string 'Reviewed SHA: $PR_SHA' at the very end of your comment so we can track which commits have been reviewed."
+          aictrl run --format json --model zai-coding-plan/glm-5 "Say hello and confirm you are working."
