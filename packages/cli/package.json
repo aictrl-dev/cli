@@ -34,9 +34,31 @@
     "./*": "./src/*.ts"
   },
   "devDependencies": {
+    "@ai-sdk/amazon-bedrock": "3.0.82",
+    "@ai-sdk/anthropic": "2.0.65",
+    "@ai-sdk/azure": "2.0.91",
+    "@ai-sdk/cerebras": "1.0.36",
+    "@ai-sdk/cohere": "2.0.22",
+    "@ai-sdk/deepinfra": "1.0.36",
+    "@ai-sdk/gateway": "2.0.30",
+    "@ai-sdk/google": "2.0.54",
+    "@ai-sdk/google-vertex": "3.0.106",
+    "@ai-sdk/groq": "2.0.34",
+    "@ai-sdk/mistral": "2.0.27",
+    "@ai-sdk/openai": "2.0.89",
+    "@ai-sdk/openai-compatible": "1.0.32",
+    "@ai-sdk/perplexity": "2.0.23",
+    "@ai-sdk/togetherai": "1.0.34",
+    "@ai-sdk/vercel": "1.0.33",
+    "@ai-sdk/xai": "2.0.51",
+    "@aws-sdk/credential-providers": "3.993.0",
     "@babel/core": "7.28.4",
+    "@gitlab/gitlab-ai-provider": "3.6.0",
     "@octokit/webhooks-types": "7.6.1",
+    "@openrouter/ai-sdk-provider": "1.5.4",
     "@aictrl/script": "workspace:*",
+    "ai-gateway-provider": "2.3.1",
+    "google-auth-library": "10.5.0",
     "@parcel/watcher-darwin-arm64": "2.5.1",
     "@parcel/watcher-darwin-x64": "2.5.1",
     "@parcel/watcher-linux-arm64-glibc": "2.5.1",
@@ -134,28 +156,72 @@
     "google-auth-library": ">=10"
   },
   "peerDependenciesMeta": {
-    "@ai-sdk/amazon-bedrock": { "optional": true },
-    "@ai-sdk/anthropic": { "optional": true },
-    "@ai-sdk/azure": { "optional": true },
-    "@ai-sdk/cerebras": { "optional": true },
-    "@ai-sdk/cohere": { "optional": true },
-    "@ai-sdk/deepinfra": { "optional": true },
-    "@ai-sdk/gateway": { "optional": true },
-    "@ai-sdk/google": { "optional": true },
-    "@ai-sdk/google-vertex": { "optional": true },
-    "@ai-sdk/groq": { "optional": true },
-    "@ai-sdk/mistral": { "optional": true },
-    "@ai-sdk/openai": { "optional": true },
-    "@ai-sdk/openai-compatible": { "optional": true },
-    "@ai-sdk/perplexity": { "optional": true },
-    "@ai-sdk/togetherai": { "optional": true },
-    "@ai-sdk/vercel": { "optional": true },
-    "@ai-sdk/xai": { "optional": true },
-    "@aws-sdk/credential-providers": { "optional": true },
-    "@gitlab/gitlab-ai-provider": { "optional": true },
-    "@openrouter/ai-sdk-provider": { "optional": true },
-    "ai-gateway-provider": { "optional": true },
-    "google-auth-library": { "optional": true }
+    "@ai-sdk/amazon-bedrock": {
+      "optional": true
+    },
+    "@ai-sdk/anthropic": {
+      "optional": true
+    },
+    "@ai-sdk/azure": {
+      "optional": true
+    },
+    "@ai-sdk/cerebras": {
+      "optional": true
+    },
+    "@ai-sdk/cohere": {
+      "optional": true
+    },
+    "@ai-sdk/deepinfra": {
+      "optional": true
+    },
+    "@ai-sdk/gateway": {
+      "optional": true
+    },
+    "@ai-sdk/google": {
+      "optional": true
+    },
+    "@ai-sdk/google-vertex": {
+      "optional": true
+    },
+    "@ai-sdk/groq": {
+      "optional": true
+    },
+    "@ai-sdk/mistral": {
+      "optional": true
+    },
+    "@ai-sdk/openai": {
+      "optional": true
+    },
+    "@ai-sdk/openai-compatible": {
+      "optional": true
+    },
+    "@ai-sdk/perplexity": {
+      "optional": true
+    },
+    "@ai-sdk/togetherai": {
+      "optional": true
+    },
+    "@ai-sdk/vercel": {
+      "optional": true
+    },
+    "@ai-sdk/xai": {
+      "optional": true
+    },
+    "@aws-sdk/credential-providers": {
+      "optional": true
+    },
+    "@gitlab/gitlab-ai-provider": {
+      "optional": true
+    },
+    "@openrouter/ai-sdk-provider": {
+      "optional": true
+    },
+    "ai-gateway-provider": {
+      "optional": true
+    },
+    "google-auth-library": {
+      "optional": true
+    }
   },
   "overrides": {
     "drizzle-orm": "1.0.0-beta.12-a5629fb"
