@@ -74,9 +74,9 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.933.0",
-    "@aictrl/plugin": "0.1.0",
-    "@aictrl/script": "0.1.0",
-    "@aictrl/sdk": "0.1.0",
+    "@aictrl/plugin": "workspace:*",
+    "@aictrl/script": "workspace:*",
+    "@aictrl/sdk": "workspace:*",
     "typescript": "catalog:"
   },
   "repository": {

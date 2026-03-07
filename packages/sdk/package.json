@@ -14,7 +14,7 @@
     "url": "https://github.com/aictrl-dev/aictrl"
   },
   "scripts": {
-    "typecheck": "tsgo --noEmit",
+    "typecheck": "tsc --noEmit",
     "build": "bun ./script/build.ts"
   },
   "exports": {

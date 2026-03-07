@@ -1,0 +1,12 @@
+export type Session = any
+export type Message = any
+export type Part = any
+export type ToolPart = any
+export type Event = any
+export type EventMessagePartUpdated = any
+export type ToolStatePending = any
+export type ToolStateRunning = any
+export type Model = any
+export type FileDiff = any
+export type AssistantMessage = any
+export type UserMessage = any

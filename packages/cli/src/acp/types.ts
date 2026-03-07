@@ -1,6 +1,6 @@
 // @ts-nocheck
 import type { McpServer } from "@agentclientprotocol/sdk"
-import type { OpencodeClient } from "@aictrl/aictrl-sdk/v2"
+import type { OpencodeClient } from "@aictrl/sdk/v2"
 
 export interface ACPSessionState {
   id: string

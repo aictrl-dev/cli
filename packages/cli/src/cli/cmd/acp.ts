@@ -3,8 +3,8 @@ import { bootstrap } from "../bootstrap"
 import { cmd } from "./cmd"
 import { AgentSideConnection, ndJsonStream } from "@agentclientprotocol/sdk"
 import { ACP } from "@/acp/agent"
-import { createAictrlClient } from "@aictrl/aictrl-sdk/v2"
 import { withNetworkOptions, resolveNetworkOptions } from "../network"
+import { createAictrlClient } from "@aictrl/sdk"
 
 const log = Log.create({ service: "acp-command" })
 

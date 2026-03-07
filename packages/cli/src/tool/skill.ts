@@ -6,6 +6,7 @@ import { Skill } from "../skill"
 import { PermissionNext } from "../permission/next"
 import { Ripgrep } from "../file/ripgrep"
 import { iife } from "@/util/iife"
+import { Plugin } from "../plugin"
 
 export const SkillTool = Tool.define("skill", async (ctx) => {
   const skills = await Skill.all()

@@ -10,7 +10,7 @@ import type {
   Part,
   Auth,
   Config,
-} from "@aictrl/aictrl-sdk"
+} from "@aictrl/sdk"
 
 import type { BunShell } from "./shell"
 import { type ToolDefinition } from "./tool"
@@ -28,7 +28,7 @@ export type PluginInput = {
   project: Project
   directory: string
   worktree: string
-  serverUrl: URL
+  serverUrl?: URL
   $: BunShell
 }
 

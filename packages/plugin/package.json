@@ -8,7 +8,7 @@
     "access": "public"
   },
   "scripts": {
-    "typecheck": "tsgo --noEmit",
+    "typecheck": "tsc --noEmit",
     "build": "tsc"
   },
   "exports": {
@@ -19,7 +19,7 @@
     "dist"
   ],
   "dependencies": {
-    "@aictrl/sdk": "0.1.0",
+    "@aictrl/sdk": "workspace:*",
     "zod": "catalog:"
   },
   "devDependencies": {
