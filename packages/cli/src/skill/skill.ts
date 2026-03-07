@@ -46,7 +46,7 @@ export namespace Skill {
   // These follow the directory layout used by Claude Code and other agents.
   const EXTERNAL_DIRS = [".claude", ".agents"]
   const EXTERNAL_SKILL_PATTERN = "skills/**/SKILL.md"
-  const OPENCODE_SKILL_PATTERN = "{skill,skills}/**/SKILL.md"
+  const AICTRL_SKILL_PATTERN = "{skill,skills}/**/SKILL.md"
   const SKILL_PATTERN = "**/SKILL.md"
 
   export const state = Instance.state(async () => {
@@ -103,7 +103,7 @@ export namespace Skill {
 
     // Scan external skill directories (.claude/skills/, .agents/skills/, etc.)
     // Load global (home) first, then project-level (so project-level overwrites)
-    if (!Flag.OPENCODE_DISABLE_EXTERNAL_SKILLS) {
+    if (!Flag.AICTRL_DISABLE_EXTERNAL_SKILLS) {
       for (const dir of EXTERNAL_DIRS) {
         const root = path.join(Global.Path.home, dir)
         if (!(await Filesystem.isDir(root))) continue
@@ -121,7 +121,7 @@ export namespace Skill {
 
     // Scan .aictrl/skill/ directories
     for (const dir of await Config.directories()) {
-      const matches = await Glob.scan(OPENCODE_SKILL_PATTERN, {
+      const matches = await Glob.scan(AICTRL_SKILL_PATTERN, {
         cwd: dir,
         absolute: true,
         include: "file",

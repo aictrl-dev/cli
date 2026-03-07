@@ -132,7 +132,7 @@ export namespace Pty {
       ...input.env,
       ...shellEnv.env,
       TERM: "xterm-256color",
-      OPENCODE_TERMINAL: "1",
+      AICTRL_TERMINAL: "1",
     } as Record<string, string>
 
     if (process.platform === "win32") {

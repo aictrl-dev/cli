@@ -8,8 +8,8 @@ import { iife } from "@/util/iife"
 import { Flag } from "../flag/flag"
 
 declare global {
-  const OPENCODE_VERSION: string
-  const OPENCODE_CHANNEL: string
+  const AICTRL_VERSION: string
+  const AICTRL_CHANNEL: string
 }
 
 export namespace Installation {
@@ -189,9 +189,9 @@ export namespace Installation {
     await $`${process.execPath} --version`.nothrow().quiet().text()
   }
 
-  export const VERSION = typeof OPENCODE_VERSION === "string" ? OPENCODE_VERSION : "local"
-  export const CHANNEL = typeof OPENCODE_CHANNEL === "string" ? OPENCODE_CHANNEL : "local"
-  export const USER_AGENT = `aictrl/${CHANNEL}/${VERSION}/${Flag.OPENCODE_CLIENT}`
+  export const VERSION = typeof AICTRL_VERSION === "string" ? AICTRL_VERSION : "local"
+  export const CHANNEL = typeof AICTRL_CHANNEL === "string" ? AICTRL_CHANNEL : "local"
+  export const USER_AGENT = `aictrl/${CHANNEL}/${VERSION}/${Flag.AICTRL_CLIENT}`
 
   export async function latest(installMethod?: Method) {
     const detectedMethod = installMethod || (await method())

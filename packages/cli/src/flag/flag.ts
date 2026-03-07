@@ -4,57 +4,57 @@ function truthy(key: string) {
 }
 
 export namespace Flag {
-  export const OPENCODE_AUTO_SHARE = truthy("OPENCODE_AUTO_SHARE")
-  export const OPENCODE_GIT_BASH_PATH = process.env["OPENCODE_GIT_BASH_PATH"]
-  export const OPENCODE_CONFIG = process.env["OPENCODE_CONFIG"]
-  export declare const OPENCODE_TUI_CONFIG: string | undefined
-  export declare const OPENCODE_CONFIG_DIR: string | undefined
-  export const OPENCODE_CONFIG_CONTENT = process.env["OPENCODE_CONFIG_CONTENT"]
-  export const OPENCODE_DISABLE_AUTOUPDATE = truthy("OPENCODE_DISABLE_AUTOUPDATE")
-  export const OPENCODE_DISABLE_PRUNE = truthy("OPENCODE_DISABLE_PRUNE")
-  export const OPENCODE_DISABLE_TERMINAL_TITLE = truthy("OPENCODE_DISABLE_TERMINAL_TITLE")
-  export const OPENCODE_PERMISSION = process.env["OPENCODE_PERMISSION"]
-  export const OPENCODE_DISABLE_DEFAULT_PLUGINS = truthy("OPENCODE_DISABLE_DEFAULT_PLUGINS")
-  export const OPENCODE_DISABLE_LSP_DOWNLOAD = truthy("OPENCODE_DISABLE_LSP_DOWNLOAD")
-  export const OPENCODE_ENABLE_EXPERIMENTAL_MODELS = truthy("OPENCODE_ENABLE_EXPERIMENTAL_MODELS")
-  export const OPENCODE_DISABLE_AUTOCOMPACT = truthy("OPENCODE_DISABLE_AUTOCOMPACT")
-  export const OPENCODE_DISABLE_MODELS_FETCH = truthy("OPENCODE_DISABLE_MODELS_FETCH")
-  export const OPENCODE_DISABLE_CLAUDE_CODE = truthy("OPENCODE_DISABLE_CLAUDE_CODE")
-  export const OPENCODE_DISABLE_CLAUDE_CODE_PROMPT =
-    OPENCODE_DISABLE_CLAUDE_CODE || truthy("OPENCODE_DISABLE_CLAUDE_CODE_PROMPT")
-  export const OPENCODE_DISABLE_CLAUDE_CODE_SKILLS =
-    OPENCODE_DISABLE_CLAUDE_CODE || truthy("OPENCODE_DISABLE_CLAUDE_CODE_SKILLS")
-  export const OPENCODE_DISABLE_EXTERNAL_SKILLS =
-    OPENCODE_DISABLE_CLAUDE_CODE_SKILLS || truthy("OPENCODE_DISABLE_EXTERNAL_SKILLS")
-  export declare const OPENCODE_DISABLE_PROJECT_CONFIG: boolean
-  export const OPENCODE_FAKE_VCS = process.env["OPENCODE_FAKE_VCS"]
-  export declare const OPENCODE_CLIENT: string
-  export const OPENCODE_SERVER_PASSWORD = process.env["OPENCODE_SERVER_PASSWORD"]
-  export const OPENCODE_SERVER_USERNAME = process.env["OPENCODE_SERVER_USERNAME"]
-  export const OPENCODE_ENABLE_QUESTION_TOOL = truthy("OPENCODE_ENABLE_QUESTION_TOOL")
+  export const AICTRL_AUTO_SHARE = truthy("AICTRL_AUTO_SHARE")
+  export const AICTRL_GIT_BASH_PATH = process.env["AICTRL_GIT_BASH_PATH"]
+  export const AICTRL_CONFIG = process.env["AICTRL_CONFIG"]
+  export declare const AICTRL_TUI_CONFIG: string | undefined
+  export declare const AICTRL_CONFIG_DIR: string | undefined
+  export const AICTRL_CONFIG_CONTENT = process.env["AICTRL_CONFIG_CONTENT"]
+  export const AICTRL_DISABLE_AUTOUPDATE = truthy("AICTRL_DISABLE_AUTOUPDATE")
+  export const AICTRL_DISABLE_PRUNE = truthy("AICTRL_DISABLE_PRUNE")
+  export const AICTRL_DISABLE_TERMINAL_TITLE = truthy("AICTRL_DISABLE_TERMINAL_TITLE")
+  export const AICTRL_PERMISSION = process.env["AICTRL_PERMISSION"]
+  export const AICTRL_DISABLE_DEFAULT_PLUGINS = truthy("AICTRL_DISABLE_DEFAULT_PLUGINS")
+  export const AICTRL_DISABLE_LSP_DOWNLOAD = truthy("AICTRL_DISABLE_LSP_DOWNLOAD")
+  export const AICTRL_ENABLE_EXPERIMENTAL_MODELS = truthy("AICTRL_ENABLE_EXPERIMENTAL_MODELS")
+  export const AICTRL_DISABLE_AUTOCOMPACT = truthy("AICTRL_DISABLE_AUTOCOMPACT")
+  export const AICTRL_DISABLE_MODELS_FETCH = truthy("AICTRL_DISABLE_MODELS_FETCH")
+  export const AICTRL_DISABLE_CLAUDE_CODE = truthy("AICTRL_DISABLE_CLAUDE_CODE")
+  export const AICTRL_DISABLE_CLAUDE_CODE_PROMPT =
+    AICTRL_DISABLE_CLAUDE_CODE || truthy("AICTRL_DISABLE_CLAUDE_CODE_PROMPT")
+  export const AICTRL_DISABLE_CLAUDE_CODE_SKILLS =
+    AICTRL_DISABLE_CLAUDE_CODE || truthy("AICTRL_DISABLE_CLAUDE_CODE_SKILLS")
+  export const AICTRL_DISABLE_EXTERNAL_SKILLS =
+    AICTRL_DISABLE_CLAUDE_CODE_SKILLS || truthy("AICTRL_DISABLE_EXTERNAL_SKILLS")
+  export declare const AICTRL_DISABLE_PROJECT_CONFIG: boolean
+  export const AICTRL_FAKE_VCS = process.env["AICTRL_FAKE_VCS"]
+  export declare const AICTRL_CLIENT: string
+  export const AICTRL_SERVER_PASSWORD = process.env["AICTRL_SERVER_PASSWORD"]
+  export const AICTRL_SERVER_USERNAME = process.env["AICTRL_SERVER_USERNAME"]
+  export const AICTRL_ENABLE_QUESTION_TOOL = truthy("AICTRL_ENABLE_QUESTION_TOOL")
 
   // Experimental
-  export const OPENCODE_EXPERIMENTAL = truthy("OPENCODE_EXPERIMENTAL")
-  export const OPENCODE_EXPERIMENTAL_FILEWATCHER = truthy("OPENCODE_EXPERIMENTAL_FILEWATCHER")
-  export const OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER = truthy("OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER")
-  export const OPENCODE_EXPERIMENTAL_ICON_DISCOVERY =
-    OPENCODE_EXPERIMENTAL || truthy("OPENCODE_EXPERIMENTAL_ICON_DISCOVERY")
+  export const AICTRL_EXPERIMENTAL = truthy("AICTRL_EXPERIMENTAL")
+  export const AICTRL_EXPERIMENTAL_FILEWATCHER = truthy("AICTRL_EXPERIMENTAL_FILEWATCHER")
+  export const AICTRL_EXPERIMENTAL_DISABLE_FILEWATCHER = truthy("AICTRL_EXPERIMENTAL_DISABLE_FILEWATCHER")
+  export const AICTRL_EXPERIMENTAL_ICON_DISCOVERY =
+    AICTRL_EXPERIMENTAL || truthy("AICTRL_EXPERIMENTAL_ICON_DISCOVERY")
 
-  const copy = process.env["OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT"]
-  export const OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT =
-    copy === undefined ? process.platform === "win32" : truthy("OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT")
-  export const OPENCODE_ENABLE_EXA =
-    truthy("OPENCODE_ENABLE_EXA") || OPENCODE_EXPERIMENTAL || truthy("OPENCODE_EXPERIMENTAL_EXA")
-  export const OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS = number("OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS")
-  export const OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX = number("OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX")
-  export const OPENCODE_EXPERIMENTAL_OXFMT = OPENCODE_EXPERIMENTAL || truthy("OPENCODE_EXPERIMENTAL_OXFMT")
-  export const OPENCODE_EXPERIMENTAL_LSP_TY = truthy("OPENCODE_EXPERIMENTAL_LSP_TY")
-  export const OPENCODE_EXPERIMENTAL_LSP_TOOL = OPENCODE_EXPERIMENTAL || truthy("OPENCODE_EXPERIMENTAL_LSP_TOOL")
-  export const OPENCODE_DISABLE_FILETIME_CHECK = truthy("OPENCODE_DISABLE_FILETIME_CHECK")
-  export const OPENCODE_EXPERIMENTAL_PLAN_MODE = OPENCODE_EXPERIMENTAL || truthy("OPENCODE_EXPERIMENTAL_PLAN_MODE")
-  export const OPENCODE_EXPERIMENTAL_MARKDOWN = truthy("OPENCODE_EXPERIMENTAL_MARKDOWN")
-  export const OPENCODE_MODELS_URL = process.env["OPENCODE_MODELS_URL"]
-  export const OPENCODE_MODELS_PATH = process.env["OPENCODE_MODELS_PATH"]
+  const copy = process.env["AICTRL_EXPERIMENTAL_DISABLE_COPY_ON_SELECT"]
+  export const AICTRL_EXPERIMENTAL_DISABLE_COPY_ON_SELECT =
+    copy === undefined ? process.platform === "win32" : truthy("AICTRL_EXPERIMENTAL_DISABLE_COPY_ON_SELECT")
+  export const AICTRL_ENABLE_EXA =
+    truthy("AICTRL_ENABLE_EXA") || AICTRL_EXPERIMENTAL || truthy("AICTRL_EXPERIMENTAL_EXA")
+  export const AICTRL_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS = number("AICTRL_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS")
+  export const AICTRL_EXPERIMENTAL_OUTPUT_TOKEN_MAX = number("AICTRL_EXPERIMENTAL_OUTPUT_TOKEN_MAX")
+  export const AICTRL_EXPERIMENTAL_OXFMT = AICTRL_EXPERIMENTAL || truthy("AICTRL_EXPERIMENTAL_OXFMT")
+  export const AICTRL_EXPERIMENTAL_LSP_TY = truthy("AICTRL_EXPERIMENTAL_LSP_TY")
+  export const AICTRL_EXPERIMENTAL_LSP_TOOL = AICTRL_EXPERIMENTAL || truthy("AICTRL_EXPERIMENTAL_LSP_TOOL")
+  export const AICTRL_DISABLE_FILETIME_CHECK = truthy("AICTRL_DISABLE_FILETIME_CHECK")
+  export const AICTRL_EXPERIMENTAL_PLAN_MODE = AICTRL_EXPERIMENTAL || truthy("AICTRL_EXPERIMENTAL_PLAN_MODE")
+  export const AICTRL_EXPERIMENTAL_MARKDOWN = truthy("AICTRL_EXPERIMENTAL_MARKDOWN")
+  export const AICTRL_MODELS_URL = process.env["AICTRL_MODELS_URL"]
+  export const AICTRL_MODELS_PATH = process.env["AICTRL_MODELS_PATH"]
 
   function number(key: string) {
     const value = process.env[key]
@@ -64,45 +64,45 @@ export namespace Flag {
   }
 }
 
-// Dynamic getter for OPENCODE_DISABLE_PROJECT_CONFIG
+// Dynamic getter for AICTRL_DISABLE_PROJECT_CONFIG
 // This must be evaluated at access time, not module load time,
 // because external tooling may set this env var at runtime
-Object.defineProperty(Flag, "OPENCODE_DISABLE_PROJECT_CONFIG", {
+Object.defineProperty(Flag, "AICTRL_DISABLE_PROJECT_CONFIG", {
   get() {
-    return truthy("OPENCODE_DISABLE_PROJECT_CONFIG")
+    return truthy("AICTRL_DISABLE_PROJECT_CONFIG")
   },
   enumerable: true,
   configurable: false,
 })
 
-// Dynamic getter for OPENCODE_TUI_CONFIG
+// Dynamic getter for AICTRL_TUI_CONFIG
 // This must be evaluated at access time, not module load time,
 // because tests and external tooling may set this env var at runtime
-Object.defineProperty(Flag, "OPENCODE_TUI_CONFIG", {
+Object.defineProperty(Flag, "AICTRL_TUI_CONFIG", {
   get() {
-    return process.env["OPENCODE_TUI_CONFIG"]
+    return process.env["AICTRL_TUI_CONFIG"]
   },
   enumerable: true,
   configurable: false,
 })
 
-// Dynamic getter for OPENCODE_CONFIG_DIR
+// Dynamic getter for AICTRL_CONFIG_DIR
 // This must be evaluated at access time, not module load time,
 // because external tooling may set this env var at runtime
-Object.defineProperty(Flag, "OPENCODE_CONFIG_DIR", {
+Object.defineProperty(Flag, "AICTRL_CONFIG_DIR", {
   get() {
-    return process.env["OPENCODE_CONFIG_DIR"]
+    return process.env["AICTRL_CONFIG_DIR"]
   },
   enumerable: true,
   configurable: false,
 })
 
-// Dynamic getter for OPENCODE_CLIENT
+// Dynamic getter for AICTRL_CLIENT
 // This must be evaluated at access time, not module load time,
 // because some commands override the client at runtime
-Object.defineProperty(Flag, "OPENCODE_CLIENT", {
+Object.defineProperty(Flag, "AICTRL_CLIENT", {
   get() {
-    return process.env["OPENCODE_CLIENT"] ?? "cli"
+    return process.env["AICTRL_CLIENT"] ?? "cli"
   },
   enumerable: true,
   configurable: false,

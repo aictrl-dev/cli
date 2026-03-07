@@ -49,7 +49,7 @@ aictrl acp --cwd /path/to/project
 ACP excludes `QuestionTool` by default.
 
 ```bash
-OPENCODE_ENABLE_QUESTION_TOOL=1 aictrl acp
+AICTRL_ENABLE_QUESTION_TOOL=1 aictrl acp
 ```
 
 Enable this only for ACP clients that support interactive question prompts.

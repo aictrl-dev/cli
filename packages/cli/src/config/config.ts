@@ -54,7 +54,7 @@ export namespace Config {
   }
 
   export function managedConfigDir() {
-    return process.env.OPENCODE_TEST_MANAGED_CONFIG_DIR || systemManagedConfigDir()
+    return process.env.AICTRL_TEST_MANAGED_CONFIG_DIR || systemManagedConfigDir()
   }
 
   const managedDir = managedConfigDir()
@@ -77,10 +77,10 @@ export namespace Config {
     // Config loading order (low -> high precedence): https://aictrl.ai/docs/config#precedence-order
     // 1) Remote .well-known/aictrl (org defaults)
     // 2) Global config (~/.config/aictrl/aictrl.json{,c})
-    // 3) Custom config (OPENCODE_CONFIG)
+    // 3) Custom config (AICTRL_CONFIG)
     // 4) Project config (aictrl.json{,c})
     // 5) .aictrl directories (.aictrl/agents/, .aictrl/commands/, .aictrl/plugins/, .aictrl/aictrl.json{,c})
-    // 6) Inline config (OPENCODE_CONFIG_CONTENT)
+    // 6) Inline config (AICTRL_CONFIG_CONTENT)
     // Managed config directory is enterprise-only and always overrides everything above.
     let result: Info = {}
     for (const [key, value] of Object.entries(auth)) {
@@ -114,13 +114,13 @@ export namespace Config {
     result = mergeConfigConcatArrays(result, await global())
 
     // Custom config path overrides global config.
-    if (Flag.OPENCODE_CONFIG) {
-      result = mergeConfigConcatArrays(result, await loadFile(Flag.OPENCODE_CONFIG))
-      log.debug("loaded custom config", { path: Flag.OPENCODE_CONFIG })
+    if (Flag.AICTRL_CONFIG) {
+      result = mergeConfigConcatArrays(result, await loadFile(Flag.AICTRL_CONFIG))
+      log.debug("loaded custom config", { path: Flag.AICTRL_CONFIG })
     }
 
     // Project config overrides global and remote config.
-    if (!Flag.OPENCODE_DISABLE_PROJECT_CONFIG) {
+    if (!Flag.AICTRL_DISABLE_PROJECT_CONFIG) {
       for (const file of await ConfigPaths.projectFiles("aictrl", Instance.directory, Instance.worktree)) {
         result = mergeConfigConcatArrays(result, await loadFile(file))
       }
@@ -133,14 +133,14 @@ export namespace Config {
     const directories = await ConfigPaths.directories(Instance.directory, Instance.worktree)
 
     // .aictrl directory config overrides (project and global) config sources.
-    if (Flag.OPENCODE_CONFIG_DIR) {
-      log.debug("loading config from OPENCODE_CONFIG_DIR", { path: Flag.OPENCODE_CONFIG_DIR })
+    if (Flag.AICTRL_CONFIG_DIR) {
+      log.debug("loading config from AICTRL_CONFIG_DIR", { path: Flag.AICTRL_CONFIG_DIR })
     }
 
     const deps = []
 
     for (const dir of unique(directories)) {
-      if (dir.endsWith(".aictrl") || dir === Flag.OPENCODE_CONFIG_DIR) {
+      if (dir.endsWith(".aictrl") || dir === Flag.AICTRL_CONFIG_DIR) {
         for (const file of ["aictrl.jsonc", "aictrl.json"]) {
           log.debug(`loading config from ${path.join(dir, file)}`)
           result = mergeConfigConcatArrays(result, await loadFile(path.join(dir, file)))
@@ -165,15 +165,15 @@ export namespace Config {
     }
 
     // Inline config content overrides all non-managed config sources.
-    if (process.env.OPENCODE_CONFIG_CONTENT) {
+    if (process.env.AICTRL_CONFIG_CONTENT) {
       result = mergeConfigConcatArrays(
         result,
-        await load(process.env.OPENCODE_CONFIG_CONTENT, {
+        await load(process.env.AICTRL_CONFIG_CONTENT, {
           dir: Instance.directory,
-          source: "OPENCODE_CONFIG_CONTENT",
+          source: "AICTRL_CONFIG_CONTENT",
         }),
       )
-      log.debug("loaded custom config from OPENCODE_CONFIG_CONTENT")
+      log.debug("loaded custom config from AICTRL_CONFIG_CONTENT")
     }
 
     // Load managed config files last (highest priority) - enterprise admin-controlled
@@ -196,8 +196,8 @@ export namespace Config {
       })
     }
 
-    if (Flag.OPENCODE_PERMISSION) {
-      result.permission = mergeDeep(result.permission ?? {}, JSON.parse(Flag.OPENCODE_PERMISSION))
+    if (Flag.AICTRL_PERMISSION) {
+      result.permission = mergeDeep(result.permission ?? {}, JSON.parse(Flag.AICTRL_PERMISSION))
     }
 
     // Backwards compatibility: legacy top-level `tools` config
@@ -222,10 +222,10 @@ export namespace Config {
     }
 
     // Apply flag overrides for compaction settings
-    if (Flag.OPENCODE_DISABLE_AUTOCOMPACT) {
+    if (Flag.AICTRL_DISABLE_AUTOCOMPACT) {
       result.compaction = { ...result.compaction, auto: false }
     }
-    if (Flag.OPENCODE_DISABLE_PRUNE) {
+    if (Flag.AICTRL_DISABLE_PRUNE) {
       result.compaction = { ...result.compaction, prune: false }
     }
 

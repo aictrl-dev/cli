@@ -211,7 +211,7 @@ export namespace LLM {
               "x-aictrl-project": Instance.project.id,
               "x-aictrl-session": input.sessionID,
               "x-aictrl-request": input.user.id,
-              "x-aictrl-client": Flag.OPENCODE_CLIENT,
+              "x-aictrl-client": Flag.AICTRL_CLIENT,
             }
           : input.model.providerID !== "anthropic"
             ? {

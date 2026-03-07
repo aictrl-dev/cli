@@ -135,14 +135,14 @@ async function backupAndStripLegacy(file: string, source: string) {
 }
 
 async function aictrlFiles(input: { directories: string[]; managed: string }) {
-  const project = Flag.OPENCODE_DISABLE_PROJECT_CONFIG
+  const project = Flag.AICTRL_DISABLE_PROJECT_CONFIG
     ? []
     : await ConfigPaths.projectFiles("aictrl", Instance.directory, Instance.worktree)
   const files = [...project, ...ConfigPaths.fileInDirectory(Global.Path.config, "aictrl")]
   for (const dir of unique(input.directories)) {
     files.push(...ConfigPaths.fileInDirectory(dir, "aictrl"))
   }
-  if (Flag.OPENCODE_CONFIG) files.push(Flag.OPENCODE_CONFIG)
+  if (Flag.AICTRL_CONFIG) files.push(Flag.AICTRL_CONFIG)
   files.push(...ConfigPaths.fileInDirectory(input.managed, "aictrl"))
 
   const existing = await Promise.all(

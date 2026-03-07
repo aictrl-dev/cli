@@ -71,7 +71,7 @@ let cli = yargs(hideBin(process.argv))
 
     process.env.AGENT = "1"
     process.env.OPENCODE = "1"
-    process.env.OPENCODE_PID = String(process.pid)
+    process.env.AICTRL_PID = String(process.pid)
 
     Log.Default.info("aictrl", {
       version: Installation.VERSION,
