@@ -148,6 +148,7 @@
     },
     "packages/script": {
       "name": "@aictrl/script",
+      "version": "0.1.0",
       "devDependencies": {
         "@types/bun": "catalog:",
       },

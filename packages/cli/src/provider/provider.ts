@@ -588,6 +588,15 @@ export namespace Provider {
         },
       }
     },
+    zai: async () => {
+      const apiKey = Env.get("ZHIPU_API_KEY")
+      return {
+        autoload: !!apiKey,
+        options: {
+          apiKey,
+        },
+      }
+    },
   }
 
   export const Model = z

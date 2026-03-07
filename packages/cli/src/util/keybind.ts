@@ -1,13 +1,16 @@
 import { isDeepEqual } from "remeda"
-import type { ParsedKey } from "@opentui/core"
 
 export namespace Keybind {
   /**
-   * Keybind info derived from OpenTUI's ParsedKey with our custom `leader` field.
-   * This ensures type compatibility and catches missing fields at compile time.
+   * Keybind info with our custom `leader` field.
    */
-  export type Info = Pick<ParsedKey, "name" | "ctrl" | "meta" | "shift" | "super"> & {
-    leader: boolean // our custom field
+  export type Info = {
+    name: string
+    ctrl: boolean
+    meta: boolean
+    shift: boolean
+    super?: boolean
+    leader: boolean
   }
 
   export function match(a: Info | undefined, b: Info): boolean {
@@ -18,16 +21,15 @@ export namespace Keybind {
   }
 
   /**
-   * Convert OpenTUI's ParsedKey to our Keybind.Info format.
-   * This helper ensures all required fields are present and avoids manual object creation.
+   * Convert a key object to our Keybind.Info format.
    */
-  export function fromParsedKey(key: ParsedKey, leader = false): Info {
+  export function fromParsedKey(key: any, leader = false): Info {
     return {
       name: key.name,
-      ctrl: key.ctrl,
-      meta: key.meta,
-      shift: key.shift,
-      super: key.super ?? false,
+      ctrl: !!key.ctrl,
+      meta: !!key.meta,
+      shift: !!key.shift,
+      super: !!key.super,
       leader,
     }
   }

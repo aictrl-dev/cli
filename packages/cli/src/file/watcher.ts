@@ -120,6 +120,7 @@ export namespace FileWatcher {
   )
 
   export function init() {
+    if (process.env.AICTRL_HEADLESS === "true") return
     state()
   }
 }
