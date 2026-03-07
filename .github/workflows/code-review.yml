@@ -95,6 +95,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Starting review with zai-coding-plan/glm-5 for PR #$PR_NUMBER SHA $PR_SHA..."
+          aictrl --version || true
+          echo "ZHIPU_API_KEY length: ${#ZHIPU_API_KEY}"
 
           aictrl run --model zai-coding-plan/glm-5 "Review the changes in PR #$PR_NUMBER for the aictrl CLI.
 
