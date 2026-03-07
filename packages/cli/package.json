@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "name": "@aictrl/cli",
   "description": "Headless execution engine for AI agent skills",
   "type": "module",
@@ -127,7 +127,7 @@
     "zod-to-json-schema": "3.24.5"
   },
   "optionalDependencies": {
-    "@aictrl/cli-linux-x64": "0.1.7",
+    "@aictrl/cli-linux-x64": "0.1.8",
     "@parcel/watcher": "2.5.1",
     "bun-pty": "0.4.8"
   },
