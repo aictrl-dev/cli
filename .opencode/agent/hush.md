@@ -1,7 +1,7 @@
 ---
 mode: primary
 hidden: true
-model: zai/glm-5
+model: zai-coding-plan/glm-5
 color: "#9B59B6"
 tools:
   "*": true

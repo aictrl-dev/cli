@@ -93,9 +93,9 @@ jobs:
           ZHIPU_API_KEY: ${{ secrets.ZHIPUAI_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Starting review with zai/glm-5 for PR #$PR_NUMBER SHA $PR_SHA..."
+          echo "Starting review with zai-coding-plan/glm-5 for PR #$PR_NUMBER SHA $PR_SHA..."
 
-          $HOME/.opencode/bin/opencode run --model zai/glm-5 "Review the changes in PR #$PR_NUMBER for the aictrl CLI.
+          $HOME/.opencode/bin/opencode run --model zai-coding-plan/glm-5 "Review the changes in PR #$PR_NUMBER for the aictrl CLI.
 
           **IMPORTANT**: This is a code review only. Do NOT run tests, npm commands, or build commands. Only read source files and git diffs.
 
