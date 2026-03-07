@@ -83,6 +83,14 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Install aictrl CLI
+        if: steps.check_changes.outputs.skip != 'true'
+        run: |
+          mkdir -p /tmp/aictrl && cd /tmp/aictrl
+          echo '{}' > package.json
+          npm install @aictrl/cli@latest
+          echo "/tmp/aictrl/node_modules/.bin" >> $GITHUB_PATH
+
       - name: Run Aictrl Review
         if: steps.check_changes.outputs.skip != 'true'
         timeout-minutes: 15
@@ -92,7 +100,7 @@ jobs:
         run: |
           echo "Starting review with zai-coding-plan/glm-5 for PR #$PR_NUMBER SHA $PR_SHA..."
 
-          npx --yes @aictrl/cli run --model zai-coding-plan/glm-5 "Review the changes in PR #$PR_NUMBER for the aictrl CLI.
+          aictrl run --model zai-coding-plan/glm-5 "Review the changes in PR #$PR_NUMBER for the aictrl CLI.
 
           **IMPORTANT**: This is a code review only. Do NOT run tests, npm commands, or build commands. Only read source files and git diffs.
 
