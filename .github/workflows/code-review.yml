@@ -77,15 +77,11 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Setup Bun
+      - name: Setup OpenCode
         if: steps.check_changes.outputs.skip != 'true'
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install dependencies
-        if: steps.check_changes.outputs.skip != 'true'
-        run: bun install --frozen-lockfile
+        run: |
+          curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path
+          echo "$HOME/.opencode/bin" >> $GITHUB_PATH
 
       - name: Run Aictrl Review
         if: steps.check_changes.outputs.skip != 'true'
@@ -96,7 +92,8 @@ jobs:
         run: |
           echo "Starting review with zai-coding-plan/glm-5 for PR #$PR_NUMBER SHA $PR_SHA..."
 
-          bun run --cwd packages/cli dev run --model zai-coding-plan/glm-5 "Review the changes in PR #$PR_NUMBER for the aictrl CLI.
+          # TODO: replace with aictrl run once the run command server is restored
+          $HOME/.opencode/bin/opencode run --model zai-coding-plan/glm-5 "Review the changes in PR #$PR_NUMBER for the aictrl CLI.
 
           **IMPORTANT**: This is a code review only. Do NOT run tests, npm commands, or build commands. Only read source files and git diffs.
 
@@ -112,7 +109,3 @@ jobs:
           Do NOT try to auto-detect the PR number — use exactly $PR_NUMBER.
 
           **CRITICAL**: Include the string 'Reviewed SHA: $PR_SHA' at the very end of your comment so we can track which commits have been reviewed."
-
-      - name: Print debug log on failure
-        if: failure()
-        run: cat ~/.local/share/aictrl/log/dev.log 2>/dev/null || echo "No log file found"
