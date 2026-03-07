@@ -77,15 +77,15 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Setup Bun
+      - name: Setup Node
         if: steps.check_changes.outputs.skip != 'true'
-        uses: oven-sh/setup-bun@v2
+        uses: actions/setup-node@v4
         with:
-          bun-version: latest
+          node-version: 22
 
-      - name: Install Dependencies
+      - name: Install Aictrl CLI
         if: steps.check_changes.outputs.skip != 'true'
-        run: bun install --frozen-lockfile
+        run: npm install -g @aictrl/cli@latest
 
       - name: Run Aictrl Review
         if: steps.check_changes.outputs.skip != 'true'
@@ -96,7 +96,7 @@ jobs:
         run: |
           echo "Starting review with zai-coding-plan/glm-5 for PR #$PR_NUMBER SHA $PR_SHA..."
 
-          bun run --conditions=browser packages/cli/src/index.ts run --model zai-coding-plan/glm-5 "Review the changes in PR #$PR_NUMBER for the aictrl CLI.
+          aictrl run --model zai-coding-plan/glm-5 "Review the changes in PR #$PR_NUMBER for the aictrl CLI.
 
           **IMPORTANT**: This is a code review only. Do NOT run tests, npm commands, or build commands. Only read source files and git diffs.
 
