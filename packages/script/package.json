@@ -1,7 +1,11 @@
 {
   "$schema": "https://json.schemastore.org/package",
   "name": "@aictrl/script",
+  "version": "0.1.0",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "devDependencies": {
     "@types/bun": "catalog:"
   },
