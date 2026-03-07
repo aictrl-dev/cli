@@ -43,11 +43,14 @@ jobs:
           bun-version: latest
 
       - name: Install Dependencies
-        run: bun install --frozen-lockfile
+        run: |
+          bun install --frozen-lockfile
+          bun turbo build --filter=@aictrl/cli...
 
       - name: Build Lite Binary
         run: |
           cd packages/cli
+          rm -rf dist
           bun run script/build.ts --single --baseline --lite
         env:
           AICTRL_BUILD_SINGLE: "true"
