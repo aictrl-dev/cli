@@ -649,6 +649,30 @@ export namespace SessionPrompt {
 
       // Build system prompt, adding structured output instruction if needed
       const system = [...(await SystemPrompt.environment(model)), ...(await InstructionPrompt.system())]
+
+      // Automatically load all skills into system prompt
+      try {
+        const { Skill } = await import("../skill/skill")
+        const allSkills = await Skill.all()
+        for (const skill of allSkills) {
+          system.unshift(`AVAILABLE SKILL: ${skill.name}\n\n${skill.content}`)
+        }
+        Bus.publish(Session.Event.SkillsLoaded, {
+          sessionID,
+          skills: allSkills.map((s) => ({ name: s.name, location: s.location })),
+        })
+      } catch (e) {
+        log.warn("failed to auto-load skills", { error: e })
+        Bus.publish(Session.Event.Error, {
+          sessionID,
+          error: new NamedError.Unknown({ message: "Failed to auto-load skills" }).toObject(),
+        })
+        Bus.publish(Session.Event.SkillsLoaded, {
+          sessionID,
+          skills: [],
+        })
+      }
+
       const format = lastUser.format ?? { type: "text" }
       if (format.type === "json_schema") {
         system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)

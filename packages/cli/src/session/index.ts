@@ -210,6 +210,16 @@ export namespace Session {
         error: MessageV2.Assistant.shape.error,
       }),
     ),
+    SkillsLoaded: BusEvent.define(
+      "session.skills_loaded",
+      z.object({
+        sessionID: z.string(),
+        skills: z.array(z.object({
+          name: z.string(),
+          location: z.string(),
+        })),
+      }),
+    ),
   }
 
   export const create = fn(

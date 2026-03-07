@@ -1,0 +1,113 @@
+name: OpenCode Review
+
+on:
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: opencode-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: OpenCode AI Review
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    env:
+      PR_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+      IS_MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for Relevant Changes
+        id: check_changes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -z "$PR_NUMBER" ]; then
+            # workflow_dispatch: try to find the PR for this branch
+            BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+            PR_NUMBER=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null || true)
+            if [ -z "$PR_NUMBER" ]; then
+              echo "No PR found for branch $BRANCH. Skipping."
+              echo "skip=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            echo "Found PR #$PR_NUMBER for branch $BRANCH"
+            echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
+          fi
+
+          # 1. Check if this SHA was already reviewed
+          echo "Checking if SHA $PR_SHA was already reviewed..."
+          REVIEW_COMMENTS=$(gh pr view "$PR_NUMBER" --json comments --jq '.comments[].body' | grep -c "Reviewed SHA:" || true)
+          LAST_REVIEW_SHA=$(gh pr view "$PR_NUMBER" --json comments --jq '.comments[].body' | grep -o "Reviewed SHA: [a-f0-9]\{40\}" | tail -n 1 | cut -d' ' -f3)
+
+          if [ "$LAST_REVIEW_SHA" == "$PR_SHA" ]; then
+            echo "This commit ($PR_SHA) has already been reviewed. Skipping."
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # 2. Skip if 2+ reviews already exist (unless manually triggered)
+          if [ "$REVIEW_COMMENTS" -ge 2 ] && [ "$IS_MANUAL" != "true" ]; then
+            echo "PR already has $REVIEW_COMMENTS AI reviews. Skipping (use workflow_dispatch to force)."
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # 3. Check if there are any actual code changes
+          echo "Checking changed files..."
+          CODE_CHANGES=$(git diff --name-only "origin/$PR_BASE_REF...$PR_SHA" | grep -E '\.(ts|js|json|sh|yml|yaml)$' | grep -vE '^docs/|.*\.md$' || true)
+
+          if [ -z "$CODE_CHANGES" ]; then
+            echo "No actual code changes detected. Skipping review."
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "Actual code changes detected:"
+            echo "$CODE_CHANGES"
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup OpenCode
+        if: steps.check_changes.outputs.skip != 'true'
+        run: |
+          curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path
+          echo "$HOME/.opencode/bin" >> $GITHUB_PATH
+
+          # Remove aictrl-specific tools that depend on @aictrl/plugin
+          rm -f .opencode/tool/*.ts
+
+      - name: Run OpenCode Review
+        if: steps.check_changes.outputs.skip != 'true'
+        timeout-minutes: 15
+        env:
+          ZHIPU_API_KEY: ${{ secrets.ZHIPUAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Starting review with zai-coding-plan/glm-5 for PR #$PR_NUMBER SHA $PR_SHA..."
+
+          $HOME/.opencode/bin/opencode run --model zai-coding-plan/glm-5 "Review the changes in PR #$PR_NUMBER for the aictrl CLI.
+
+          **IMPORTANT**: This is a code review only. Do NOT run tests, npm commands, or build commands. Only read source files and git diffs.
+
+          Focus areas:
+          1. **Code Quality**: Look for bugs, logic errors, and maintainability issues.
+          2. **Security**: Look for potential leaks or insecure handling of secrets/tokens.
+          3. **Streaming Integrity**: Check that SSE/streaming proxy logic doesn't buffer unnecessarily or break flows.
+          4. **Reliability**: Ensure error handling is robust and graceful.
+
+          Keep the review concise and high-signal. Post findings as a single markdown comment using:
+            gh pr comment $PR_NUMBER --body \"<your review>\"
+
+          Do NOT try to auto-detect the PR number — use exactly $PR_NUMBER.
+
+          **CRITICAL**: Include the string 'Reviewed SHA: $PR_SHA' at the very end of your comment so we can track which commits have been reviewed."

@@ -13,16 +13,19 @@ const log = Log.create({ service: "instruction" })
 
 const FILES = [
   "AGENTS.md",
-  "CLAUDE.md",
-  "CONTEXT.md", // deprecated
 ]
 
 function globalFiles() {
   const files = []
+  if (process.env.AICTRL_HEADLESS === "true") {
+    files.push(path.join(Instance.directory, ".opencode", "AGENTS.md"))
+    return files
+  }
   if (Flag.AICTRL_CONFIG_DIR) {
     files.push(path.join(Flag.AICTRL_CONFIG_DIR, "AGENTS.md"))
   }
   files.push(path.join(Global.Path.config, "AGENTS.md"))
+  files.push(path.join(Instance.directory, ".opencode", "AGENTS.md"))
   return files
 }
 
@@ -128,12 +131,22 @@ export namespace InstructionPrompt {
         }
       }
     }
-    const fetches = urls.map((url) =>
-      fetch(url, { signal: AbortSignal.timeout(5000) })
-        .then((res) => (res.ok ? res.text() : ""))
-        .catch(() => "")
-        .then((x) => (x ? "Instructions from: " + url + "\n" + x : "")),
-    )
+
+    async function safeFetch(url: string): Promise<string> {
+      try {
+        const response = await fetch(url, { signal: AbortSignal.timeout(5000) })
+        if (!response || !response.ok) {
+          return ""
+        }
+        const text = await response.text()
+        return text ? "Instructions from: " + url + "\n" + text : ""
+      } catch (e) {
+        log.warn("failed to fetch instructions", { url, error: e })
+        return ""
+      }
+    }
+
+    const fetches = urls.map((url) => safeFetch(url))
 
     return Promise.all([...files, ...fetches]).then((result) => result.filter(Boolean))
   }

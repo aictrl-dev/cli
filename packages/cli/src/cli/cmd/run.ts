@@ -435,6 +435,8 @@ export const RunCommand = cmd({
 
       const events = await sdk.event.subscribe()
       let error: string | undefined
+      const startTime = Date.now()
+      const childSessions = new Set<string>()
 
       async function loop() {
         const toggles = new Map<string, boolean>()
@@ -442,14 +444,26 @@ export const RunCommand = cmd({
         for await (const event of events.stream) {
           if (
             event.type === "message.updated" &&
-            event.properties.info.role === "assistant" &&
-            args.format !== "json" &&
-            toggles.get("start") !== true
+            event.properties.info.role === "assistant"
           ) {
-            UI.empty()
-            UI.println(`> ${event.properties.info.agent} · ${event.properties.info.modelID}`)
-            UI.empty()
-            toggles.set("start", true)
+            const info = event.properties.info
+            if (args.format === "json") {
+              if (info.finish) {
+                emit("message_complete", {
+                  modelID: info.modelID,
+                  providerID: info.providerID,
+                  agent: info.agent,
+                  cost: info.cost,
+                  tokens: info.tokens,
+                  finish: info.finish,
+                })
+              }
+            } else if (toggles.get("start") !== true) {
+              UI.empty()
+              UI.println(`> ${info.agent} · ${info.modelID}`)
+              UI.empty()
+              toggles.set("start", true)
+            }
           }
 
           if (event.type === "message.part.updated") {
@@ -518,32 +532,69 @@ export const RunCommand = cmd({
 
           if (event.type === "session.error") {
             const props = event.properties
-            if (props.sessionID !== sessionID || !props.error) continue
+            if (!props.error) continue
+            if (props.sessionID !== sessionID && !childSessions.has(props.sessionID ?? "")) continue
             let err = String(props.error.name)
             if ("data" in props.error && props.error.data && "message" in props.error.data) {
               err = String(props.error.data.message)
             }
-            error = error ? error + EOL + err : err
-            if (emit("error", { error: props.error })) continue
+            if (props.sessionID === sessionID) {
+              error = error ? error + EOL + err : err
+            }
+            if (emit("error", { error: props.error, sourceSessionID: props.sessionID })) continue
             UI.error(err)
+          }
+
+          if (event.type === "session.skills_loaded") {
+            const props = event.properties
+            if (props.sessionID !== sessionID) continue
+            emit("skills_loaded", {
+              skills: props.skills,
+              count: props.skills.length,
+            })
+          }
+
+          if (event.type === "session.created") {
+            const info = event.properties.info
+            if (info.parentID === sessionID) {
+              childSessions.add(info.id)
+              emit("subagent_start", {
+                subagentSessionID: info.id,
+                parentSessionID: sessionID,
+                title: info.title,
+              })
+            }
           }
 
           if (
             event.type === "session.status" &&
-            event.properties.sessionID === sessionID &&
             event.properties.status.type === "idle"
           ) {
-            break
+            if (event.properties.sessionID === sessionID) {
+              break
+            }
+            if (childSessions.has(event.properties.sessionID)) {
+              emit("subagent_complete", {
+                subagentSessionID: event.properties.sessionID,
+                parentSessionID: sessionID,
+              })
+            }
           }
 
           if (event.type === "permission.asked") {
             const permission = event.properties
             if (permission.sessionID !== sessionID) continue
-            UI.println(
-              UI.Style.TEXT_WARNING_BOLD + "!",
-              UI.Style.TEXT_NORMAL +
-                `permission requested: ${permission.permission} (${permission.patterns.join(", ")}); auto-rejecting`,
-            )
+            emit("permission_rejected", {
+              permission: permission.permission,
+              patterns: permission.patterns,
+            })
+            if (args.format !== "json") {
+              UI.println(
+                UI.Style.TEXT_WARNING_BOLD + "!",
+                UI.Style.TEXT_NORMAL +
+                  `permission requested: ${permission.permission} (${permission.patterns.join(", ")}); auto-rejecting`,
+              )
+            }
             await sdk.permission.reply({
               requestID: permission.id,
               reply: "reject",
@@ -582,7 +633,21 @@ export const RunCommand = cmd({
       }
       await share(sdk, sessionID)
 
-      loop().catch((e) => {
+      emit("session_start", {
+        model: args.model,
+        agent: agent,
+      })
+
+      const loopDone = loop().then(() => {
+        emit("session_complete", {
+          durationMs: Date.now() - startTime,
+          error: error ?? null,
+        })
+      }).catch((e) => {
+        emit("session_complete", {
+          durationMs: Date.now() - startTime,
+          error: String(e),
+        })
         console.error(e)
         process.exit(1)
       })
@@ -606,6 +671,8 @@ export const RunCommand = cmd({
           parts: [...files, { type: "text", text: message }],
         })
       }
+
+      await loopDone
     }
 
     if (args.attach) {
