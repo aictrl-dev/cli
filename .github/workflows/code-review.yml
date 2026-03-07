@@ -18,7 +18,7 @@ jobs:
       - name: Get PR Diff
         id: diff
         run: |
-          git diff ${{ github.event.pull_request.base.sha }}...HEAD > pr_diff.txt
+          git diff origin/${{ github.base_ref }}...HEAD > pr_diff.txt
           echo "diff_path=$(pwd)/pr_diff.txt" >> $GITHUB_OUTPUT
 
       - name: Setup Headless Inputs
