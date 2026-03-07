@@ -172,7 +172,7 @@ for (const item of targets) {
       autoloadTsconfig: true,
       autoloadPackageJson: true,
       target: name.replace(pkg.name, "bun") as any,
-      outfile: `dist/${name}/bin/s7`,
+      outfile: `dist/${name}/bin/aictrl`,
       execArgv: [`--user-agent=aictrl/${Script.version}`, "--use-system-ca", "--"],
       windows: {},
     },

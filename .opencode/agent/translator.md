@@ -69,7 +69,7 @@ Node.js
 npm
 Obsidian
 aictrl
-aictrl-ai
+@aictrl/cli
 Paru
 pnpm
 ripgrep
@@ -636,8 +636,8 @@ XDG_CONFIG_HOME
 ```text
 ../../../config.mjs
 @astrojs/starlight/components
-@aictrl-ai/plugin
-@aictrl-ai/sdk
+@aictrl/plugin
+@aictrl/sdk
 path
 shescape
 zod

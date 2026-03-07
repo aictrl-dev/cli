@@ -1,5 +1,5 @@
 /// <reference path="../env.d.ts" />
-import { tool } from "@aictrl-ai/plugin"
+import { tool } from "@aictrl/plugin"
 import DESCRIPTION from "./github-pr-search.txt"
 
 async function githubFetch(endpoint: string, options: RequestInit = {}) {

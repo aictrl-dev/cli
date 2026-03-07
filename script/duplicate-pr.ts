@@ -2,7 +2,7 @@
 
 import path from "path"
 import { pathToFileURL } from "bun"
-import { createOpencode } from "@aictrl-ai/sdk"
+import { createOpencode } from "@aictrl/sdk"
 import { parseArgs } from "util"
 
 async function main() {

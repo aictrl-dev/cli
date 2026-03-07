@@ -153,6 +153,8 @@ export namespace Config {
 
       deps.push(
         iife(async () => {
+          const pkgExists = await Filesystem.exists(path.join(dir, "package.json"))
+          if (!pkgExists) return
           const shouldInstall = await needsInstall(dir)
           if (shouldInstall) await installDependencies(dir)
         }),

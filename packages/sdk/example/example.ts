@@ -1,8 +1,8 @@
-import { createOpencodeClient, createOpencodeServer } from "@aictrl/sdk"
+import { createAictrlClient, createOpencodeServer } from "@aictrl/sdk"
 import { pathToFileURL } from "bun"
 
 const server = await createOpencodeServer()
-const client = createOpencodeClient({ baseUrl: server.url })
+const client = createAictrlClient({ baseUrl: server.url })
 
 const input = await Array.fromAsync(new Bun.Glob("packages/core/*.ts").scan())
 

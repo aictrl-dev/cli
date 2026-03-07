@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 
 import { $ } from "bun"
-import { createOpencode } from "@aictrl-ai/sdk/v2"
+import { createOpencode } from "@aictrl/sdk/v2"
 import { parseArgs } from "util"
-import { Script } from "@aictrl-ai/script"
+import { Script } from "@aictrl/script"
 
 type Release = {
   tag_name: string

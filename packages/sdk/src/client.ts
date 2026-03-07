@@ -2,8 +2,8 @@ export * from "./gen/types.gen.js"
 
 import { createClient } from "./gen/client/client.gen.js"
 import { type Config } from "./gen/client/types.gen.js"
-import { OpencodeClient } from "./gen/sdk.gen.js"
-export { type Config as OpencodeClientConfig, OpencodeClient }
+import { AictrlClient } from "./gen/sdk.gen.js"
+export { type Config as AictrlClientConfig, AictrlClient }
 
 export function createAictrlClient(config?: Config & { directory?: string }) {
   if (!config?.fetch) {
@@ -26,5 +26,5 @@ export function createAictrlClient(config?: Config & { directory?: string }) {
   }
 
   const client = createClient(config)
-  return new OpencodeClient({ client })
+  return new AictrlClient({ client })
 }

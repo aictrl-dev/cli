@@ -18,7 +18,7 @@ export namespace BunProc {
       cmd: [which(), ...cmd],
       ...options,
     })
-    const result = Process.spawn([which(), ...cmd], {
+    const child = Process.spawn([which(), ...cmd], {
       ...options,
       stdout: "pipe",
       stderr: "pipe",
@@ -28,9 +28,13 @@ export namespace BunProc {
         BUN_BE_BUN: "1",
       },
     })
-    const code = await result.exited
-    const stdout = result.stdout ? await text(result.stdout) : undefined
-    const stderr = result.stderr ? await text(result.stderr) : undefined
+
+    const [code, stdout, stderr] = await Promise.all([
+      child.exited,
+      child.stdout ? text(child.stdout) : Promise.resolve(undefined),
+      child.stderr ? text(child.stderr) : Promise.resolve(undefined),
+    ])
+
     log.info("done", {
       code,
       stdout,
@@ -39,7 +43,7 @@ export namespace BunProc {
     if (code !== 0) {
       throw new Error(`Command failed with exit code ${code}`)
     }
-    return result
+    return child
   }
 
   export function which() {

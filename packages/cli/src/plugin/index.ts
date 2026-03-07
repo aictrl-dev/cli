@@ -14,7 +14,7 @@ import { CopilotAuthPlugin } from "./copilot"
 export namespace Plugin {
   const log = Log.create({ service: "plugin" })
 
-  const BUILTIN = ["aictrl-anthropic-auth@0.0.13"]
+  const BUILTIN = [] as string[]
 
   // Built-in plugins that are directly imported (not installed from npm)
   const INTERNAL_PLUGINS: PluginInstance[] = [CodexAuthPlugin, CopilotAuthPlugin]

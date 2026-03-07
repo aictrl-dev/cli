@@ -6,7 +6,7 @@ import * as core from "@actions/core"
 import * as github from "@actions/github"
 import type { Context as GitHubContext } from "@actions/github/lib/context"
 import type { IssueCommentEvent, PullRequestReviewCommentEvent } from "@octokit/webhooks-types"
-import { createOpencodeClient } from "@aictrl-ai/sdk"
+import { createAictrlClient } from "@aictrl/sdk"
 import { spawn } from "node:child_process"
 
 type GitHubAuthor = {
@@ -232,7 +232,7 @@ function createOpencode() {
   const port = 4096
   const url = `http://${host}:${port}`
   const proc = spawn(`aictrl`, [`serve`, `--hostname=${host}`, `--port=${port}`])
-  const client = createOpencodeClient({ baseUrl: url })
+  const client = createAictrlClient({ baseUrl: url })
 
   return {
     server: { url, close: () => proc.kill() },

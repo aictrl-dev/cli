@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { Script } from "@aictrl-ai/script"
+import { Script } from "@aictrl/script"
 import { $ } from "bun"
 import { buildNotes, getLatestRelease } from "./changelog"
 

@@ -42,7 +42,7 @@ import { Config } from "@/config/config"
 import { Todo } from "@/session/todo"
 import { z } from "zod"
 import { LoadAPIKeyError } from "ai"
-import type { AssistantMessage, Event, OpencodeClient, SessionMessageResponse, ToolPart } from "@aictrl/sdk/v2"
+import type { AssistantMessage, Event, AictrlClient, SessionMessageResponse, ToolPart } from "@aictrl/sdk/v2"
 import { applyPatch } from "diff"
 
 type ModeOption = { id: string; name: string; description?: string }
@@ -54,7 +54,7 @@ export namespace ACP {
   const log = Log.create({ service: "acp-agent" })
 
   async function getContextLimit(
-    sdk: OpencodeClient,
+    sdk: AictrlClient,
     providerID: string,
     modelID: string,
     directory: string,
@@ -74,7 +74,7 @@ export namespace ACP {
 
   async function sendUsageUpdate(
     connection: AgentSideConnection,
-    sdk: OpencodeClient,
+    sdk: AictrlClient,
     sessionID: string,
     directory: string,
   ): Promise<void> {
@@ -121,7 +121,7 @@ export namespace ACP {
       })
   }
 
-  export async function init({ sdk: _sdk }: { sdk: OpencodeClient }) {
+  export async function init({ sdk: _sdk }: { sdk: AictrlClient }) {
     return {
       create: (connection: AgentSideConnection, fullConfig: ACPConfig) => {
         return new Agent(connection, fullConfig)
@@ -132,7 +132,7 @@ export namespace ACP {
   export class Agent implements ACPAgent {
     private connection: AgentSideConnection
     private config: ACPConfig
-    private sdk: OpencodeClient
+    private sdk: AictrlClient
     private sessionManager: ACPSessionManager
     private eventAbort = new AbortController()
     private eventStarted = false
@@ -1493,8 +1493,8 @@ export namespace ACP {
 
       case "grep":
       case "glob":
-      case "context7_resolve_library_id":
-      case "context7_get_library_docs":
+      case "aictrl_resolve_library_id":
+      case "aictrl_get_library_docs":
         return "search"
 
       case "list":

@@ -129,10 +129,10 @@ async function showRemovalSummary(targets: RemovalTargets, method: Installation.
 
   if (method !== "curl" && method !== "unknown") {
     const cmds: Record<string, string> = {
-      npm: "npm uninstall -g aictrl-ai",
-      pnpm: "pnpm uninstall -g aictrl-ai",
-      bun: "bun remove -g aictrl-ai",
-      yarn: "yarn global remove aictrl-ai",
+      npm: "npm uninstall -g @aictrl/cli",
+      pnpm: "pnpm uninstall -g @aictrl/cli",
+      bun: "bun remove -g @aictrl/cli",
+      yarn: "yarn global remove @aictrl/cli",
       brew: "brew uninstall aictrl",
       choco: "choco uninstall aictrl",
       scoop: "scoop uninstall aictrl",
@@ -180,10 +180,10 @@ async function executeUninstall(method: Installation.Method, targets: RemovalTar
 
   if (method !== "curl" && method !== "unknown") {
     const cmds: Record<string, string[]> = {
-      npm: ["npm", "uninstall", "-g", "aictrl-ai"],
-      pnpm: ["pnpm", "uninstall", "-g", "aictrl-ai"],
-      bun: ["bun", "remove", "-g", "aictrl-ai"],
-      yarn: ["yarn", "global", "remove", "aictrl-ai"],
+      npm: ["npm", "uninstall", "-g", "@aictrl/cli"],
+      pnpm: ["pnpm", "uninstall", "-g", "@aictrl/cli"],
+      bun: ["bun", "remove", "-g", "@aictrl/cli"],
+      yarn: ["yarn", "global", "remove", "@aictrl/cli"],
       brew: ["brew", "uninstall", "aictrl"],
       choco: ["choco", "uninstall", "aictrl"],
       scoop: ["scoop", "uninstall", "aictrl"],
