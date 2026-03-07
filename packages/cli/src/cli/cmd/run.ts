@@ -686,131 +686,83 @@ export const RunCommand = cmd({
     }
 
     await bootstrap(process.cwd(), async () => {
-      const originalFetch = globalThis.fetch
-      const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
-        const request = new Request(input, init)
-        const url = new URL(request.url)
-        const pathname = url.pathname
-        const method = request.method
-
-        // SSE event stream
-        if (method === "GET" && pathname === "/event") {
-          const stream = new ReadableStream({
-            start(controller) {
-              const encoder = new TextEncoder()
+      const sdk = {
+        session: {
+          async list() {
+            return { data: [...Session.list()] }
+          },
+          async create(opts: any) {
+            const session = await Session.createNext({
+              title: opts.title,
+              permission: opts.permission,
+              directory: Instance.directory,
+            })
+            return { data: session }
+          },
+          async fork(opts: any) {
+            const session = await Session.fork({
+              sessionID: opts.sessionID,
+              messageID: opts.messageID,
+            })
+            return { data: session }
+          },
+          async share(opts: any) {
+            const share = await Session.share(opts.sessionID)
+            return { data: { share } }
+          },
+          async prompt(opts: any) {
+            SessionPrompt.prompt({
+              sessionID: opts.sessionID,
+              parts: opts.parts,
+              agent: opts.agent,
+              model: opts.model,
+              variant: opts.variant,
+            }).catch(() => {})
+          },
+          async command(opts: any) {
+            SessionPrompt.command({
+              sessionID: opts.sessionID,
+              command: opts.command,
+              arguments: opts.arguments ?? "",
+              agent: opts.agent,
+              model: opts.model,
+              variant: opts.variant,
+            }).catch(() => {})
+          },
+        },
+        config: {
+          async get() {
+            return { data: await Config.get() }
+          },
+        },
+        event: {
+          async subscribe() {
+            const stream = (async function* () {
+              const queue: any[] = []
+              let resolve: (() => void) | null = null
               const handler = (event: { payload: any }) => {
-                const data = JSON.stringify(event.payload)
-                controller.enqueue(encoder.encode(`data: ${data}\n\n`))
+                queue.push(event.payload)
+                resolve?.()
               }
               GlobalBus.on("event", handler)
-              request.signal.addEventListener("abort", () => {
-                GlobalBus.off("event", handler)
-                try {
-                  controller.close()
-                } catch {
-                  // already closed
+              try {
+                while (true) {
+                  while (queue.length > 0) {
+                    yield queue.shift()
+                  }
+                  await new Promise<void>((r) => {
+                    resolve = r
+                  })
                 }
-              })
-            },
-          })
-          return new Response(stream, {
-            status: 200,
-            headers: {
-              "Content-Type": "text/event-stream",
-              "Cache-Control": "no-cache",
-              Connection: "keep-alive",
-            },
-          })
-        }
-
-        const body = await request.json().catch(() => ({})) as Record<string, any>
-
-        // GET /config
-        if (method === "GET" && pathname === "/config") {
-          const cfg = await Config.get()
-          return Response.json(cfg)
-        }
-
-        // GET /session — list sessions
-        if (method === "GET" && pathname === "/session") {
-          const sessions = [...Session.list()]
-          return Response.json(sessions)
-        }
-
-        // POST /session — create session
-        if (method === "POST" && pathname === "/session") {
-          const session = await Session.createNext({
-            title: body.title,
-            permission: body.permission,
-            directory: Instance.directory,
-          })
-          return Response.json(session)
-        }
-
-        // POST /session/:id/fork
-        const forkMatch = pathname.match(/^\/session\/([^/]+)\/fork$/)
-        if (method === "POST" && forkMatch) {
-          const session = await Session.fork({
-            sessionID: forkMatch[1],
-            messageID: body.messageID,
-          })
-          return Response.json(session)
-        }
-
-        // POST /session/:id/share
-        const shareMatch = pathname.match(/^\/session\/([^/]+)\/share$/)
-        if (method === "POST" && shareMatch) {
-          const share = await Session.share(shareMatch[1])
-          return Response.json({ share })
-        }
-
-        // POST /session/:id/message — prompt
-        const messageMatch = pathname.match(/^\/session\/([^/]+)\/message$/)
-        if (method === "POST" && messageMatch) {
-          SessionPrompt.prompt({
-            sessionID: messageMatch[1],
-            parts: body.parts,
-            agent: body.agent,
-            model: body.model,
-            variant: body.variant,
-          }).catch(() => {})
-          return Response.json({ ok: true })
-        }
-
-        // POST /session/:id/command
-        const commandMatch = pathname.match(/^\/session\/([^/]+)\/command$/)
-        if (method === "POST" && commandMatch) {
-          SessionPrompt.command({
-            sessionID: commandMatch[1],
-            command: body.command,
-            arguments: body.arguments ?? "",
-            agent: body.agent,
-            model: body.model,
-            variant: body.variant,
-          }).catch(() => {})
-          return Response.json({ ok: true })
-        }
-
-        // POST /session/:id/permissions/:permissionID
-        const permMatch = pathname.match(/^\/session\/([^/]+)\/permissions\/([^/]+)$/)
-        if (method === "POST" && permMatch) {
-          await PermissionNext.reply({
-            requestID: permMatch[2],
-            reply: body.response ?? "reject",
-          })
-          return Response.json(true)
-        }
-
-        return new Response("Not Found", { status: 404 })
-      }) as typeof globalThis.fetch
-      // Override globalThis.fetch so SSE client (which bypasses custom fetch) uses our handler
-      globalThis.fetch = fetchFn
-      try {
-        const sdk = createAictrlClient({ baseUrl: "http://aictrl.internal", fetch: fetchFn })
-        await execute(sdk)
-      } finally {
-        globalThis.fetch = originalFetch
+              } finally {
+                GlobalBus.off("event", handler)
+              }
+            })()
+            return { stream }
+          },
+        },
       }
+      await execute(sdk)
     })
   },
 })
