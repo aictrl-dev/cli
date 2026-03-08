@@ -104,8 +104,11 @@ jobs:
           aictrl --version || true
           echo "ZHIPU_API_KEY length: ${#ZHIPU_API_KEY}"
 
-          # Run with debug logging printed to stderr for diagnostics
-          aictrl run --print-logs --log-level DEBUG --format json --model zai-coding-plan/glm-5 "Say hello and confirm you are working." 2>&1 || {
+          # Run from a clean temp dir to avoid the monorepo's config affecting session
+          cd "$RUNNER_TEMP"
+          aictrl run --print-logs --log-level DEBUG --format json \
+            --model zai-coding-plan/glm-5 \
+            "Say hello and confirm you are working." 2>&1 || {
             EXIT_CODE=$?
             echo "aictrl exited with code $EXIT_CODE"
             exit $EXIT_CODE
