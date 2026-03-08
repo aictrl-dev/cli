@@ -93,39 +93,29 @@ jobs:
           npm install @aictrl/cli@latest
           echo "$RUNNER_TEMP/aictrl/node_modules/.bin" >> $GITHUB_PATH
 
-      - name: Generate PR Diff
+      - name: Generate Review Prompt
         if: steps.check_changes.outputs.skip != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Get the full diff and PR metadata for the review prompt
+          # Collect PR metadata and diff
           gh pr diff "$PR_NUMBER" > "$RUNNER_TEMP/pr-diff.txt"
-          gh pr view "$PR_NUMBER" --json title,body --jq '"# \(.title)\n\n\(.body)"' > "$RUNNER_TEMP/pr-info.txt"
-          echo "Diff size: $(wc -l < "$RUNNER_TEMP/pr-diff.txt") lines"
+          PR_TITLE=$(gh pr view "$PR_NUMBER" --json title --jq '.title')
+          PR_BODY=$(gh pr view "$PR_NUMBER" --json body --jq '.body')
+          DIFF_LINES=$(wc -l < "$RUNNER_TEMP/pr-diff.txt")
+          echo "Diff: $DIFF_LINES lines"
 
-      - name: Run Aictrl Review
-        if: steps.check_changes.outputs.skip != 'true'
-        timeout-minutes: 15
-        env:
-          ZHIPU_API_KEY: ${{ secrets.ZHIPUAI_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "Starting review for PR #$PR_NUMBER (SHA $PR_SHA)..."
+          # Build review prompt as a file to avoid shell quoting issues
+          cat > "$RUNNER_TEMP/review-prompt.txt" << PROMPT_EOF
+          Review the following PR changes for the aictrl CLI.
 
-          PR_INFO=$(cat "$RUNNER_TEMP/pr-info.txt")
-          PR_DIFF=$(cat "$RUNNER_TEMP/pr-diff.txt")
+          ## PR #$PR_NUMBER: $PR_TITLE
 
-          # Run from a clean temp dir to avoid the monorepo's config affecting session
-          cd "$RUNNER_TEMP"
-          aictrl run --format json --model zai-coding-plan/glm-5 \
-            "Review the following PR changes for the aictrl CLI.
-
-          ## PR Info
-          $PR_INFO
+          $PR_BODY
 
           ## Diff
           \`\`\`diff
-          $PR_DIFF
+          $(cat "$RUNNER_TEMP/pr-diff.txt")
           \`\`\`
 
           **IMPORTANT**: This is a code review only. Do NOT run tests, npm commands, or build commands. Do NOT try to read local files — all changes are provided above.
@@ -137,8 +127,25 @@ jobs:
           4. **Reliability**: Ensure error handling is robust and graceful.
 
           Keep the review concise and high-signal. Post findings as a single markdown comment using:
-            gh pr comment $PR_NUMBER --body \"<your review>\"
+            gh pr comment $PR_NUMBER --body "<your review>"
 
           Do NOT try to auto-detect the PR number — use exactly $PR_NUMBER.
+          The repository is ${{ github.repository }}, so use: gh pr comment $PR_NUMBER --repo ${{ github.repository }} --body "<your review>"
 
-          **CRITICAL**: Include the string 'Reviewed SHA: $PR_SHA' at the very end of your comment so we can track which commits have been reviewed."
+          **CRITICAL**: Include the string 'Reviewed SHA: $PR_SHA' at the very end of your comment so we can track which commits have been reviewed.
+          PROMPT_EOF
+
+      - name: Run Aictrl Review
+        if: steps.check_changes.outputs.skip != 'true'
+        timeout-minutes: 15
+        env:
+          ZHIPU_API_KEY: ${{ secrets.ZHIPUAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          echo "Starting review for PR #$PR_NUMBER (SHA $PR_SHA)..."
+
+          # Run from a clean temp dir to avoid the monorepo's config affecting session
+          cd "$RUNNER_TEMP"
+          aictrl run --format json --model zai-coding-plan/glm-5 \
+            "$(cat "$RUNNER_TEMP/review-prompt.txt")"
