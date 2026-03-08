@@ -53,8 +53,6 @@ export const UninstallCommand = {
 
   handler: async (args: UninstallArgs) => {
     UI.empty()
-    UI.println(UI.logo("  "))
-    UI.empty()
     prompts.intro("Uninstall Aictrl")
 
     const method = await Installation.method()

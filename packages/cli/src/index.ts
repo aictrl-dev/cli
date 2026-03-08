@@ -70,7 +70,8 @@ let cli = yargs(hideBin(process.argv))
     })
 
     process.env.AGENT = "1"
-    process.env.OPENCODE = "1"
+    process.env.AICTRL = "1"
+    process.env.OPENCODE = "1" // compat with opencode-era tools
     process.env.AICTRL_PID = String(process.pid)
 
     Log.Default.info("aictrl", {
@@ -115,7 +116,7 @@ let cli = yargs(hideBin(process.argv))
       process.stderr.write("Database migration complete." + EOL)
     }
   })
-  .usage("\n" + UI.logo())
+  .usage("")
   .completion("completion", "generate shell completion script")
   .command(AcpCommand)
   .command(McpCommand)

@@ -84,7 +84,7 @@ let cli = yargs(hideBin(process.argv))
       process.stderr.write("Database migration complete." + EOL)
     }
   })
-  .usage("\n" + UI.logo())
+  .usage("")
   .command(AcpCommand)
   .command(McpCommand)
   .command(RunCommand)
