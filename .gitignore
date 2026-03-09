@@ -23,6 +23,11 @@ target
 .scripts
 .direnv/
 
+# Planning & agent docs
+.planning/
+.claude/
+.gemini/
+
 # Local dev files
 aictrl-dev
 logs/
