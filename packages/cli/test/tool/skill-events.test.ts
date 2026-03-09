@@ -126,7 +126,7 @@ description: A skill.
     }
   })
 
-  test("SkillLoaded emitted when skill tool is executed", { timeout: 15_000 }, async () => {
+  test("SkillLoaded emitted when skill tool is executed", async () => {
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
