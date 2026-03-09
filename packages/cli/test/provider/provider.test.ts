@@ -361,6 +361,22 @@ test("parseModel handles model IDs with slashes", () => {
   expect(result.modelID).toBe("anthropic/claude-3-opus")
 })
 
+test("parseModel throws error for bare provider string", () => {
+  expect(() => Provider.parseModel("anthropic")).toThrow(/Invalid model identifier.*Expected format.*provider\/model/)
+})
+
+test("parseModel throws error for empty model ID", () => {
+  expect(() => Provider.parseModel("anthropic/")).toThrow(/Model ID cannot be empty/)
+})
+
+test("parseModel throws error for empty provider ID", () => {
+  expect(() => Provider.parseModel("/claude-sonnet-4")).toThrow(/Provider ID cannot be empty/)
+})
+
+test("parseModel throws error for empty string", () => {
+  expect(() => Provider.parseModel("")).toThrow(/must be a non-empty string/)
+})
+
 test("defaultModel returns first available model when no config set", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {

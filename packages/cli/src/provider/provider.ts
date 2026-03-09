@@ -69,7 +69,8 @@ export namespace Provider {
     "@ai-sdk/azure": async () => (await import("@ai-sdk/azure")).createAzure,
     "@ai-sdk/google": async () => (await import("@ai-sdk/google")).createGoogleGenerativeAI,
     "@ai-sdk/google-vertex": async () => (await import("@ai-sdk/google-vertex")).createVertex,
-    "@ai-sdk/google-vertex/anthropic": async () => (await import("@ai-sdk/google-vertex/anthropic")).createVertexAnthropic,
+    "@ai-sdk/google-vertex/anthropic": async () =>
+      (await import("@ai-sdk/google-vertex/anthropic")).createVertexAnthropic,
     "@ai-sdk/openai": async () => (await import("@ai-sdk/openai")).createOpenAI,
     "@ai-sdk/openai-compatible": async () => (await import("@ai-sdk/openai-compatible")).createOpenAICompatible,
     "@openrouter/ai-sdk-provider": async () => (await import("@openrouter/ai-sdk-provider")).createOpenRouter,
@@ -1303,11 +1304,30 @@ export namespace Provider {
   }
 
   export function parseModel(model: string) {
-    const [providerID, ...rest] = model.split("/")
-    return {
-      providerID: providerID,
-      modelID: rest.join("/"),
+    if (!model || typeof model !== "string") {
+      throw new Error("Model identifier must be a non-empty string")
     }
+
+    const slashIndex = model.indexOf("/")
+
+    if (slashIndex === -1) {
+      throw new Error(
+        `Invalid model identifier "${model}". Expected format: "provider/model-id" (e.g., "anthropic/claude-sonnet-4-20250514")`,
+      )
+    }
+
+    const providerID = model.substring(0, slashIndex)
+    const modelID = model.substring(slashIndex + 1)
+
+    if (!providerID) {
+      throw new Error(`Invalid model identifier "${model}". Provider ID cannot be empty.`)
+    }
+
+    if (!modelID) {
+      throw new Error(`Invalid model identifier "${model}". Model ID cannot be empty.`)
+    }
+
+    return { providerID, modelID }
   }
 
   export const ModelNotFoundError = NamedError.create(

@@ -723,6 +723,40 @@ describe("JSON to SQLite migration", () => {
     expect(db.select().from(SessionShareTable).all().length).toBe(1)
   })
 
+  describe("PRAGMA restoration", () => {
+    test("synchronous is restored to production value after successful migration", async () => {
+      await writeProject(storageDir, {
+        id: "proj_test123abc",
+        worktree: "/",
+        time: { created: Date.now(), updated: Date.now() },
+        sandboxes: [],
+      })
+
+      await JsonMigration.run(sqlite)
+
+      // Verify restored to production NORMAL (1), not migration OFF (0)
+      const after = (sqlite.query("PRAGMA synchronous").get() as any)?.synchronous
+      expect(after).toBe(1) // NORMAL = 1
+    })
+
+    test("synchronous is restored to production value after migration error", async () => {
+      await writeProject(storageDir, {
+        id: "proj_test123abc",
+        worktree: "/",
+        time: { created: Date.now(), updated: Date.now() },
+        sandboxes: [],
+      })
+      // Create malformed JSON to trigger error
+      await Bun.write(path.join(storageDir, "project", "bad.json"), "not json")
+
+      await JsonMigration.run(sqlite)
+
+      // Verify restored to production NORMAL (1), not migration OFF (0)
+      const after = (sqlite.query("PRAGMA synchronous").get() as any)?.synchronous
+      expect(after).toBe(1) // NORMAL = 1
+    })
+  })
+
   test("handles mixed corruption and partial validity in one migration run", async () => {
     await writeProject(storageDir, {
       id: "proj_test123abc",

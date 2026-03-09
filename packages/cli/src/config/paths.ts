@@ -81,9 +81,35 @@ export namespace ConfigPaths {
     return typeof input === "string" ? path.dirname(input) : input.dir
   }
 
+  /** Allowed prefixes for {env:VAR} substitution. Fail-closed: unknown vars expand to empty. */
+  const ENV_ALLOWED_PREFIXES = [
+    // aictrl/opencode specific
+    "AICTRL_", "OPENCODE_",
+    // AI provider keys (users need these in config)
+    "ANTHROPIC_", "OPENAI_", "AZURE_", "AWS_", "GOOGLE_",
+    "GITHUB_", "COPILOT_", "MISTRAL_", "GROQ_", "TOGETHER_",
+    "DEEPSEEK_", "XAI_", "COHERE_", "FIREWORKS_",
+    "ZHIPU_", "AICORE_",
+    // Standard system vars
+    "HOME", "USER", "PATH", "SHELL", "TERM", "LANG",
+    "XDG_", "LC_", "NODE_", "BUN_",
+    // Proxy configuration
+    "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+    "http_proxy", "https_proxy", "no_proxy",
+  ]
+
+  const ENV_EXACT_MATCHES = new Set(ENV_ALLOWED_PREFIXES.filter(p => !p.endsWith("_")))
+  const ENV_PREFIX_MATCHES = ENV_ALLOWED_PREFIXES.filter(p => p.endsWith("_"))
+
+  function isAllowedEnvVar(name: string): boolean {
+    if (ENV_EXACT_MATCHES.has(name)) return true
+    return ENV_PREFIX_MATCHES.some(prefix => name.startsWith(prefix))
+  }
+
   /** Apply {env:VAR} and {file:path} substitutions to config text. */
   async function substitute(text: string, input: ParseSource, missing: "error" | "empty" = "error") {
     text = text.replace(/\{env:([^}]+)\}/g, (_, varName) => {
+      if (!isAllowedEnvVar(varName)) return ""
       return process.env[varName] || ""
     })
 

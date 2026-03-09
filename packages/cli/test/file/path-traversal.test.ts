@@ -29,6 +29,64 @@ describe("Filesystem.contains", () => {
     expect(Filesystem.contains("/project", "/project-other/file")).toBe(false)
     expect(Filesystem.contains("/project", "/projectfile")).toBe(false)
   })
+
+  test("sync contains does NOT detect symlinks (known limitation)", async () => {
+    await using tmp = await tmpdir()
+    const outsideDir = path.join(tmp.path, "..", "outside-" + Math.random().toString(36).slice(2))
+    await fs.mkdir(outsideDir, { recursive: true })
+    await fs.writeFile(path.join(outsideDir, "secret.txt"), "secret data")
+
+    await fs.symlink(outsideDir, path.join(tmp.path, "escape-link"))
+
+    const target = path.join(tmp.path, "escape-link", "secret.txt")
+    // Sync version passes (this is the bug SEC-02 describes)
+    expect(Filesystem.contains(tmp.path, target)).toBe(true)
+
+    await fs.rm(outsideDir, { recursive: true, force: true })
+  })
+})
+
+describe("Filesystem.containsSafe", () => {
+  test("detects symlink pointing outside project", async () => {
+    await using tmp = await tmpdir()
+    const outsideDir = path.join(tmp.path, "..", "outside-" + Math.random().toString(36).slice(2))
+    await fs.mkdir(outsideDir, { recursive: true })
+    await fs.writeFile(path.join(outsideDir, "secret.txt"), "secret data")
+
+    await fs.symlink(outsideDir, path.join(tmp.path, "escape-link"))
+
+    const target = path.join(tmp.path, "escape-link", "secret.txt")
+    expect(await Filesystem.containsSafe(tmp.path, target)).toBe(false)
+
+    await fs.rm(outsideDir, { recursive: true, force: true })
+  })
+
+  test("allows valid paths within project", async () => {
+    await using tmp = await tmpdir()
+    await fs.writeFile(path.join(tmp.path, "real-file.txt"), "content")
+
+    expect(await Filesystem.containsSafe(tmp.path, path.join(tmp.path, "real-file.txt"))).toBe(true)
+  })
+
+  test("allows internal symlinks", async () => {
+    await using tmp = await tmpdir()
+    await fs.mkdir(path.join(tmp.path, "src"), { recursive: true })
+    await fs.writeFile(path.join(tmp.path, "src", "real.txt"), "content")
+    await fs.symlink(path.join(tmp.path, "src"), path.join(tmp.path, "link-to-src"))
+
+    const target = path.join(tmp.path, "link-to-src", "real.txt")
+    expect(await Filesystem.containsSafe(tmp.path, target)).toBe(true)
+  })
+
+  test("falls back to lexical check for non-existent paths", async () => {
+    expect(await Filesystem.containsSafe("/project", "/project/nonexistent/file.ts")).toBe(true)
+    expect(await Filesystem.containsSafe("/project", "/etc/passwd")).toBe(false)
+  })
+
+  test("blocks ../ traversal", async () => {
+    await using tmp = await tmpdir()
+    expect(await Filesystem.containsSafe(tmp.path, path.join(tmp.path, "..", "escape.txt"))).toBe(false)
+  })
 })
 
 /*
@@ -121,9 +179,9 @@ describe("Instance.containsPath", () => {
 
     await Instance.provide({
       directory: tmp.path,
-      fn: () => {
-        expect(Instance.containsPath(path.join(tmp.path, "foo.txt"))).toBe(true)
-        expect(Instance.containsPath(path.join(tmp.path, "src", "file.ts"))).toBe(true)
+      fn: async () => {
+        expect(await Instance.containsPath(path.join(tmp.path, "foo.txt"))).toBe(true)
+        expect(await Instance.containsPath(path.join(tmp.path, "src", "file.ts"))).toBe(true)
       },
     })
   })
@@ -135,13 +193,13 @@ describe("Instance.containsPath", () => {
 
     await Instance.provide({
       directory: subdir,
-      fn: () => {
+      fn: async () => {
         // .aictrl at worktree root, but we're running from packages/lib
-        expect(Instance.containsPath(path.join(tmp.path, ".aictrl", "state"))).toBe(true)
+        expect(await Instance.containsPath(path.join(tmp.path, ".aictrl", "state"))).toBe(true)
         // sibling package should also be accessible
-        expect(Instance.containsPath(path.join(tmp.path, "packages", "other", "file.ts"))).toBe(true)
+        expect(await Instance.containsPath(path.join(tmp.path, "packages", "other", "file.ts"))).toBe(true)
         // worktree root itself
-        expect(Instance.containsPath(tmp.path)).toBe(true)
+        expect(await Instance.containsPath(tmp.path)).toBe(true)
       },
     })
   })
@@ -151,9 +209,9 @@ describe("Instance.containsPath", () => {
 
     await Instance.provide({
       directory: tmp.path,
-      fn: () => {
-        expect(Instance.containsPath("/etc/passwd")).toBe(false)
-        expect(Instance.containsPath("/tmp/other-project")).toBe(false)
+      fn: async () => {
+        expect(await Instance.containsPath("/etc/passwd")).toBe(false)
+        expect(await Instance.containsPath("/tmp/other-project")).toBe(false)
       },
     })
   })
@@ -163,8 +221,8 @@ describe("Instance.containsPath", () => {
 
     await Instance.provide({
       directory: tmp.path,
-      fn: () => {
-        expect(Instance.containsPath(path.join(tmp.path, "..", "escape.txt"))).toBe(false)
+      fn: async () => {
+        expect(await Instance.containsPath(path.join(tmp.path, "..", "escape.txt"))).toBe(false)
       },
     })
   })
@@ -174,10 +232,10 @@ describe("Instance.containsPath", () => {
 
     await Instance.provide({
       directory: tmp.path,
-      fn: () => {
+      fn: async () => {
         expect(Instance.directory).toBe(Instance.worktree)
-        expect(Instance.containsPath(path.join(tmp.path, "file.txt"))).toBe(true)
-        expect(Instance.containsPath("/etc/passwd")).toBe(false)
+        expect(await Instance.containsPath(path.join(tmp.path, "file.txt"))).toBe(true)
+        expect(await Instance.containsPath("/etc/passwd")).toBe(false)
       },
     })
   })
@@ -187,12 +245,31 @@ describe("Instance.containsPath", () => {
 
     await Instance.provide({
       directory: tmp.path,
-      fn: () => {
+      fn: async () => {
         // worktree is "/" for non-git projects, but containsPath should NOT allow all paths
-        expect(Instance.containsPath(path.join(tmp.path, "file.txt"))).toBe(true)
-        expect(Instance.containsPath("/etc/passwd")).toBe(false)
-        expect(Instance.containsPath("/tmp/other")).toBe(false)
+        expect(await Instance.containsPath(path.join(tmp.path, "file.txt"))).toBe(true)
+        expect(await Instance.containsPath("/etc/passwd")).toBe(false)
+        expect(await Instance.containsPath("/tmp/other")).toBe(false)
       },
     })
+  })
+
+  test("detects symlink escaping project boundary", async () => {
+    await using tmp = await tmpdir({ git: true })
+    const outsideDir = path.join(tmp.path, "..", "outside-" + Math.random().toString(36).slice(2))
+    await fs.mkdir(outsideDir, { recursive: true })
+    await fs.writeFile(path.join(outsideDir, "secret.txt"), "secret data")
+
+    await fs.symlink(outsideDir, path.join(tmp.path, "evil-link"))
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const target = path.join(tmp.path, "evil-link", "secret.txt")
+        expect(await Instance.containsPath(target)).toBe(false)
+      },
+    })
+
+    await fs.rm(outsideDir, { recursive: true, force: true })
   })
 })

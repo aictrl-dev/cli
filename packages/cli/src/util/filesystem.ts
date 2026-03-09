@@ -1,4 +1,4 @@
-import { chmod, mkdir, readFile, writeFile } from "fs/promises"
+import { chmod, mkdir, readFile, realpath, writeFile } from "fs/promises"
 import { createWriteStream, existsSync, statSync } from "fs"
 import { lookup } from "mime-types"
 import { realpathSync } from "fs"
@@ -133,6 +133,37 @@ export namespace Filesystem {
 
   export function contains(parent: string, child: string) {
     return !relative(parent, child).startsWith("..")
+  }
+
+  export async function containsSafe(parent: string, child: string): Promise<boolean> {
+    try {
+      const realParent = await realpath(parent)
+      const realChild = await realpath(child)
+      return !relative(realParent, realChild).startsWith("..")
+    } catch {
+      // child doesn't fully exist — resolve the longest existing prefix
+      // to catch symlinks in intermediate path components.
+      // Without this, a symlink like project/link -> /etc would bypass
+      // containment when targeting project/link/nonexistent (ENOENT).
+      try {
+        const realParent = await realpath(parent)
+        let current = child
+        while (current !== dirname(current)) {
+          try {
+            const realCurrent = await realpath(current)
+            // Found an existing ancestor — check if it's contained
+            return !relative(realParent, realCurrent).startsWith("..")
+          } catch {
+            current = dirname(current)
+          }
+        }
+        // Nothing in the path exists — fall back to lexical
+        return !relative(parent, child).startsWith("..")
+      } catch {
+        // parent itself doesn't exist — lexical fallback is all we can do
+        return !relative(parent, child).startsWith("..")
+      }
+    }
   }
 
   export async function findUp(target: string, start: string, stop?: string) {

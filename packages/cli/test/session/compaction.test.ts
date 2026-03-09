@@ -263,7 +263,7 @@ describe("session.getUsage", () => {
   })
 
   test("extracts cached tokens to cache.read", () => {
-    const model = createModel({ context: 100_000, output: 32_000 })
+    const model = createModel({ context: 100_000, output: 32_000, npm: "@ai-sdk/openai" })
     const result = Session.getUsage({
       model,
       usage: {
@@ -313,6 +313,66 @@ describe("session.getUsage", () => {
     })
 
     expect(result.tokens.input).toBe(1000)
+    expect(result.tokens.cache.read).toBe(200)
+  })
+
+  test("subtracts cached tokens for OpenAI provider", () => {
+    const model = createModel({
+      context: 100_000,
+      output: 32_000,
+      npm: "@ai-sdk/openai",
+    })
+    const result = Session.getUsage({
+      model,
+      usage: {
+        inputTokens: 1000,
+        outputTokens: 500,
+        totalTokens: 1500,
+        cachedInputTokens: 200,
+      },
+    })
+
+    expect(result.tokens.input).toBe(800)
+    expect(result.tokens.cache.read).toBe(200)
+  })
+
+  test("subtracts cached tokens for Google provider", () => {
+    const model = createModel({
+      context: 100_000,
+      output: 32_000,
+      npm: "@ai-sdk/google",
+    })
+    const result = Session.getUsage({
+      model,
+      usage: {
+        inputTokens: 1000,
+        outputTokens: 500,
+        totalTokens: 1500,
+        cachedInputTokens: 200,
+      },
+    })
+
+    expect(result.tokens.input).toBe(800)
+    expect(result.tokens.cache.read).toBe(200)
+  })
+
+  test("subtracts cached tokens for OpenRouter provider", () => {
+    const model = createModel({
+      context: 100_000,
+      output: 32_000,
+      npm: "@openrouter/ai-sdk-provider",
+    })
+    const result = Session.getUsage({
+      model,
+      usage: {
+        inputTokens: 1000,
+        outputTokens: 500,
+        totalTokens: 1500,
+        cachedInputTokens: 200,
+      },
+    })
+
+    expect(result.tokens.input).toBe(800)
     expect(result.tokens.cache.read).toBe(200)
   })
 

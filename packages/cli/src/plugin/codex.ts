@@ -227,7 +227,7 @@ const HTML_ERROR = (error: string) => `<!doctype html>
     <div class="container">
       <h1>Authorization Failed</h1>
       <p>An error occurred during authorization.</p>
-      <div class="error">${error}</div>
+      <div class="error">${Bun.escapeHTML(error)}</div>
     </div>
   </body>
 </html>`

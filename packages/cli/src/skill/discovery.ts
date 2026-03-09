@@ -7,6 +7,14 @@ import { Filesystem } from "../util/filesystem"
 export namespace Discovery {
   const log = Log.create({ service: "skill-discovery" })
 
+  function assertContained(parent: string, child: string, context: string): void {
+    const resolvedParent = path.resolve(parent)
+    const resolvedChild = path.resolve(child)
+    if (!resolvedChild.startsWith(resolvedParent + path.sep) && resolvedChild !== resolvedParent) {
+      throw new Error(`Path traversal blocked in ${context}: "${resolvedChild}" escapes "${resolvedParent}"`)
+    }
+  }
+
   type Index = {
     skills: Array<{
       name: string
@@ -79,10 +87,12 @@ export namespace Discovery {
     await Promise.all(
       list.map(async (skill) => {
         const root = path.join(cache, skill.name)
+        assertContained(cache, root, "skill.name")
         await Promise.all(
           skill.files.map(async (file) => {
             const link = new URL(file, `${host}/${skill.name}/`).href
             const dest = path.join(root, file)
+            assertContained(root, dest, "skill.file")
             await mkdir(path.dirname(dest), { recursive: true })
             await get(link, dest)
           }),

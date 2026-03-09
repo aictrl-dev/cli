@@ -415,6 +415,8 @@ export namespace MCP {
             break
           }
 
+          // Close transport on timeout or non-OAuth connection failure
+          await transport.close?.().catch(() => {})
           log.debug("transport connection failed", {
             key,
             transport: name,
@@ -460,6 +462,17 @@ export namespace MCP {
           status: "connected",
         }
       } catch (error) {
+        // Kill descendant processes before closing transport
+        const pid = (transport as any).pid
+        if (typeof pid === "number") {
+          for (const dpid of await descendants(pid)) {
+            try {
+              process.kill(dpid, "SIGTERM")
+            } catch {}
+          }
+        }
+        await transport.close().catch(() => {})
+
         log.error("local mcp startup failed", {
           key,
           command: mcp.command,
@@ -785,12 +798,13 @@ export namespace MCP {
     })
 
     // Try to connect - this will trigger the OAuth flow
+    const connectTimeout = mcpConfig.timeout ?? DEFAULT_TIMEOUT
     try {
       const client = new Client({
         name: "aictrl",
         version: Installation.VERSION,
       })
-      await client.connect(transport)
+      await withTimeout(client.connect(transport), connectTimeout)
       // If we get here, we're already authenticated
       return { authorizationUrl: "" }
     } catch (error) {
@@ -799,6 +813,8 @@ export namespace MCP {
         pendingOAuthTransports.set(mcpName, transport)
         return { authorizationUrl: capturedUrl.toString() }
       }
+      // Clean up transport on timeout or non-OAuth error
+      await transport.close?.().catch(() => {})
       throw error
     }
   }
@@ -828,7 +844,7 @@ export namespace MCP {
 
     // Register the callback BEFORE opening the browser to avoid race condition
     // when the IdP has an active SSO session and redirects immediately
-    const callbackPromise = McpOAuthCallback.waitForCallback(oauthState)
+    const callbackPromise = McpOAuthCallback.waitForCallback(oauthState, mcpName)
 
     try {
       const subprocess = await open(authorizationUrl)

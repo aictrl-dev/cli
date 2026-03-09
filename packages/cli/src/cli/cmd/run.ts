@@ -408,6 +408,11 @@ export const RunCommand = cmd({
       }
     }
 
+    // Promise variable for racing against loopDone in execute().
+    // Must be in handler() scope to be accessible by both the local SDK stub
+    // (which writes to it inside bootstrap()) and execute() (which reads it).
+    let promptResult: Promise<any> = Promise.resolve()
+
     async function execute(sdk: any) {
       function tool(part: ToolPart) {
         try {
@@ -447,10 +452,7 @@ export const RunCommand = cmd({
         const toggles = new Map<string, boolean>()
 
         for await (const event of events.stream) {
-          if (
-            event.type === "message.updated" &&
-            event.properties.info.role === "assistant"
-          ) {
+          if (event.type === "message.updated" && event.properties.info.role === "assistant") {
             const info = event.properties.info
             if (args.format === "json") {
               if (info.finish) {
@@ -571,10 +573,7 @@ export const RunCommand = cmd({
             }
           }
 
-          if (
-            event.type === "session.status" &&
-            event.properties.status.type === "idle"
-          ) {
+          if (event.type === "session.status" && event.properties.status.type === "idle") {
             if (event.properties.sessionID === sessionID) {
               break
             }
@@ -643,19 +642,21 @@ export const RunCommand = cmd({
         agent: agent,
       })
 
-      const loopDone = loop().then(() => {
-        emit("session_complete", {
-          durationMs: Date.now() - startTime,
-          error: error ?? null,
+      const loopDone = loop()
+        .then(() => {
+          emit("session_complete", {
+            durationMs: Date.now() - startTime,
+            error: error ?? null,
+          })
         })
-      }).catch((e) => {
-        emit("session_complete", {
-          durationMs: Date.now() - startTime,
-          error: String(e),
+        .catch((e) => {
+          emit("session_complete", {
+            durationMs: Date.now() - startTime,
+            error: String(e),
+          })
+          console.error(e)
+          process.exit(1)
         })
-        console.error(e)
-        process.exit(1)
-      })
 
       if (args.command) {
         await sdk.session.command({
@@ -677,7 +678,28 @@ export const RunCommand = cmd({
         })
       }
 
-      await loopDone
+      // Race loopDone against promptResult to handle early prompt failures.
+      // If SessionPrompt.prompt() rejects BEFORE it enters its internal loop()
+      // (e.g., Session.get() fails, model not found), no session.status idle event
+      // is emitted, so loopDone would hang forever. Racing ensures we surface
+      // the error and exit.
+      await Promise.race([
+        loopDone,
+        promptResult.then(
+          // If prompt resolves normally, wait for the event loop to finish
+          () => loopDone,
+          // If prompt rejects, surface the error immediately
+          (e) => {
+            error = error ? error + EOL + String(e) : String(e)
+            emit("session_complete", {
+              durationMs: Date.now() - startTime,
+              error: String(e),
+            })
+            console.error(e)
+            process.exit(1)
+          },
+        ),
+      ])
     }
 
     if (args.attach) {
@@ -711,23 +733,23 @@ export const RunCommand = cmd({
             return { data: { share } }
           },
           async prompt(opts: any) {
-            SessionPrompt.prompt({
+            promptResult = SessionPrompt.prompt({
               sessionID: opts.sessionID,
               parts: opts.parts,
               agent: opts.agent,
               model: opts.model,
               variant: opts.variant,
-            }).catch(() => {})
+            })
           },
           async command(opts: any) {
-            SessionPrompt.command({
+            promptResult = SessionPrompt.command({
               sessionID: opts.sessionID,
               command: opts.command,
               arguments: opts.arguments ?? "",
               agent: opts.agent,
               model: opts.model,
               variant: opts.variant,
-            }).catch(() => {})
+            })
           },
         },
         config: {
@@ -737,14 +759,15 @@ export const RunCommand = cmd({
         },
         event: {
           async subscribe() {
+            const queue: any[] = []
+            let resolve: (() => void) | null = null
+            const handler = (event: { payload: any }) => {
+              queue.push(event.payload)
+              resolve?.()
+            }
+            GlobalBus.on("event", handler)
+
             const stream = (async function* () {
-              const queue: any[] = []
-              let resolve: (() => void) | null = null
-              const handler = (event: { payload: any }) => {
-                queue.push(event.payload)
-                resolve?.()
-              }
-              GlobalBus.on("event", handler)
               try {
                 while (true) {
                   while (queue.length > 0) {

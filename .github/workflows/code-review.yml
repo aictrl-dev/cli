@@ -34,7 +34,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -z "$PR_NUMBER" ]; then
-            # workflow_dispatch: try to find the PR for this branch
             BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
             PR_NUMBER=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null || true)
             if [ -z "$PR_NUMBER" ]; then
@@ -46,7 +45,6 @@ jobs:
             echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
           fi
 
-          # 1. Check if this SHA was already reviewed
           echo "Checking if SHA $PR_SHA was already reviewed..."
           REVIEW_COMMENTS=$(gh pr view "$PR_NUMBER" --json comments --jq '.comments[].body' | grep -c "Reviewed SHA:" || true)
           LAST_REVIEW_SHA=$(gh pr view "$PR_NUMBER" --json comments --jq '.comments[].body' | grep -o "Reviewed SHA: [a-f0-9]\{40\}" | tail -n 1 | cut -d' ' -f3)
@@ -57,14 +55,12 @@ jobs:
             exit 0
           fi
 
-          # 2. Skip if 2+ reviews already exist (unless manually triggered)
           if [ "$REVIEW_COMMENTS" -ge 2 ] && [ "$IS_MANUAL" != "true" ]; then
             echo "PR already has $REVIEW_COMMENTS AI reviews. Skipping (use workflow_dispatch to force)."
             echo "skip=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          # 3. Check if there are any actual code changes
           echo "Checking changed files..."
           CODE_CHANGES=$(git diff --name-only "origin/$PR_BASE_REF...$PR_SHA" | grep -E '\.(ts|js|json|sh|yml|yaml)$' | grep -vE '^docs/|.*\.md$' || true)
 
@@ -86,54 +82,35 @@ jobs:
       - name: Install Aictrl CLI
         if: steps.check_changes.outputs.skip != 'true'
         run: |
-          # Install in isolated dir to avoid monorepo package.json with catalog: protocol
           mkdir -p "$RUNNER_TEMP/aictrl"
           cd "$RUNNER_TEMP/aictrl"
           npm init -y > /dev/null 2>&1
           npm install @aictrl/cli@latest
           echo "$RUNNER_TEMP/aictrl/node_modules/.bin" >> $GITHUB_PATH
 
-      - name: Generate Review Prompt
+      - name: Configure Review Permissions
         if: steps.check_changes.outputs.skip != 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Collect PR metadata and diff
-          gh pr diff "$PR_NUMBER" > "$RUNNER_TEMP/pr-diff.txt"
-          PR_TITLE=$(gh pr view "$PR_NUMBER" --json title --jq '.title')
-          PR_BODY=$(gh pr view "$PR_NUMBER" --json body --jq '.body')
-          DIFF_LINES=$(wc -l < "$RUNNER_TEMP/pr-diff.txt")
-          echo "Diff: $DIFF_LINES lines"
-
-          # Build review prompt as a file to avoid shell quoting issues
-          cat > "$RUNNER_TEMP/review-prompt.txt" << PROMPT_EOF
-          Review the following PR changes for the aictrl CLI.
-
-          ## PR #$PR_NUMBER: $PR_TITLE
-
-          $PR_BODY
-
-          ## Diff
-          \`\`\`diff
-          $(cat "$RUNNER_TEMP/pr-diff.txt")
-          \`\`\`
-
-          **IMPORTANT**: This is a code review only. Do NOT run tests, npm commands, or build commands. Do NOT try to read local files — all changes are provided above.
-
-          Focus areas:
-          1. **Code Quality**: Look for bugs, logic errors, and maintainability issues.
-          2. **Security**: Look for potential leaks or insecure handling of secrets/tokens.
-          3. **Streaming Integrity**: Check that SSE/streaming proxy logic doesn't buffer unnecessarily or break flows.
-          4. **Reliability**: Ensure error handling is robust and graceful.
-
-          Keep the review concise and high-signal. Post findings as a single markdown comment using:
-            gh pr comment $PR_NUMBER --body "<your review>"
-
-          Do NOT try to auto-detect the PR number — use exactly $PR_NUMBER.
-          The repository is ${{ github.repository }}, so use: gh pr comment $PR_NUMBER --repo ${{ github.repository }} --body "<your review>"
-
-          **CRITICAL**: Include the string 'Reviewed SHA: $PR_SHA' at the very end of your comment so we can track which commits have been reviewed.
-          PROMPT_EOF
+          # Allow the reviewer agent to read files and run gh commands
+          cat > opencode.json << 'PERM_EOF'
+          {
+            "permission": {
+              "read": "allow",
+              "bash": {
+                "gh *": "allow",
+                "git diff *": "allow",
+                "git log *": "allow",
+                "git show *": "allow",
+                "wc *": "allow",
+                "cat *": "allow",
+                "*": "deny"
+              },
+              "glob": "allow",
+              "grep": "allow",
+              "list": "allow"
+            }
+          }
+          PERM_EOF
 
       - name: Run Aictrl Review
         if: steps.check_changes.outputs.skip != 'true'
@@ -142,10 +119,11 @@ jobs:
           ZHIPU_API_KEY: ${{ secrets.ZHIPUAI_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          REVIEW_PR_NUMBER: ${{ env.PR_NUMBER }}
+          REVIEW_PR_SHA: ${{ env.PR_SHA }}
+          REVIEW_PR_BASE: ${{ env.PR_BASE_REF }}
+          REVIEW_REPO: ${{ github.repository }}
         run: |
           echo "Starting review for PR #$PR_NUMBER (SHA $PR_SHA)..."
-
-          # Run from a clean temp dir to avoid the monorepo's config affecting session
-          cd "$RUNNER_TEMP"
           aictrl run --format json --model zai-coding-plan/glm-5 \
-            "$(cat "$RUNNER_TEMP/review-prompt.txt")"
+            "You are reviewing PR #$REVIEW_PR_NUMBER on $REVIEW_REPO (SHA: $REVIEW_PR_SHA, base: $REVIEW_PR_BASE). You have access to the full repository checkout, gh CLI, and git. Use these tools to understand the changes — do NOT ask for the diff to be provided. Steps: 1) Run gh pr view $REVIEW_PR_NUMBER to get PR description. 2) Run gh pr diff $REVIEW_PR_NUMBER to see the changes. 3) Read any source files you need for context. 4) Focus on bugs, security issues, logic errors, and reliability. Skip style nits. 5) Post your review as a single comment: gh pr comment $REVIEW_PR_NUMBER --repo $REVIEW_REPO --body '<review>'. End with 'Reviewed SHA: $REVIEW_PR_SHA'."

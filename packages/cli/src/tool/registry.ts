@@ -30,6 +30,8 @@ import { Truncate } from "./truncation"
 import { ApplyPatchTool } from "./apply_patch"
 import { Glob } from "../util/glob"
 import { pathToFileURL } from "url"
+import { lstat, realpath } from "fs/promises"
+import { Filesystem } from "@/util/filesystem"
 
 export namespace ToolRegistry {
   const log = Log.create({ service: "tool.registry" })
@@ -43,7 +45,21 @@ export namespace ToolRegistry {
       ),
     )
     if (matches.length) await Config.waitForDependencies()
+    const allowedDirs = await Config.directories()
     for (const match of matches) {
+      // Validate symlinks point to allowed locations
+      const stats = await lstat(match).catch(() => null)
+      if (stats?.isSymbolicLink()) {
+        const resolved = await realpath(match).catch(() => null)
+        if (!resolved || !allowedDirs.some((dir) => Filesystem.contains(dir, resolved))) {
+          log.warn("Skipping symlinked tool outside allowed directories", {
+            path: match,
+            resolved: resolved ?? "unresolvable",
+          })
+          continue
+        }
+      }
+
       const namespace = path.basename(match, path.extname(match))
       const mod = await import(pathToFileURL(match).href)
       for (const [id, def] of Object.entries<ToolDefinition>(mod)) {

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { NamedError } from "@aictrl/util/error"
 import { APICallError } from "ai"
+import path from "path"
 import { SessionRetry } from "../../src/session/retry"
 import { MessageV2 } from "../../src/session/message-v2"
 
@@ -184,5 +185,19 @@ describe("session.message-v2.fromError", () => {
     })
     const result = MessageV2.fromError(error, { providerID: "openai" }) as MessageV2.APIError
     expect(result.data.isRetryable).toBe(true)
+  })
+})
+
+describe("session.retry.max_attempts", () => {
+  test("MAX_RETRY_ATTEMPTS is defined and reasonable", () => {
+    expect(SessionRetry.MAX_RETRY_ATTEMPTS).toBeGreaterThanOrEqual(5)
+    expect(SessionRetry.MAX_RETRY_ATTEMPTS).toBeLessThanOrEqual(20)
+  })
+
+  test("processor checks max retry attempts", async () => {
+    const source = await Bun.file(
+      path.join(import.meta.dir, "../../src/session/processor.ts"),
+    ).text()
+    expect(source).toMatch(/attempt\s*>\s*SessionRetry\.MAX_RETRY_ATTEMPTS/)
   })
 })

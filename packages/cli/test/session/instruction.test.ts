@@ -18,13 +18,11 @@ describe("InstructionPrompt.resolve", () => {
       fn: async () => {
         const system = await InstructionPrompt.systemPaths()
         expect(system.has(path.join(tmp.path, "AGENTS.md"))).toBe(true)
-
         const results = await InstructionPrompt.resolve([], path.join(tmp.path, "src", "file.ts"), "test-message-1")
         expect(results).toEqual([])
       },
     })
   })
-
   test("returns AGENTS.md from subdirectory (not in systemPaths)", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
@@ -37,7 +35,6 @@ describe("InstructionPrompt.resolve", () => {
       fn: async () => {
         const system = await InstructionPrompt.systemPaths()
         expect(system.has(path.join(tmp.path, "subdir", "AGENTS.md"))).toBe(false)
-
         const results = await InstructionPrompt.resolve(
           [],
           path.join(tmp.path, "subdir", "nested", "file.ts"),
@@ -48,7 +45,6 @@ describe("InstructionPrompt.resolve", () => {
       },
     })
   })
-
   test("doesn't reload AGENTS.md when reading it directly", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
@@ -62,7 +58,6 @@ describe("InstructionPrompt.resolve", () => {
         const filepath = path.join(tmp.path, "subdir", "AGENTS.md")
         const system = await InstructionPrompt.systemPaths()
         expect(system.has(filepath)).toBe(false)
-
         const results = await InstructionPrompt.resolve([], filepath, "test-message-2")
         expect(results).toEqual([])
       },
@@ -70,13 +65,12 @@ describe("InstructionPrompt.resolve", () => {
   })
 })
 
-describe("InstructionPrompt.systemPaths AICTRL_CONFIG_DIR", () => {
+describe("InstructionPrompt.systemPaths aICTRL_CONFIG_DIR", () => {
   let originalConfigDir: string | undefined
 
   beforeEach(() => {
     originalConfigDir = process.env["AICTRL_CONFIG_DIR"]
   })
-
   afterEach(() => {
     if (originalConfigDir === undefined) {
       delete process.env["AICTRL_CONFIG_DIR"]
@@ -115,7 +109,6 @@ describe("InstructionPrompt.systemPaths AICTRL_CONFIG_DIR", () => {
       ;(Global.Path as { config: string }).config = originalGlobalConfig
     }
   })
-
   test("falls back to global AGENTS.md when AICTRL_CONFIG_DIR has no AGENTS.md", async () => {
     await using profileTmp = await tmpdir()
     await using globalTmp = await tmpdir({
@@ -142,7 +135,6 @@ describe("InstructionPrompt.systemPaths AICTRL_CONFIG_DIR", () => {
       ;(Global.Path as { config: string }).config = originalGlobalConfig
     }
   })
-
   test("uses global AGENTS.md when AICTRL_CONFIG_DIR is not set", async () => {
     await using globalTmp = await tmpdir({
       init: async (dir) => {
@@ -154,7 +146,6 @@ describe("InstructionPrompt.systemPaths AICTRL_CONFIG_DIR", () => {
     delete process.env["AICTRL_CONFIG_DIR"]
     const originalGlobalConfig = Global.Path.config
     ;(Global.Path as { config: string }).config = globalTmp.path
-
     try {
       await Instance.provide({
         directory: projectTmp.path,
@@ -165,6 +156,43 @@ describe("InstructionPrompt.systemPaths AICTRL_CONFIG_DIR", () => {
       })
     } finally {
       ;(Global.Path as { config: string }).config = originalGlobalConfig
+    }
+  })
+})
+
+describe("InstructionPrompt URL caching", () => {
+  test("URL is fetched only once per session", async () => {
+    let fetchCount = 0
+    const port = 34567 + Math.floor(Math.random() * 10000)
+    const server = Bun.serve({
+      port,
+      fetch() {
+        fetchCount++
+        return new Response("cached content")
+      },
+    })
+
+    await using tmp = await tmpdir({
+      config: { instructions: [`http://localhost:${server.port}/test.txt`] },
+    })
+
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          // First call should fetch
+          const result1 = await InstructionPrompt.system()
+          expect(fetchCount).toBe(1)
+          expect(result1.find((r) => r.includes("cached content"))).toBeTruthy()
+          // Second call should use cache
+          const result2 = await InstructionPrompt.system()
+          expect(fetchCount).toBe(1) // Still 1, not 2
+          // Both results should be the same
+          expect(result1).toEqual(result2)
+        },
+      })
+    } finally {
+      server.stop()
     }
   })
 })

@@ -59,6 +59,11 @@ export namespace SessionStatus {
   }
 
   export function set(sessionID: string, status: Info) {
+    if (status.type === "idle") {
+      delete state()[sessionID]
+    } else {
+      state()[sessionID] = status
+    }
     Bus.publish(Event.Status, {
       sessionID,
       status,
@@ -68,9 +73,6 @@ export namespace SessionStatus {
       Bus.publish(Event.Idle, {
         sessionID,
       })
-      delete state()[sessionID]
-      return
     }
-    state()[sessionID] = status
   }
 }

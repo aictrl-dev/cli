@@ -361,8 +361,8 @@ test("does not derive tui path from AICTRL_CONFIG", async () => {
 })
 
 test("applies env and file substitutions in tui.json", async () => {
-  const original = process.env.TUI_THEME_TEST
-  process.env.TUI_THEME_TEST = "env-theme"
+  const original = process.env.AICTRL_TUI_THEME_TEST
+  process.env.AICTRL_TUI_THEME_TEST = "env-theme"
   try {
     await using tmp = await tmpdir({
       init: async (dir) => {
@@ -370,7 +370,7 @@ test("applies env and file substitutions in tui.json", async () => {
         await Bun.write(
           path.join(dir, "tui.json"),
           JSON.stringify({
-            theme: "{env:TUI_THEME_TEST}",
+            theme: "{env:AICTRL_TUI_THEME_TEST}",
             keybinds: { app_exit: "{file:keybind.txt}" },
           }),
         )
@@ -386,8 +386,8 @@ test("applies env and file substitutions in tui.json", async () => {
       },
     })
   } finally {
-    if (original === undefined) delete process.env.TUI_THEME_TEST
-    else process.env.TUI_THEME_TEST = original
+    if (original === undefined) delete process.env.AICTRL_TUI_THEME_TEST
+    else process.env.AICTRL_TUI_THEME_TEST = original
   }
 })
 

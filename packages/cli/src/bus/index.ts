@@ -49,18 +49,22 @@ export namespace Bus {
     log.info("publishing", {
       type: def.type,
     })
-    const pending = []
+    const pending: Promise<void>[] = []
     for (const key of [def.type, "*"]) {
       const match = state().subscriptions.get(key)
       for (const sub of match ?? []) {
-        pending.push(sub(payload))
+        pending.push(
+          Promise.resolve(sub(payload)).catch((error) => {
+            log.error("subscriber failed", { type: def.type, error })
+          }),
+        )
       }
     }
     GlobalBus.emit("event", {
       directory: Instance.directory,
       payload,
     })
-    return Promise.all(pending)
+    await Promise.all(pending)
   }
 
   export function subscribe<Definition extends BusEvent.Definition>(

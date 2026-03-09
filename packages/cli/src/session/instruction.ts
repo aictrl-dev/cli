@@ -11,9 +11,7 @@ import type { MessageV2 } from "./message-v2"
 
 const log = Log.create({ service: "instruction" })
 
-const FILES = [
-  "AGENTS.md",
-]
+const FILES = ["AGENTS.md"]
 
 function globalFiles() {
   const files = []
@@ -46,6 +44,7 @@ export namespace InstructionPrompt {
   const state = Instance.state(() => {
     return {
       claims: new Map<string, Set<string>>(),
+      urlCache: new Map<string, Promise<string>>(),
     }
   })
 
@@ -133,17 +132,27 @@ export namespace InstructionPrompt {
     }
 
     async function safeFetch(url: string): Promise<string> {
-      try {
-        const response = await fetch(url, { signal: AbortSignal.timeout(5000) })
-        if (!response || !response.ok) {
+      // Check cache first
+      const cached = state().urlCache.get(url)
+      if (cached) return cached
+
+      const promise = (async () => {
+        try {
+          const response = await fetch(url, { signal: AbortSignal.timeout(5000) })
+          if (!response || !response.ok) {
+            return ""
+          }
+          const text = await response.text()
+          return text ? "Instructions from: " + url + "\n" + text : ""
+        } catch (e) {
+          log.warn("failed to fetch instructions", { url, error: e })
           return ""
         }
-        const text = await response.text()
-        return text ? "Instructions from: " + url + "\n" + text : ""
-      } catch (e) {
-        log.warn("failed to fetch instructions", { url, error: e })
-        return ""
-      }
+      })()
+
+      // Store promise in cache
+      state().urlCache.set(url, promise)
+      return promise
     }
 
     const fetches = urls.map((url) => safeFetch(url))

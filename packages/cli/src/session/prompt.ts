@@ -79,6 +79,10 @@ export namespace SessionPrompt {
     async (current) => {
       for (const item of Object.values(current)) {
         item.abort.abort()
+        const reason = new Error("Session disposed")
+        for (const cb of item.callbacks) {
+          cb.reject(reason)
+        }
       }
     },
   )
@@ -262,6 +266,10 @@ export namespace SessionPrompt {
       return
     }
     match.abort.abort()
+    const reason = new Error("Session cancelled")
+    for (const cb of match.callbacks) {
+      cb.reject(reason)
+    }
     delete s[sessionID]
     SessionStatus.set(sessionID, { type: "idle" })
     return
@@ -331,7 +339,7 @@ export namespace SessionPrompt {
           modelID: lastUser.model.modelID,
           providerID: lastUser.model.providerID,
           history: msgs,
-        })
+        }).catch((e) => log.error("ensureTitle failed", { error: e }))
 
       const model = await Provider.getModel(lastUser.model.providerID, lastUser.model.modelID).catch((e) => {
         if (Provider.ModelNotFoundError.isInstance(e)) {
@@ -623,6 +631,8 @@ export namespace SessionPrompt {
         SessionSummary.summarize({
           sessionID: sessionID,
           messageID: lastUser.id,
+        }).catch((error) => {
+          log.error("summarize failed", { sessionID, error })
         })
       }
 
@@ -735,7 +745,7 @@ export namespace SessionPrompt {
       }
       continue
     }
-    SessionCompaction.prune({ sessionID })
+    await SessionCompaction.prune({ sessionID })
     for await (const item of MessageV2.stream(sessionID)) {
       if (item.info.role === "user") continue
       const queued = state()[sessionID]?.callbacks ?? []
@@ -1659,6 +1669,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     })
 
     let output = ""
+    let pending = Promise.resolve()
 
     proc.stdout?.on("data", (chunk) => {
       output += chunk.toString()
@@ -1667,7 +1678,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           output: output,
           description: "",
         }
-        Session.updatePart(part)
+        pending = pending.then(() => Session.updatePart(part)).then(() => {})
       }
     })
 
@@ -1678,7 +1689,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           output: output,
           description: "",
         }
-        Session.updatePart(part)
+        pending = pending.then(() => Session.updatePart(part)).then(() => {})
       }
     })
 
@@ -1710,6 +1721,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     if (aborted) {
       output += "\n\n" + ["<metadata>", "User aborted the command", "</metadata>"].join("\n")
     }
+    await pending
     msg.time.completed = Date.now()
     await Session.updateMessage(msg)
     if (part.state.status === "running") {

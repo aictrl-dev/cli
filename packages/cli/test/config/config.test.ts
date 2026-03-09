@@ -131,15 +131,15 @@ test("merges multiple config files with correct precedence", async () => {
 })
 
 test("handles environment variable substitution", async () => {
-  const originalEnv = process.env["TEST_VAR"]
-  process.env["TEST_VAR"] = "test-user"
+  const originalEnv = process.env["AICTRL_TEST_VAR"]
+  process.env["AICTRL_TEST_VAR"] = "test-user"
 
   try {
     await using tmp = await tmpdir({
       init: async (dir) => {
         await writeConfig(dir, {
           $schema: "https://aictrl.ai/config.json",
-          username: "{env:TEST_VAR}",
+          username: "{env:AICTRL_TEST_VAR}",
         })
       },
     })
@@ -152,16 +152,16 @@ test("handles environment variable substitution", async () => {
     })
   } finally {
     if (originalEnv !== undefined) {
-      process.env["TEST_VAR"] = originalEnv
+      process.env["AICTRL_TEST_VAR"] = originalEnv
     } else {
-      delete process.env["TEST_VAR"]
+      delete process.env["AICTRL_TEST_VAR"]
     }
   }
 })
 
 test("preserves env variables when adding $schema to config", async () => {
-  const originalEnv = process.env["PRESERVE_VAR"]
-  process.env["PRESERVE_VAR"] = "secret_value"
+  const originalEnv = process.env["AICTRL_PRESERVE_VAR"]
+  process.env["AICTRL_PRESERVE_VAR"] = "secret_value"
 
   try {
     await using tmp = await tmpdir({
@@ -170,7 +170,7 @@ test("preserves env variables when adding $schema to config", async () => {
         await Filesystem.write(
           path.join(dir, "aictrl.json"),
           JSON.stringify({
-            username: "{env:PRESERVE_VAR}",
+            username: "{env:AICTRL_PRESERVE_VAR}",
           }),
         )
       },
@@ -183,16 +183,16 @@ test("preserves env variables when adding $schema to config", async () => {
 
         // Read the file to verify the env variable was preserved
         const content = await Filesystem.readText(path.join(tmp.path, "aictrl.json"))
-        expect(content).toContain("{env:PRESERVE_VAR}")
+        expect(content).toContain("{env:AICTRL_PRESERVE_VAR}")
         expect(content).not.toContain("secret_value")
         expect(content).toContain("$schema")
       },
     })
   } finally {
     if (originalEnv !== undefined) {
-      process.env["PRESERVE_VAR"] = originalEnv
+      process.env["AICTRL_PRESERVE_VAR"] = originalEnv
     } else {
-      delete process.env["PRESERVE_VAR"]
+      delete process.env["AICTRL_PRESERVE_VAR"]
     }
   }
 })
@@ -1825,11 +1825,11 @@ describe("AICTRL_DISABLE_PROJECT_CONFIG", () => {
 describe("AICTRL_CONFIG_CONTENT token substitution", () => {
   test("substitutes {env:} tokens in AICTRL_CONFIG_CONTENT", async () => {
     const originalEnv = process.env["AICTRL_CONFIG_CONTENT"]
-    const originalTestVar = process.env["TEST_CONFIG_VAR"]
-    process.env["TEST_CONFIG_VAR"] = "test_api_key_12345"
+    const originalTestVar = process.env["AICTRL_TEST_CONFIG_VAR"]
+    process.env["AICTRL_TEST_CONFIG_VAR"] = "test_api_key_12345"
     process.env["AICTRL_CONFIG_CONTENT"] = JSON.stringify({
       $schema: "https://aictrl.ai/config.json",
-      username: "{env:TEST_CONFIG_VAR}",
+      username: "{env:AICTRL_TEST_CONFIG_VAR}",
     })
 
     try {
@@ -1848,9 +1848,9 @@ describe("AICTRL_CONFIG_CONTENT token substitution", () => {
         delete process.env["AICTRL_CONFIG_CONTENT"]
       }
       if (originalTestVar !== undefined) {
-        process.env["TEST_CONFIG_VAR"] = originalTestVar
+        process.env["AICTRL_TEST_CONFIG_VAR"] = originalTestVar
       } else {
-        delete process.env["TEST_CONFIG_VAR"]
+        delete process.env["AICTRL_TEST_CONFIG_VAR"]
       }
     }
   })

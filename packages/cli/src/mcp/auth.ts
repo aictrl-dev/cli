@@ -2,6 +2,7 @@ import path from "path"
 import z from "zod"
 import { Global } from "../global"
 import { Filesystem } from "../util/filesystem"
+import { Lock } from "../util/lock"
 
 export namespace McpAuth {
   export const Tokens = z.object({
@@ -29,6 +30,7 @@ export namespace McpAuth {
   })
   export type Entry = z.infer<typeof Entry>
 
+  const LOCK_KEY = "mcp-auth-json"
   const filepath = path.join(Global.Path.data, "mcp-auth.json")
 
   export async function get(mcpName: string): Promise<Entry | undefined> {
@@ -57,51 +59,63 @@ export namespace McpAuth {
     return Filesystem.readJson<Record<string, Entry>>(filepath).catch(() => ({}))
   }
 
-  export async function set(mcpName: string, entry: Entry, serverUrl?: string): Promise<void> {
+  // Internal write helper — must only be called while holding the lock.
+  // Reads current data, merges the entry, and writes back to disk.
+  async function _write(mcpName: string, entry: Entry, serverUrl?: string): Promise<void> {
     const data = await all()
-    // Always update serverUrl if provided
     if (serverUrl) {
       entry.serverUrl = serverUrl
     }
     await Filesystem.writeJson(filepath, { ...data, [mcpName]: entry }, 0o600)
   }
 
+  export async function set(mcpName: string, entry: Entry, serverUrl?: string): Promise<void> {
+    using _ = await Lock.write(LOCK_KEY)
+    await _write(mcpName, entry, serverUrl)
+  }
+
   export async function remove(mcpName: string): Promise<void> {
+    using _ = await Lock.write(LOCK_KEY)
     const data = await all()
     delete data[mcpName]
     await Filesystem.writeJson(filepath, data, 0o600)
   }
 
   export async function updateTokens(mcpName: string, tokens: Tokens, serverUrl?: string): Promise<void> {
+    using _ = await Lock.write(LOCK_KEY)
     const entry = (await get(mcpName)) ?? {}
     entry.tokens = tokens
-    await set(mcpName, entry, serverUrl)
+    await _write(mcpName, entry, serverUrl)
   }
 
   export async function updateClientInfo(mcpName: string, clientInfo: ClientInfo, serverUrl?: string): Promise<void> {
+    using _ = await Lock.write(LOCK_KEY)
     const entry = (await get(mcpName)) ?? {}
     entry.clientInfo = clientInfo
-    await set(mcpName, entry, serverUrl)
+    await _write(mcpName, entry, serverUrl)
   }
 
   export async function updateCodeVerifier(mcpName: string, codeVerifier: string): Promise<void> {
+    using _ = await Lock.write(LOCK_KEY)
     const entry = (await get(mcpName)) ?? {}
     entry.codeVerifier = codeVerifier
-    await set(mcpName, entry)
+    await _write(mcpName, entry)
   }
 
   export async function clearCodeVerifier(mcpName: string): Promise<void> {
+    using _ = await Lock.write(LOCK_KEY)
     const entry = await get(mcpName)
     if (entry) {
       delete entry.codeVerifier
-      await set(mcpName, entry)
+      await _write(mcpName, entry)
     }
   }
 
   export async function updateOAuthState(mcpName: string, oauthState: string): Promise<void> {
+    using _ = await Lock.write(LOCK_KEY)
     const entry = (await get(mcpName)) ?? {}
     entry.oauthState = oauthState
-    await set(mcpName, entry)
+    await _write(mcpName, entry)
   }
 
   export async function getOAuthState(mcpName: string): Promise<string | undefined> {
@@ -110,10 +124,11 @@ export namespace McpAuth {
   }
 
   export async function clearOAuthState(mcpName: string): Promise<void> {
+    using _ = await Lock.write(LOCK_KEY)
     const entry = await get(mcpName)
     if (entry) {
       delete entry.oauthState
-      await set(mcpName, entry)
+      await _write(mcpName, entry)
     }
   }
 

@@ -15,6 +15,7 @@ import { Config } from "@/config/config"
 import { SessionCompaction } from "./compaction"
 import { PermissionNext } from "@/permission/next"
 import { Question } from "@/question"
+import { NamedError } from "@aictrl/util/error"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
@@ -278,6 +279,8 @@ export namespace SessionProcessor {
                   SessionSummary.summarize({
                     sessionID: input.sessionID,
                     messageID: input.assistantMessage.parentID,
+                  }).catch((error) => {
+                    log.error("summarize failed", { sessionID: input.sessionID, error })
                   })
                   if (await SessionCompaction.isOverflow({ tokens: usage.tokens, model: input.model })) {
                     needsCompaction = true
@@ -327,7 +330,7 @@ export namespace SessionProcessor {
                     )
                     currentText.text = textOutput.text
                     currentText.time = {
-                      start: Date.now(),
+                      start: currentText.time?.start ?? Date.now(),
                       end: Date.now(),
                     }
                     if (value.providerMetadata) currentText.metadata = value.providerMetadata
@@ -359,6 +362,18 @@ export namespace SessionProcessor {
             const retry = SessionRetry.retryable(error)
             if (retry !== undefined) {
               attempt++
+              if (attempt > SessionRetry.MAX_RETRY_ATTEMPTS) {
+                log.error("max retry attempts reached", { attempt, retry })
+                input.assistantMessage.error = new NamedError.Unknown({
+                  message: `Max retry attempts (${SessionRetry.MAX_RETRY_ATTEMPTS}) reached: ${retry}`,
+                }).toObject()
+                Bus.publish(Session.Event.Error, {
+                  sessionID: input.assistantMessage.sessionID,
+                  error: input.assistantMessage.error,
+                })
+                SessionStatus.set(input.sessionID, { type: "idle" })
+                break
+              }
               const delay = SessionRetry.delay(attempt, error.name === "APIError" ? error : undefined)
               SessionStatus.set(input.sessionID, {
                 type: "retry",

@@ -214,10 +214,12 @@ export namespace Session {
       "session.skills_loaded",
       z.object({
         sessionID: z.string(),
-        skills: z.array(z.object({
-          name: z.string(),
-          location: z.string(),
-        })),
+        skills: z.array(
+          z.object({
+            name: z.string(),
+            location: z.string(),
+          }),
+        ),
       }),
     ),
   }
@@ -811,13 +813,20 @@ export namespace Session {
           0) as number,
       )
 
-      // OpenRouter provides inputTokens as the total count of input tokens (including cached).
-      // AFAIK other providers (OpenRouter/OpenAI/Gemini etc.) do it the same way e.g. vercel/ai#8794 (comment)
-      // Anthropic does it differently though - inputTokens doesn't include cached tokens.
-      // It looks like Aictrl's cost calculation assumes all providers return inputTokens the same way Anthropic does (I'm guessing getUsage logic was originally implemented with anthropic), so it's causing incorrect cost calculation for OpenRouter and others.
-      const excludesCachedTokens = !!(input.metadata?.["anthropic"] || input.metadata?.["bedrock"])
+      // Providers where inputTokens EXCLUDES cached tokens
+      const excludesCachedTokens = [
+        "@ai-sdk/anthropic",
+        "@ai-sdk/amazon-bedrock",
+        "@ai-sdk/google-vertex/anthropic",
+      ].includes(input.model.api.npm)
+
+      // Adjust input tokens based on provider behavior:
+      // - Anthropic/Bedrock/Vertex-Anthropic: inputTokens does NOT include cached tokens (use as-is)
+      // - OpenAI/Google/OpenRouter/others: inputTokens DOES include cached tokens (subtract them)
       const adjustedInputTokens = safe(
-        excludesCachedTokens ? inputTokens : inputTokens - cacheReadInputTokens - cacheWriteInputTokens,
+        excludesCachedTokens
+          ? inputTokens // Already excludes cached
+          : inputTokens - cacheReadInputTokens - cacheWriteInputTokens, // Includes cached, subtract
       )
 
       const total = iife(() => {

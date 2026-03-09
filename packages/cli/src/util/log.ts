@@ -52,15 +52,23 @@ export namespace Log {
   export function file() {
     return logpath
   }
-  let write = (msg: any) => {
-    process.stderr.write(msg)
-    return msg.length
+  let write: (_msg: any) => any = (_msg: any) => {
+    // Before init(), silently discard log messages.
+    // This prevents stderr pollution in CI when exception handlers
+    // fire before yargs middleware calls Log.init().
+    return 0
   }
 
   export async function init(options: Options) {
     if (options.level) level = options.level
     cleanup(Global.Path.log)
-    if (options.print) return
+    if (options.print) {
+      write = (msg: any) => {
+        process.stderr.write(msg)
+        return msg.length
+      }
+      return
+    }
     logpath = path.join(
       Global.Path.log,
       options.dev ? "dev.log" : new Date().toISOString().split(".")[0].replace(/:/g, "") + ".log",

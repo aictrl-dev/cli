@@ -32,13 +32,17 @@ import { Database } from "./storage/db"
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {
     e: e instanceof Error ? e.message : e,
+    stack: e instanceof Error ? e.stack : undefined,
   })
+  process.exit(1)
 })
 
 process.on("uncaughtException", (e) => {
   Log.Default.error("exception", {
     e: e instanceof Error ? e.message : e,
+    stack: e instanceof Error ? e.stack : undefined,
   })
+  process.exit(1)
 })
 
 let cli = yargs(hideBin(process.argv))
@@ -79,8 +83,13 @@ let cli = yargs(hideBin(process.argv))
       args: process.argv.slice(2),
     })
 
-    const marker = path.join(Global.Path.data, "aictrl.db")
-    if (!(await Filesystem.exists(marker))) {
+    const storageDir = path.join(Global.Path.data, "storage")
+    const migrationMarker = path.join(Global.Path.data, "json-migration-complete")
+
+    // Only attempt JSON migration if:
+    // 1. The legacy storage directory exists (there's data to migrate)
+    // 2. The migration-complete marker does not exist (migration hasn't succeeded yet)
+    if ((await Filesystem.exists(storageDir)) && !(await Filesystem.exists(migrationMarker))) {
       const tty = process.stderr.isTTY
       process.stderr.write("Performing one time database migration, may take a few minutes..." + EOL)
       const width = 36
@@ -107,13 +116,19 @@ let cli = yargs(hideBin(process.argv))
             }
           },
         })
+        // Write marker ONLY after successful migration
+        await Filesystem.write(migrationMarker, String(Date.now()))
+        process.stderr.write("Database migration complete." + EOL)
+      } catch (error) {
+        Log.Default.error("json migration failed", { error })
+        process.stderr.write("Database migration failed. It will be retried on next launch." + EOL)
+        // Don't write marker -- migration will retry on next launch.
+        // The transaction in JsonMigration.run() was rolled back by SQLite,
+        // so the database is in a clean state for retry.
       } finally {
         if (tty) process.stderr.write("\x1b[?25h")
-        else {
-          process.stderr.write(`sqlite-migration:done${EOL}`)
-        }
+        else process.stderr.write(`sqlite-migration:done${EOL}`)
       }
-      process.stderr.write("Database migration complete." + EOL)
     }
   })
   .usage("")
