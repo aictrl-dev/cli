@@ -25,7 +25,7 @@
     },
     "packages/cli": {
       "name": "@aictrl/cli",
-      "version": "0.1.9",
+      "version": "0.2.0",
       "bin": {
         "aictrl": "./bin/aictrl",
       },
@@ -124,7 +124,7 @@
         "zod-to-json-schema": "3.24.5",
       },
       "optionalDependencies": {
-        "@aictrl/cli-linux-x64": "0.1.9",
+        "@aictrl/cli-linux-x64": "0.2.0",
         "@parcel/watcher": "2.5.1",
         "bun-pty": "0.4.8",
       },
@@ -338,8 +338,6 @@
     "@ai-sdk/xai": ["@ai-sdk/xai@2.0.51", "", { "dependencies": { "@ai-sdk/openai-compatible": "1.0.30", "@ai-sdk/provider": "2.0.1", "@ai-sdk/provider-utils": "3.0.20" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-AI3le03qiegkZvn9hpnpDwez49lOvQLj4QUBT8H41SMbrdTYOxn3ktTwrsSu90cNDdzKGMvoH0u2GHju1EdnCg=="],
 
     "@aictrl/cli": ["@aictrl/cli@workspace:packages/cli"],
-
-    "@aictrl/cli-linux-x64": ["@aictrl/cli-linux-x64@0.1.9", "", { "os": "linux", "cpu": "x64" }, "sha512-onGW3WXrtUmUNDPRX5Psrul3ZX/6m+3B5dR28hG6L3afqUG2tkLymH0Q30QTrgYWxS2MrJ+RyTrAiPDayqoYHg=="],
 
     "@aictrl/plugin": ["@aictrl/plugin@workspace:packages/plugin"],
 
