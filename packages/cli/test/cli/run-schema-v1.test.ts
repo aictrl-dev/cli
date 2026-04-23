@@ -34,4 +34,11 @@ describe("run.ts v1 schema emissions (#63)", () => {
     expect(block).toContain('schemaVersion: "1"')
     expect(block).toContain("permissions:")
   })
+
+  test("session_error is emitted before session_complete on failure", async () => {
+    const source = await Bun.file(RUN_SRC).text()
+    const errIdx = source.indexOf('emit("session_error"')
+    expect(errIdx).toBeGreaterThan(-1)
+    expect(errIdx).toBeLessThan(source.lastIndexOf('emit("session_complete"'))
+  })
 })

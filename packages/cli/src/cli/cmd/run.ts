@@ -3,6 +3,7 @@ import path from "path"
 import { pathToFileURL } from "bun"
 import { UI } from "../ui"
 import { cmd } from "./cmd"
+import { classifySessionError } from "./run.errors"
 import { Flag } from "../../flag/flag"
 import { bootstrap } from "../bootstrap"
 import { EOL } from "os"
@@ -699,9 +700,15 @@ export const RunCommand = cmd({
           })
         })
         .catch((e) => {
+          const classified = classifySessionError(e)
+          emit("session_error", {
+            reason: classified.reason,
+            code: classified.code,
+            message: classified.message,
+          })
           emit("session_complete", {
             durationMs: Date.now() - startTime,
-            error: String(e),
+            error: classified.message,
           })
           console.error(e)
           process.exit(1)
@@ -740,9 +747,15 @@ export const RunCommand = cmd({
           // If prompt rejects, surface the error immediately
           (e) => {
             error = error ? error + EOL + String(e) : String(e)
+            const classified = classifySessionError(e)
+            emit("session_error", {
+              reason: classified.reason,
+              code: classified.code,
+              message: classified.message,
+            })
             emit("session_complete", {
               durationMs: Date.now() - startTime,
-              error: String(e),
+              error: classified.message,
             })
             console.error(e)
             process.exit(1)
