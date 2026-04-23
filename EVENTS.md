@@ -104,7 +104,7 @@ Emitted when a text block from the assistant is complete.
 }
 ```
 
-- `sequenceNum` (number, **required**) — monotonic per-session counter shared across `text`, `reasoning`, and `tool_use` events. Use it to render a correctly-ordered trace without relying on timestamp ties. Subagent sessions have their own independent counters keyed on `part.sessionID`.
+- `sequenceNum` (number, **required**) — monotonic per-session counter shared across `text`, `reasoning`, and `tool_use` events. Use it to render a correctly-ordered trace without relying on timestamp ties. Subagent sessions have their own independent counters keyed on `part.sessionID`. Note: in JSON mode only `tool_use` events are emitted for subagent sessions, so subagent counters increment only on tool_use.
 
 ### `reasoning`
 
@@ -121,7 +121,7 @@ Emitted when extended thinking content is complete (requires `--thinking` flag).
 }
 ```
 
-- `sequenceNum` (number, **required**) — monotonic per-session counter shared across `text`, `reasoning`, and `tool_use` events. Use it to render a correctly-ordered trace without relying on timestamp ties. Subagent sessions have their own independent counters keyed on `part.sessionID`.
+- `sequenceNum` (number, **required**) — monotonic per-session counter shared across `text`, `reasoning`, and `tool_use` events. Use it to render a correctly-ordered trace without relying on timestamp ties. Subagent sessions have their own independent counters keyed on `part.sessionID`. Note: in JSON mode only `tool_use` events are emitted for subagent sessions, so subagent counters increment only on tool_use.
 - One event is emitted per complete reasoning block. `part.text` has no size cap; consumers must accept arbitrarily large strings.
 
 ## Tool Events
@@ -146,7 +146,7 @@ Emitted when a tool call completes (success or error). This includes tools execu
 }
 ```
 
-- `sequenceNum` (number, **required**) — monotonic per-session counter shared across `text`, `reasoning`, and `tool_use` events. Use it to render a correctly-ordered trace without relying on timestamp ties. Subagent sessions have their own independent counters keyed on `part.sessionID`.
+- `sequenceNum` (number, **required**) — monotonic per-session counter shared across `text`, `reasoning`, and `tool_use` events. Use it to render a correctly-ordered trace without relying on timestamp ties. Subagent sessions have their own independent counters keyed on `part.sessionID`. Note: in JSON mode only `tool_use` events are emitted for subagent sessions, so subagent counters increment only on tool_use.
 
 `state.status` is `"completed"` or `"error"`. On error, `state.error` contains the error message.
 

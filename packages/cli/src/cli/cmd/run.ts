@@ -718,7 +718,7 @@ export const RunCommand = cmd({
             error: classified.message,
           })
           console.error(e)
-          process.exit(1)
+          process.exitCode = 1
         })
 
       if (args.command) {
@@ -765,7 +765,7 @@ export const RunCommand = cmd({
               error: classified.message,
             })
             console.error(e)
-            process.exit(1)
+            process.exitCode = 1
           },
         ),
       ])
