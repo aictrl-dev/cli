@@ -625,7 +625,8 @@ export const RunCommand = cmd({
 
           if (event.type === "permission.asked") {
             const permission = event.properties
-            if (permission.sessionID !== sessionID) continue
+            const ownSession = permission.sessionID === sessionID
+            if (!ownSession && !childSessions.has(permission.sessionID)) continue
             emit("permission_rejected", {
               callID: permission.tool?.callID,
               tool: (permission.metadata?.tool as string | undefined) ?? permission.permission,
@@ -648,7 +649,7 @@ export const RunCommand = cmd({
 
           if (event.type === "permission.granted") {
             const permission = event.properties
-            if (permission.sessionID !== sessionID) continue
+            if (permission.sessionID !== sessionID && !childSessions.has(permission.sessionID)) continue
             emit("permission_granted", {
               callID: permission.tool?.callID,
               tool: (permission.metadata?.tool as string | undefined) ?? permission.permission,

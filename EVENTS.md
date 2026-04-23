@@ -49,6 +49,8 @@ Emitted once when the session ends (success or failure).
 `error` is `null` on success, or a string describing the failure.
 
 > **Deprecated in v1.** Prefer the structured `session_error` event for new consumers. `session_complete.error` remains populated for back-compat and will be removed in a future schema version.
+>
+> Note: `session_error` is only emitted when the session terminates abnormally (provider/auth/rate-limit/timeout/OOM). Non-fatal errors that accumulate during an otherwise-successful run surface as individual `error` events and may also appear concatenated in `session_complete.error` without a preceding `session_error`. Alerting logic should key on `session_error`, not on `session_complete.error`.
 
 ### `session_error`
 
