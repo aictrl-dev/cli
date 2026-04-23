@@ -1,8 +1,7 @@
 import type { Argv } from "yargs"
 import { cmd } from "./cmd"
+import { SCHEMA_VERSION } from "./run.errors"
 import EVENTS_MD from "../../../../../EVENTS.md" with { type: "text" }
-
-const SCHEMA_VERSION = "1"
 
 export const EventsCommand = cmd({
   command: "events",
@@ -18,6 +17,6 @@ export const EventsCommand = cmd({
       process.stdout.write(SCHEMA_VERSION + "\n")
       return
     }
-    process.stdout.write(EVENTS_MD as unknown as string)
+    process.stdout.write(EVENTS_MD)
   },
 })

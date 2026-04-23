@@ -160,7 +160,7 @@ export namespace PermissionNext {
       }
       if ((request.patterns ?? []).length > 0) {
         const id = input.id ?? Identifier.ascending("permission")
-        Bus.publish(Event.Granted, { id, ...request } as Request)
+        Bus.publish(Event.Granted, { ...request, id } as Request)
       }
     },
   )

@@ -3,7 +3,7 @@ import path from "path"
 import { pathToFileURL } from "bun"
 import { UI } from "../ui"
 import { cmd } from "./cmd"
-import { classifySessionError } from "./run.errors"
+import { classifySessionError, SCHEMA_VERSION } from "./run.errors"
 import { Flag } from "../../flag/flag"
 import { bootstrap } from "../bootstrap"
 import { EOL } from "os"
@@ -692,7 +692,7 @@ export const RunCommand = cmd({
       await share(sdk, sessionID)
 
       emit("session_start", {
-        schemaVersion: "1",
+        schemaVersion: SCHEMA_VERSION,
         model: args.model,
         agent: agent,
         permissions: PermissionNext.merge(agentInfo.permission, rules),
@@ -752,8 +752,8 @@ export const RunCommand = cmd({
           () => loopDone,
           // If prompt rejects, surface the error immediately
           (e) => {
-            error = error ? error + EOL + String(e) : String(e)
             const classified = classifySessionError(e)
+            error = error ? error + EOL + classified.message : classified.message
             emit("session_error", {
               reason: classified.reason,
               code: classified.code,

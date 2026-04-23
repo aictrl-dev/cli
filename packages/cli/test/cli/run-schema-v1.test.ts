@@ -31,7 +31,7 @@ describe("run.ts v1 schema emissions (#63)", () => {
     const idx = source.indexOf('emit("session_start"')
     expect(idx).toBeGreaterThan(-1)
     const block = source.slice(idx, idx + 400)
-    expect(block).toContain('schemaVersion: "1"')
+    expect(block).toContain("schemaVersion: SCHEMA_VERSION")
     expect(block).toContain("permissions:")
   })
 
