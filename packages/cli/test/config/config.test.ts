@@ -1550,7 +1550,7 @@ describe("getPluginName", () => {
 
   test("extracts name from scoped npm package", () => {
     expect(Config.getPluginName("@scope/pkg@1.0.0")).toBe("@scope/pkg")
-    expect(Config.getPluginName("@aictrl/plugin@2.0.0")).toBe("@aictrl/plugin")
+    expect(Config.getPluginName("@aictrl/plugin-sdk@2.0.0")).toBe("@aictrl/plugin-sdk")
   })
 
   test("returns full string for package without version", () => {

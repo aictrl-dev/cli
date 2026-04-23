@@ -254,7 +254,7 @@ export namespace Config {
     }))
     json.dependencies = {
       ...json.dependencies,
-      "@aictrl/plugin": targetVersion,
+      "@aictrl/plugin-sdk": targetVersion,
     }
     await Filesystem.writeJson(pkg, json)
 
@@ -304,15 +304,15 @@ export namespace Config {
 
     const parsed = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(pkg).catch(() => null)
     const dependencies = parsed?.dependencies ?? {}
-    const depVersion = dependencies["@aictrl/plugin"]
+    const depVersion = dependencies["@aictrl/plugin-sdk"]
     if (!depVersion) return true
 
     const targetVersion = Installation.isLocal() ? "latest" : Installation.VERSION
     if (targetVersion === "latest") {
-      const isOutdated = await PackageRegistry.isOutdated("@aictrl/plugin", depVersion, dir)
+      const isOutdated = await PackageRegistry.isOutdated("@aictrl/plugin-sdk", depVersion, dir)
       if (!isOutdated) return false
       log.info("Cached version is outdated, proceeding with install", {
-        pkg: "@aictrl/plugin",
+        pkg: "@aictrl/plugin-sdk",
         cachedVersion: depVersion,
       })
       return true

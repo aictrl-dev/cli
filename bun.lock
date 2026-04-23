@@ -5,7 +5,7 @@
     "": {
       "name": "aictrl",
       "dependencies": {
-        "@aictrl/plugin": "workspace:*",
+        "@aictrl/plugin-sdk": "workspace:*",
         "@aictrl/script": "workspace:*",
         "@aictrl/sdk": "workspace:*",
         "@aws-sdk/client-s3": "3.933.0",
@@ -25,7 +25,7 @@
     },
     "packages/cli": {
       "name": "@aictrl/cli",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "bin": {
         "aictrl": "./bin/aictrl",
       },
@@ -35,7 +35,7 @@
         "@agentclientprotocol/sdk": "0.14.1",
         "@ai-sdk/provider": "2.0.1",
         "@ai-sdk/provider-utils": "3.0.21",
-        "@aictrl/plugin": "workspace:*",
+        "@aictrl/plugin-sdk": "workspace:*",
         "@aictrl/sdk": "workspace:*",
         "@aictrl/util": "workspace:*",
         "@clack/prompts": "1.0.0-alpha.1",
@@ -177,8 +177,8 @@
       ],
     },
     "packages/plugin": {
-      "name": "@aictrl/plugin",
-      "version": "1.2.16",
+      "name": "@aictrl/plugin-sdk",
+      "version": "0.1.0",
       "dependencies": {
         "@aictrl/sdk": "workspace:*",
         "zod": "catalog:",
@@ -338,7 +338,7 @@
 
     "@aictrl/cli": ["@aictrl/cli@workspace:packages/cli"],
 
-    "@aictrl/plugin": ["@aictrl/plugin@workspace:packages/plugin"],
+    "@aictrl/plugin-sdk": ["@aictrl/plugin-sdk@workspace:packages/plugin"],
 
     "@aictrl/script": ["@aictrl/script@workspace:packages/script"],
 

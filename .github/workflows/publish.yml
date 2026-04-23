@@ -55,9 +55,9 @@ jobs:
         working-directory: packages/util
         run: ${{ github.workspace }}/.github/scripts/publish-if-new.sh "@aictrl/util"
 
-      - name: Publish @aictrl/plugin
+      - name: Publish @aictrl/plugin-sdk
         working-directory: packages/plugin
-        run: ${{ github.workspace }}/.github/scripts/publish-if-new.sh "@aictrl/plugin"
+        run: ${{ github.workspace }}/.github/scripts/publish-if-new.sh "@aictrl/plugin-sdk"
 
       - name: Publish @aictrl/sdk
         working-directory: packages/sdk

@@ -1,5 +1,5 @@
 /// <reference path="../env.d.ts" />
-import { tool } from "@aictrl/plugin"
+import { tool } from "@aictrl/plugin-sdk"
 import DESCRIPTION from "./github-triage.txt"
 
 const TEAM = {
