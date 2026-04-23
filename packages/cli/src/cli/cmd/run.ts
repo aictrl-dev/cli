@@ -620,8 +620,11 @@ export const RunCommand = cmd({
             const permission = event.properties
             if (permission.sessionID !== sessionID) continue
             emit("permission_rejected", {
+              callID: permission.tool?.callID,
+              tool: (permission.metadata?.tool as string | undefined) ?? permission.permission,
               permission: permission.permission,
               patterns: permission.patterns,
+              input: permission.metadata?.input ?? null,
             })
             if (args.format !== "json") {
               UI.println(
