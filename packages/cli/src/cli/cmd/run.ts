@@ -638,6 +638,18 @@ export const RunCommand = cmd({
               reply: "reject",
             })
           }
+
+          if (event.type === "permission.granted") {
+            const permission = event.properties
+            if (permission.sessionID !== sessionID) continue
+            emit("permission_granted", {
+              callID: permission.tool?.callID,
+              tool: (permission.metadata?.tool as string | undefined) ?? permission.permission,
+              permission: permission.permission,
+              patterns: permission.patterns,
+              input: permission.metadata?.input ?? null,
+            })
+          }
         }
       }
 

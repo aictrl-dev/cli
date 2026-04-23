@@ -104,6 +104,7 @@ export namespace PermissionNext {
         reply: Reply,
       }),
     ),
+    Granted: BusEvent.define("permission.granted", Request),
   }
 
   const state = Instance.state(() => {
@@ -156,6 +157,10 @@ export namespace PermissionNext {
           })
         }
         if (rule.action === "allow") continue
+      }
+      if ((request.patterns ?? []).length > 0) {
+        const id = input.id ?? Identifier.ascending("permission")
+        Bus.publish(Event.Granted, { id, ...request } as Request)
       }
     },
   )
