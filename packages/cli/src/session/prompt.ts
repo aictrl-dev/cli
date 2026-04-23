@@ -754,7 +754,7 @@ export namespace SessionPrompt {
     using _ = log.time("resolveTools")
     const tools: Record<string, AITool> = {}
 
-    const context = (args: any, options: ToolCallOptions): Tool.Context => ({
+    const context = (toolId: string, args: any, options: ToolCallOptions): Tool.Context => ({
       sessionID: input.session.id,
       abort: options.abortSignal!,
       messageID: input.processor.message.id,
@@ -782,6 +782,11 @@ export namespace SessionPrompt {
       async ask(req) {
         await PermissionNext.ask({
           ...req,
+          metadata: {
+            ...(req.metadata ?? {}),
+            tool: (req.metadata as any)?.tool ?? toolId,
+            input: (req.metadata as any)?.input ?? args,
+          },
           sessionID: input.session.id,
           tool: { messageID: input.processor.message.id, callID: options.toolCallId },
           ruleset: PermissionNext.merge(input.agent.permission, input.session.permission ?? []),
@@ -800,7 +805,7 @@ export namespace SessionPrompt {
         description: item.description,
         inputSchema: jsonSchema(schema as any),
         async execute(args, options) {
-          const ctx = context(args, options)
+          const ctx = context(item.id, args, options)
           await Plugin.trigger(
             "tool.execute.before",
             {
@@ -845,7 +850,7 @@ export namespace SessionPrompt {
       item.inputSchema = jsonSchema(transformed)
       // Wrap execute to add plugin hooks and format output
       item.execute = async (args, opts) => {
-        const ctx = context(args, opts)
+        const ctx = context(key, args, opts)
 
         await Plugin.trigger(
           "tool.execute.before",
