@@ -55,9 +55,10 @@ jobs:
         working-directory: packages/util
         run: ${{ github.workspace }}/.github/scripts/publish-if-new.sh "@aictrl/util"
 
-      - name: Publish @aictrl/plugin
-        working-directory: packages/plugin
-        run: ${{ github.workspace }}/.github/scripts/publish-if-new.sh "@aictrl/plugin"
+      # Note: @aictrl/plugin (workspace at packages/plugin) is the first-party
+      # plugin-author SDK used internally by the CLI and .opencode/tool/. It is
+      # marked "private": true and is NOT published to npm. Plugin types ship
+      # embedded in the compiled CLI binary at runtime.
 
       - name: Publish @aictrl/sdk
         working-directory: packages/sdk

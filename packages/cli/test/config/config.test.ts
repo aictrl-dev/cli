@@ -1559,6 +1559,36 @@ describe("getPluginName", () => {
   })
 })
 
+describe("installDependencies migration", () => {
+  test("scrubs legacy @aictrl/plugin* keys from user package.json", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Filesystem.write(
+          path.join(dir, "package.json"),
+          JSON.stringify({
+            name: "existing",
+            dependencies: {
+              "@aictrl/plugin": "1.2.16",
+              cowsay: "^1.6.0",
+            },
+          }),
+        )
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await Config.installDependencies(tmp.path).catch(() => {})
+        const parsed = await Filesystem.readJson<{ dependencies: Record<string, string> }>(
+          path.join(tmp.path, "package.json"),
+        )
+        expect(parsed.dependencies["@aictrl/plugin"]).toBeUndefined()
+        expect(parsed.dependencies["cowsay"]).toBe("^1.6.0")
+      },
+    })
+  })
+})
+
 describe("deduplicatePlugins", () => {
   test("removes duplicates keeping higher priority (later entries)", () => {
     const plugins = ["global-plugin@1.0.0", "shared-plugin@1.0.0", "local-plugin@2.0.0", "shared-plugin@2.0.0"]

@@ -74,7 +74,7 @@ Replace `<platform>` with your platform (e.g., `darwin-arm64`, `linux-x64`).
   - `packages/aictrl/src/cli/cmd/tui/`: The TUI code, written in SolidJS with [opentui](https://github.com/sst/opentui)
   - `packages/app`: The shared web UI components, written in SolidJS
   - `packages/desktop`: The native desktop app, built with Tauri (wraps `packages/app`)
-  - `packages/plugin`: Source for `@aictrl/plugin`
+  - `packages/plugin`: Source for `@aictrl/plugin` — first-party plugin-author SDK (types + `tool()` factory). Workspace-only, marked `"private": true`, not published to npm; types are embedded in the compiled CLI binary at runtime.
 
 ### Understanding bun dev vs aictrl
 
