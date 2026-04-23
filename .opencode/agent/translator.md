@@ -608,7 +608,7 @@ XDG_CONFIG_HOME
 ```text
 ../../../config.mjs
 @astrojs/starlight/components
-@aictrl/plugin
+@aictrl/plugin-sdk
 @aictrl/sdk
 path
 shescape

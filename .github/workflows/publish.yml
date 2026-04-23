@@ -55,9 +55,10 @@ jobs:
         working-directory: packages/util
         run: ${{ github.workspace }}/.github/scripts/publish-if-new.sh "@aictrl/util"
 
-      - name: Publish @aictrl/plugin
-        working-directory: packages/plugin
-        run: ${{ github.workspace }}/.github/scripts/publish-if-new.sh "@aictrl/plugin"
+      # Note: @aictrl/plugin-sdk (workspace at packages/plugin) is NOT published here.
+      # It releases on its own cadence to avoid per-CLI-release npm ceremony and
+      # because the underlying npm name @aictrl/plugin is used by an independent
+      # telemetry package. See CONTRIBUTING.md.
 
       - name: Publish @aictrl/sdk
         working-directory: packages/sdk

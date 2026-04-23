@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "name": "@aictrl/plugin",
-  "version": "1.2.16",
+  "name": "@aictrl/plugin-sdk",
+  "version": "0.1.0",
   "type": "module",
   "license": "MIT",
   "repository": {

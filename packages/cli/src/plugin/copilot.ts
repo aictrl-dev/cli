@@ -1,4 +1,4 @@
-import type { Hooks, PluginInput } from "@aictrl/plugin"
+import type { Hooks, PluginInput } from "@aictrl/plugin-sdk"
 import { Installation } from "@/installation"
 import { iife } from "@/util/iife"
 
