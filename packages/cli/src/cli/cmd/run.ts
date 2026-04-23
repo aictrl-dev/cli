@@ -3,6 +3,7 @@ import path from "path"
 import { pathToFileURL } from "bun"
 import { UI } from "../ui"
 import { cmd } from "./cmd"
+import { classifySessionError, SCHEMA_VERSION } from "./run.errors"
 import { Flag } from "../../flag/flag"
 import { bootstrap } from "../bootstrap"
 import { EOL } from "os"
@@ -447,6 +448,12 @@ export const RunCommand = cmd({
       let error: string | undefined
       const startTime = Date.now()
       const childSessions = new Set<string>()
+      const seqBySession = new Map<string, number>()
+      function nextSeq(sid: string): number {
+        const n = (seqBySession.get(sid) ?? 0) + 1
+        seqBySession.set(sid, n)
+        return n
+      }
 
       async function loop() {
         const toggles = new Map<string, boolean>()
@@ -484,13 +491,13 @@ export const RunCommand = cmd({
                 part.type === "tool" &&
                 (part.state.status === "completed" || part.state.status === "error")
               ) {
-                emit("tool_use", { part })
+                emit("tool_use", { part, sequenceNum: nextSeq(part.sessionID) })
               }
               continue
             }
 
             if (part.type === "tool" && (part.state.status === "completed" || part.state.status === "error")) {
-              if (emit("tool_use", { part })) continue
+              if (emit("tool_use", { part, sequenceNum: nextSeq(part.sessionID) })) continue
               if (part.state.status === "completed") {
                 tool(part)
                 continue
@@ -522,7 +529,7 @@ export const RunCommand = cmd({
             }
 
             if (part.type === "text" && part.time?.end) {
-              if (emit("text", { part })) continue
+              if (emit("text", { part, sequenceNum: nextSeq(part.sessionID) })) continue
               const text = part.text.trim()
               if (!text) continue
               if (!process.stdout.isTTY) {
@@ -535,7 +542,7 @@ export const RunCommand = cmd({
             }
 
             if (part.type === "reasoning" && part.time?.end && args.thinking) {
-              if (emit("reasoning", { part })) continue
+              if (emit("reasoning", { part, sequenceNum: nextSeq(part.sessionID) })) continue
               const text = part.text.trim()
               if (!text) continue
               const line = `Thinking: ${text}`
@@ -618,10 +625,14 @@ export const RunCommand = cmd({
 
           if (event.type === "permission.asked") {
             const permission = event.properties
-            if (permission.sessionID !== sessionID) continue
+            const ownSession = permission.sessionID === sessionID
+            if (!ownSession && !childSessions.has(permission.sessionID)) continue
             emit("permission_rejected", {
+              callID: permission.tool?.callID,
+              tool: (permission.metadata?.tool as string | undefined) ?? permission.permission,
               permission: permission.permission,
               patterns: permission.patterns,
+              input: permission.metadata?.input ?? null,
             })
             if (args.format !== "json") {
               UI.println(
@@ -635,12 +646,24 @@ export const RunCommand = cmd({
               reply: "reject",
             })
           }
+
+          if (event.type === "permission.granted") {
+            const permission = event.properties
+            if (permission.sessionID !== sessionID && !childSessions.has(permission.sessionID)) continue
+            emit("permission_granted", {
+              callID: permission.tool?.callID,
+              tool: (permission.metadata?.tool as string | undefined) ?? permission.permission,
+              permission: permission.permission,
+              patterns: permission.patterns,
+              input: permission.metadata?.input ?? null,
+            })
+          }
         }
       }
 
       // Validate agent if specified
-      const agent = await (async () => {
-        if (!args.agent) return undefined
+      const agentInfo = await (async () => {
+        if (!args.agent) return { name: undefined, permission: [] as PermissionNext.Ruleset }
         const entry = await Agent.get(args.agent)
         if (!entry) {
           UI.println(
@@ -648,7 +671,7 @@ export const RunCommand = cmd({
             UI.Style.TEXT_NORMAL,
             `agent "${args.agent}" not found. Falling back to default agent`,
           )
-          return undefined
+          return { name: undefined, permission: [] as PermissionNext.Ruleset }
         }
         if (entry.mode === "subagent") {
           UI.println(
@@ -656,10 +679,11 @@ export const RunCommand = cmd({
             UI.Style.TEXT_NORMAL,
             `agent "${args.agent}" is a subagent, not a primary agent. Falling back to default agent`,
           )
-          return undefined
+          return { name: undefined, permission: [] as PermissionNext.Ruleset }
         }
-        return args.agent
+        return { name: args.agent, permission: (entry.permission ?? []) as PermissionNext.Ruleset }
       })()
+      const agent = agentInfo.name
 
       const sessionID = await session(sdk)
       if (!sessionID) {
@@ -669,8 +693,10 @@ export const RunCommand = cmd({
       await share(sdk, sessionID)
 
       emit("session_start", {
+        schemaVersion: SCHEMA_VERSION,
         model: args.model,
         agent: agent,
+        permissions: PermissionNext.merge(agentInfo.permission, rules),
       })
 
       const loopDone = loop()
@@ -681,12 +707,18 @@ export const RunCommand = cmd({
           })
         })
         .catch((e) => {
+          const classified = classifySessionError(e)
+          emit("session_error", {
+            reason: classified.reason,
+            code: classified.code,
+            message: classified.message,
+          })
           emit("session_complete", {
             durationMs: Date.now() - startTime,
-            error: String(e),
+            error: classified.message,
           })
           console.error(e)
-          process.exit(1)
+          process.exitCode = 1
         })
 
       if (args.command) {
@@ -721,13 +753,19 @@ export const RunCommand = cmd({
           () => loopDone,
           // If prompt rejects, surface the error immediately
           (e) => {
-            error = error ? error + EOL + String(e) : String(e)
+            const classified = classifySessionError(e)
+            error = error ? error + EOL + classified.message : classified.message
+            emit("session_error", {
+              reason: classified.reason,
+              code: classified.code,
+              message: classified.message,
+            })
             emit("session_complete", {
               durationMs: Date.now() - startTime,
-              error: String(e),
+              error: classified.message,
             })
             console.error(e)
-            process.exit(1)
+            process.exitCode = 1
           },
         ),
       ])

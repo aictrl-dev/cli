@@ -14,6 +14,7 @@ import { ImportCommand } from "./cli/cmd/import"
 import { AcpCommand } from "./cli/cmd/acp"
 import { EOL } from "os"
 import { SessionCommand } from "./cli/cmd/session"
+import { EventsCommand } from "./cli/cmd/events"
 import path from "path"
 import { Global } from "./global"
 import { JsonMigration } from "./storage/json-migration"
@@ -107,6 +108,7 @@ let cli = yargs(hideBin(process.argv))
   .command(ExportCommand)
   .command(ImportCommand)
   .command(SessionCommand)
+  .command(EventsCommand)
 
 cli = cli
   .fail((msg, err) => {

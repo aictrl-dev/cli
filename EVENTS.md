@@ -10,6 +10,8 @@ When running `aictrl run --format json`, the CLI emits newline-delimited JSON (N
 }
 ```
 
+The schema is versioned via `session_start.schemaVersion`. This document describes **schema version `"1"`**. Consumers should pin to this version and treat unknown fields as forward-compatible additions.
+
 ## Lifecycle Events
 
 ### `session_start`
@@ -19,10 +21,18 @@ Emitted once when the session begins.
 ```json
 {
   "type": "session_start",
+  "schemaVersion": "1",
   "model": "anthropic/claude-sonnet-4-20250514",
-  "agent": "default"
+  "agent": "default",
+  "permissions": [
+    { "permission": "bash", "pattern": "*", "action": "allow" },
+    { "permission": "write", "pattern": "*", "action": "ask" }
+  ]
 }
 ```
+
+- `schemaVersion` (string, **required**) — pinned contract version. Currently `"1"`.
+- `permissions` (array, **required**) — the fully resolved permission ruleset for the session (merge of agent + session rules). In headless mode, any permission not matching an `allow` rule is auto-rejected.
 
 ### `session_complete`
 
@@ -37,6 +47,27 @@ Emitted once when the session ends (success or failure).
 ```
 
 `error` is `null` on success, or a string describing the failure.
+
+> **Deprecated in v1.** Prefer the structured `session_error` event for new consumers. `session_complete.error` remains populated for back-compat and will be removed in a future schema version.
+>
+> Note: `session_error` is only emitted when the session terminates abnormally (provider/auth/rate-limit/timeout/OOM). Non-fatal errors that accumulate during an otherwise-successful run surface as individual `error` events and may also appear concatenated in `session_complete.error` without a preceding `session_error`. Alerting logic should key on `session_error`, not on `session_complete.error`.
+
+### `session_error`
+
+Emitted immediately before `session_complete` when the session terminates abnormally.
+
+```json
+{
+  "type": "session_error",
+  "reason": "rate_limit",
+  "code": "429",
+  "message": "Rate limit exceeded"
+}
+```
+
+- `reason` (string, **required**) — one of `rate_limit`, `auth`, `timeout`, `oom`, `provider`, `unknown`.
+- `code` (string, optional) — provider HTTP status code or error code when available.
+- `message` (string, **required**) — human-readable error message.
 
 ## Message Events
 
@@ -73,6 +104,8 @@ Emitted when a text block from the assistant is complete.
 }
 ```
 
+- `sequenceNum` (number, **required**) — monotonic per-session counter shared across `text`, `reasoning`, and `tool_use` events. Use it to render a correctly-ordered trace without relying on timestamp ties. Subagent sessions have their own independent counters keyed on `part.sessionID`. Note: in JSON mode only `tool_use` events are emitted for subagent sessions, so subagent counters increment only on tool_use.
+
 ### `reasoning`
 
 Emitted when extended thinking content is complete (requires `--thinking` flag).
@@ -87,6 +120,9 @@ Emitted when extended thinking content is complete (requires `--thinking` flag).
   }
 }
 ```
+
+- `sequenceNum` (number, **required**) — monotonic per-session counter shared across `text`, `reasoning`, and `tool_use` events. Use it to render a correctly-ordered trace without relying on timestamp ties. Subagent sessions have their own independent counters keyed on `part.sessionID`. Note: in JSON mode only `tool_use` events are emitted for subagent sessions, so subagent counters increment only on tool_use.
+- One event is emitted per complete reasoning block. `part.text` has no size cap; consumers must accept arbitrarily large strings.
 
 ## Tool Events
 
@@ -109,6 +145,8 @@ Emitted when a tool call completes (success or error). This includes tools execu
   }
 }
 ```
+
+- `sequenceNum` (number, **required**) — monotonic per-session counter shared across `text`, `reasoning`, and `tool_use` events. Use it to render a correctly-ordered trace without relying on timestamp ties. Subagent sessions have their own independent counters keyed on `part.sessionID`. Note: in JSON mode only `tool_use` events are emitted for subagent sessions, so subagent counters increment only on tool_use.
 
 `state.status` is `"completed"` or `"error"`. On error, `state.error` contains the error message.
 
@@ -215,7 +253,32 @@ Emitted when a permission request is auto-rejected (headless mode has no user to
 ```json
 {
   "type": "permission_rejected",
+  "callID": "call_01xyz...",
+  "tool": "bash",
   "permission": "bash",
-  "patterns": ["rm -rf /"]
+  "patterns": ["rm -rf /"],
+  "input": { "command": "rm -rf /" }
+}
+```
+
+- `tool` (string, **required**) — the tool that requested the permission. Falls back to the `permission` string when the request did not originate from a tool execution.
+- `permission` (string, **required**) — permission category (e.g. `bash`, `write`).
+- `patterns` (string[], **required**) — matched patterns.
+- `input` (any, **required**) — the arguments the tool tried to invoke. `null` when unavailable (e.g. subagent task permission checks).
+- `callID` (string, optional) — tool call id; present when the permission originated from a tool execute closure.
+- `sessionID` — present on the base envelope; identifies the session that made the request (may be a subagent's session id).
+
+### `permission_granted`
+
+Emitted when a permission request resolves to `allow` (either by matching an `allow` rule or a cached `always` approval). Same shape as `permission_rejected`.
+
+```json
+{
+  "type": "permission_granted",
+  "callID": "call_01xyz...",
+  "tool": "bash",
+  "permission": "bash",
+  "patterns": ["ls"],
+  "input": { "command": "ls" }
 }
 ```
