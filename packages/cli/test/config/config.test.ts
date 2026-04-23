@@ -1560,7 +1560,7 @@ describe("getPluginName", () => {
 })
 
 describe("installDependencies migration", () => {
-  test("removes legacy @aictrl/plugin key when adding @aictrl/plugin-sdk", async () => {
+  test("scrubs legacy @aictrl/plugin* keys from user package.json", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
         await Filesystem.write(
@@ -1569,6 +1569,7 @@ describe("installDependencies migration", () => {
             name: "existing",
             dependencies: {
               "@aictrl/plugin": "1.2.16",
+              "@aictrl/plugin-sdk": "0.1.0",
               cowsay: "^1.6.0",
             },
           }),
@@ -1583,7 +1584,7 @@ describe("installDependencies migration", () => {
           path.join(tmp.path, "package.json"),
         )
         expect(parsed.dependencies["@aictrl/plugin"]).toBeUndefined()
-        expect(parsed.dependencies["@aictrl/plugin-sdk"]).toBeDefined()
+        expect(parsed.dependencies["@aictrl/plugin-sdk"]).toBeUndefined()
         expect(parsed.dependencies["cowsay"]).toBe("^1.6.0")
       },
     })

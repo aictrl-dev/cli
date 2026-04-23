@@ -22,13 +22,11 @@ import {
 import { Instance } from "../project/instance"
 import { LSPServer } from "../lsp/server"
 import { BunProc } from "@/bun"
-import { Installation } from "@/installation"
 import { ConfigMarkdown } from "./markdown"
 import { constants, existsSync } from "fs"
 import { Bus } from "@/bus"
 import { GlobalBus } from "@/bus/global"
 import { Glob } from "../util/glob"
-import { PackageRegistry } from "@/bun/registry"
 import { proxied } from "@/util/proxied"
 import { iife } from "@/util/iife"
 import { Control } from "@/control"
@@ -247,29 +245,31 @@ export namespace Config {
 
   export async function installDependencies(dir: string) {
     const pkg = path.join(dir, "package.json")
-    const targetVersion = Installation.isLocal() ? "*" : Installation.VERSION
 
-    const json = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(pkg).catch(
-      () => ({ dependencies: {} as Record<string, string> }),
-    )
-    const deps: Record<string, string> = {
-      ...(json.dependencies ?? {}),
-      "@aictrl/plugin-sdk": targetVersion,
+    // Migration: scrub legacy @aictrl/plugin* entries from user
+    // package.json. Older CLIs auto-added these; the npm names aren't
+    // ours to manage (@aictrl/plugin is an unrelated telemetry package,
+    // and @aictrl/plugin-sdk is internal / private). Plugin types are
+    // supplied by the CLI runtime, not npm.
+    const json = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(pkg).catch(() => null)
+    if (json?.dependencies) {
+      const deps = { ...json.dependencies }
+      const hadLegacy = "@aictrl/plugin" in deps || "@aictrl/plugin-sdk" in deps
+      delete deps["@aictrl/plugin"]
+      delete deps["@aictrl/plugin-sdk"]
+      if (hadLegacy) {
+        json.dependencies = deps
+        await Filesystem.writeJson(pkg, json)
+      }
     }
-    // Migration: remove the legacy key. @aictrl/plugin on npm is an
-    // unrelated telemetry package; leaving it in dependencies would
-    // cause bun install to fetch it needlessly.
-    delete deps["@aictrl/plugin"]
-    json.dependencies = deps
-    await Filesystem.writeJson(pkg, json)
 
     const gitignore = path.join(dir, ".gitignore")
     const hasGitIgnore = await Filesystem.exists(gitignore)
     if (!hasGitIgnore)
       await Filesystem.write(gitignore, ["node_modules", "package.json", "bun.lock", ".gitignore"].join("\n"))
 
-    // Install any additional dependencies defined in the package.json
-    // This allows local plugins and custom tools to use external packages
+    // Install any dependencies declared by local plugins and custom tools
+    // (e.g. a .aictrl/package.json that lists 'cowsay').
     await BunProc.run(
       [
         "install",
@@ -309,24 +309,14 @@ export namespace Config {
 
     const parsed = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(pkg).catch(() => null)
     const dependencies = parsed?.dependencies ?? {}
-    // Migration: presence of the legacy key forces a reinstall so
-    // installDependencies can strip it out in the same pass.
-    if (dependencies["@aictrl/plugin"]) return true
-    const depVersion = dependencies["@aictrl/plugin-sdk"]
-    if (!depVersion) return true
 
-    const targetVersion = Installation.isLocal() ? "latest" : Installation.VERSION
-    if (targetVersion === "latest") {
-      const isOutdated = await PackageRegistry.isOutdated("@aictrl/plugin-sdk", depVersion, dir)
-      if (!isOutdated) return false
-      log.info("Cached version is outdated, proceeding with install", {
-        pkg: "@aictrl/plugin-sdk",
-        cachedVersion: depVersion,
-      })
-      return true
-    }
-    if (depVersion === targetVersion) return false
-    return true
+    // Migration: any legacy @aictrl/plugin* entry forces a reinstall
+    // so installDependencies can scrub it out in the same pass.
+    if (dependencies["@aictrl/plugin"] || dependencies["@aictrl/plugin-sdk"]) return true
+
+    // No aictrl-managed deps; install only if user declared other deps
+    // but node_modules is absent (already checked above) — otherwise skip.
+    return false
   }
 
   function rel(item: string, patterns: string[]) {
