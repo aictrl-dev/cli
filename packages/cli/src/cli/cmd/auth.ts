@@ -10,7 +10,7 @@ import { Config } from "../../config/config"
 import { Global } from "../../global"
 import { Plugin } from "../../plugin"
 import { Instance } from "../../project/instance"
-import type { Hooks } from "@aictrl/plugin-sdk"
+import type { Hooks } from "@aictrl/plugin"
 import { Process } from "../../util/process"
 import { text } from "node:stream/consumers"
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "name": "@aictrl/plugin-sdk",
+  "name": "@aictrl/plugin",
   "version": "0.1.0",
   "private": true,
   "type": "module",

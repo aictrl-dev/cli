@@ -1550,7 +1550,7 @@ describe("getPluginName", () => {
 
   test("extracts name from scoped npm package", () => {
     expect(Config.getPluginName("@scope/pkg@1.0.0")).toBe("@scope/pkg")
-    expect(Config.getPluginName("@aictrl/plugin-sdk@2.0.0")).toBe("@aictrl/plugin-sdk")
+    expect(Config.getPluginName("@aictrl/plugin@2.0.0")).toBe("@aictrl/plugin")
   })
 
   test("returns full string for package without version", () => {
@@ -1569,7 +1569,6 @@ describe("installDependencies migration", () => {
             name: "existing",
             dependencies: {
               "@aictrl/plugin": "1.2.16",
-              "@aictrl/plugin-sdk": "0.1.0",
               cowsay: "^1.6.0",
             },
           }),
@@ -1584,7 +1583,6 @@ describe("installDependencies migration", () => {
           path.join(tmp.path, "package.json"),
         )
         expect(parsed.dependencies["@aictrl/plugin"]).toBeUndefined()
-        expect(parsed.dependencies["@aictrl/plugin-sdk"]).toBeUndefined()
         expect(parsed.dependencies["cowsay"]).toBe("^1.6.0")
       },
     })

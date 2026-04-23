@@ -1,4 +1,4 @@
-import type { Hooks, PluginInput } from "@aictrl/plugin-sdk"
+import type { Hooks, PluginInput } from "@aictrl/plugin"
 import { Log } from "../util/log"
 import { Installation } from "../installation"
 import { Auth, OAUTH_DUMMY_KEY } from "../auth"

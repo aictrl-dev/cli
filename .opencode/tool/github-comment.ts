@@ -1,5 +1,5 @@
 /// <reference path="../env.d.ts" />
-import { tool } from "@aictrl/plugin-sdk"
+import { tool } from "@aictrl/plugin"
 
 function getPRNumber(): number {
   const pr = parseInt(process.env.PR_NUMBER ?? "", 10)

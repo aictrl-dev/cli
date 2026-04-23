@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test"
 import { resolvePluginProviders } from "../../src/cli/cmd/auth"
-import type { Hooks } from "@aictrl/plugin-sdk"
+import type { Hooks } from "@aictrl/plugin"
 
 function hookWithAuth(provider: string): Hooks {
   return {

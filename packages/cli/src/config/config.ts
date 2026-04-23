@@ -249,14 +249,14 @@ export namespace Config {
     // Migration: scrub legacy @aictrl/plugin* entries from user
     // package.json. Older CLIs auto-added these; the npm names aren't
     // ours to manage (@aictrl/plugin is an unrelated telemetry package,
-    // and @aictrl/plugin-sdk is internal / private). Plugin types are
+    // and @aictrl/plugin is internal / private). Plugin types are
     // supplied by the CLI runtime, not npm.
     const json = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(pkg).catch(() => null)
     if (json?.dependencies) {
       const deps = { ...json.dependencies }
-      const hadLegacy = "@aictrl/plugin" in deps || "@aictrl/plugin-sdk" in deps
+      const hadLegacy = "@aictrl/plugin" in deps || "@aictrl/plugin" in deps
       delete deps["@aictrl/plugin"]
-      delete deps["@aictrl/plugin-sdk"]
+      delete deps["@aictrl/plugin"]
       if (hadLegacy) {
         json.dependencies = deps
         await Filesystem.writeJson(pkg, json)
@@ -312,7 +312,7 @@ export namespace Config {
 
     // Migration: any legacy @aictrl/plugin* entry forces a reinstall
     // so installDependencies can scrub it out in the same pass.
-    if (dependencies["@aictrl/plugin"] || dependencies["@aictrl/plugin-sdk"]) return true
+    if (dependencies["@aictrl/plugin"] || dependencies["@aictrl/plugin"]) return true
 
     // No aictrl-managed deps; install only if user declared other deps
     // but node_modules is absent (already checked above) — otherwise skip.
