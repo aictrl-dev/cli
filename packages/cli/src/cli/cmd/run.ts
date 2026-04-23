@@ -654,8 +654,8 @@ export const RunCommand = cmd({
       }
 
       // Validate agent if specified
-      const agent = await (async () => {
-        if (!args.agent) return undefined
+      const agentInfo = await (async () => {
+        if (!args.agent) return { name: undefined, permission: [] as PermissionNext.Ruleset }
         const entry = await Agent.get(args.agent)
         if (!entry) {
           UI.println(
@@ -663,7 +663,7 @@ export const RunCommand = cmd({
             UI.Style.TEXT_NORMAL,
             `agent "${args.agent}" not found. Falling back to default agent`,
           )
-          return undefined
+          return { name: undefined, permission: [] as PermissionNext.Ruleset }
         }
         if (entry.mode === "subagent") {
           UI.println(
@@ -671,10 +671,11 @@ export const RunCommand = cmd({
             UI.Style.TEXT_NORMAL,
             `agent "${args.agent}" is a subagent, not a primary agent. Falling back to default agent`,
           )
-          return undefined
+          return { name: undefined, permission: [] as PermissionNext.Ruleset }
         }
-        return args.agent
+        return { name: args.agent, permission: (entry.permission ?? []) as PermissionNext.Ruleset }
       })()
+      const agent = agentInfo.name
 
       const sessionID = await session(sdk)
       if (!sessionID) {
@@ -684,8 +685,10 @@ export const RunCommand = cmd({
       await share(sdk, sessionID)
 
       emit("session_start", {
+        schemaVersion: "1",
         model: args.model,
         agent: agent,
+        permissions: PermissionNext.merge(agentInfo.permission, rules),
       })
 
       const loopDone = loop()

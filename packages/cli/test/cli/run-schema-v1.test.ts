@@ -25,4 +25,13 @@ describe("run.ts v1 schema emissions (#63)", () => {
     expect(block).toContain("input:")
     expect(block).toContain("callID:")
   })
+
+  test("session_start emits schemaVersion and permissions", async () => {
+    const source = await Bun.file(RUN_SRC).text()
+    const idx = source.indexOf('emit("session_start"')
+    expect(idx).toBeGreaterThan(-1)
+    const block = source.slice(idx, idx + 400)
+    expect(block).toContain('schemaVersion: "1"')
+    expect(block).toContain("permissions:")
+  })
 })
