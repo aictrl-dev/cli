@@ -7,6 +7,7 @@ import { Flag } from "../../flag/flag"
 import { bootstrap } from "../bootstrap"
 import { EOL } from "os"
 import { Filesystem } from "../../util/filesystem"
+import { lookup as mimeLookup } from "mime-types"
 import { createAictrlClient } from "@aictrl/sdk"
 import type { Message, ToolPart } from "@aictrl/sdk/v2"
 import { Provider } from "../../provider/provider"
@@ -331,7 +332,9 @@ export const RunCommand = cmd({
           process.exit(1)
         }
 
-        const mime = (await Filesystem.isDir(resolvedPath)) ? "application/x-directory" : "text/plain"
+        const mime = (await Filesystem.isDir(resolvedPath))
+          ? "application/x-directory"
+          : mimeLookup(resolvedPath) || "text/plain"
 
         files.push({
           type: "file",
