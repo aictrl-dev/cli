@@ -249,13 +249,18 @@ export namespace Config {
     const pkg = path.join(dir, "package.json")
     const targetVersion = Installation.isLocal() ? "*" : Installation.VERSION
 
-    const json = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(pkg).catch(() => ({
-      dependencies: {},
-    }))
-    json.dependencies = {
-      ...json.dependencies,
+    const json = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(pkg).catch(
+      () => ({ dependencies: {} as Record<string, string> }),
+    )
+    const deps: Record<string, string> = {
+      ...(json.dependencies ?? {}),
       "@aictrl/plugin-sdk": targetVersion,
     }
+    // Migration: remove the legacy key. @aictrl/plugin on npm is an
+    // unrelated telemetry package; leaving it in dependencies would
+    // cause bun install to fetch it needlessly.
+    delete deps["@aictrl/plugin"]
+    json.dependencies = deps
     await Filesystem.writeJson(pkg, json)
 
     const gitignore = path.join(dir, ".gitignore")
@@ -304,6 +309,9 @@ export namespace Config {
 
     const parsed = await Filesystem.readJson<{ dependencies?: Record<string, string> }>(pkg).catch(() => null)
     const dependencies = parsed?.dependencies ?? {}
+    // Migration: presence of the legacy key forces a reinstall so
+    // installDependencies can strip it out in the same pass.
+    if (dependencies["@aictrl/plugin"]) return true
     const depVersion = dependencies["@aictrl/plugin-sdk"]
     if (!depVersion) return true
 
