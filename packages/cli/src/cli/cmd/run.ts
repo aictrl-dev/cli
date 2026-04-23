@@ -448,6 +448,12 @@ export const RunCommand = cmd({
       let error: string | undefined
       const startTime = Date.now()
       const childSessions = new Set<string>()
+      const seqBySession = new Map<string, number>()
+      function nextSeq(sid: string): number {
+        const n = (seqBySession.get(sid) ?? 0) + 1
+        seqBySession.set(sid, n)
+        return n
+      }
 
       async function loop() {
         const toggles = new Map<string, boolean>()
@@ -485,13 +491,13 @@ export const RunCommand = cmd({
                 part.type === "tool" &&
                 (part.state.status === "completed" || part.state.status === "error")
               ) {
-                emit("tool_use", { part })
+                emit("tool_use", { part, sequenceNum: nextSeq(part.sessionID) })
               }
               continue
             }
 
             if (part.type === "tool" && (part.state.status === "completed" || part.state.status === "error")) {
-              if (emit("tool_use", { part })) continue
+              if (emit("tool_use", { part, sequenceNum: nextSeq(part.sessionID) })) continue
               if (part.state.status === "completed") {
                 tool(part)
                 continue
@@ -523,7 +529,7 @@ export const RunCommand = cmd({
             }
 
             if (part.type === "text" && part.time?.end) {
-              if (emit("text", { part })) continue
+              if (emit("text", { part, sequenceNum: nextSeq(part.sessionID) })) continue
               const text = part.text.trim()
               if (!text) continue
               if (!process.stdout.isTTY) {
@@ -536,7 +542,7 @@ export const RunCommand = cmd({
             }
 
             if (part.type === "reasoning" && part.time?.end && args.thinking) {
-              if (emit("reasoning", { part })) continue
+              if (emit("reasoning", { part, sequenceNum: nextSeq(part.sessionID) })) continue
               const text = part.text.trim()
               if (!text) continue
               const line = `Thinking: ${text}`

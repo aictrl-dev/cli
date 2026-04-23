@@ -41,4 +41,10 @@ describe("run.ts v1 schema emissions (#63)", () => {
     expect(errIdx).toBeGreaterThan(-1)
     expect(errIdx).toBeLessThan(source.lastIndexOf('emit("session_complete"'))
   })
+
+  test("text / reasoning / tool_use include sequenceNum", async () => {
+    const source = await Bun.file(RUN_SRC).text()
+    expect(source).toContain("sequenceNum")
+    expect(source).toMatch(/Map<string,\s*number>/)
+  })
 })
