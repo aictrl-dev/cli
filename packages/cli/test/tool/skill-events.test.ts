@@ -25,7 +25,7 @@ const noopCtx: Tool.Context = {
 }
 
 describe("skill events", () => {
-  test("SkillDiscovered emitted per skill on init with sessionID", async () => {
+  test("SkillDiscovered emitted once per skill for a session", async () => {
     await using tmp = await tmpdir({
       git: true,
       init: async (dir) => {
@@ -66,6 +66,7 @@ description: Second skill.
             events.push(evt.properties)
           })
 
+          await SkillTool.init({ sessionID: "test-session" })
           await SkillTool.init({ sessionID: "test-session" })
 
           unsub()
@@ -119,6 +120,51 @@ description: A skill.
           unsub()
 
           expect(events.length).toBe(0)
+        },
+      })
+    } finally {
+      process.env.AICTRL_TEST_HOME = home
+    }
+  })
+
+  test("SkillDiscovered emitted again for a different session", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        const skillDir = path.join(dir, ".aictrl", "skill", "gamma")
+        await Bun.write(
+          path.join(skillDir, "SKILL.md"),
+          `---
+name: gamma
+description: A skill.
+---
+
+# Gamma
+`,
+        )
+      },
+    })
+
+    const home = process.env.AICTRL_TEST_HOME
+    process.env.AICTRL_TEST_HOME = tmp.path
+
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const events: Array<{ name: string; sessionID: string }> = []
+          const unsub = Bus.subscribe(Session.Event.SkillDiscovered, (evt) => {
+            events.push(evt.properties)
+          })
+
+          await SkillTool.init({ sessionID: "session-a" })
+          await SkillTool.init({ sessionID: "session-b" })
+
+          unsub()
+
+          expect(events.length).toBe(2)
+          expect(events.map((evt) => evt.sessionID).sort()).toEqual(["session-a", "session-b"])
+          expect(events.every((evt) => evt.name === "gamma")).toBe(true)
         },
       })
     } finally {
