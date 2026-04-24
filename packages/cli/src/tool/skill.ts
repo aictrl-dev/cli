@@ -9,21 +9,30 @@ import { iife } from "@/util/iife"
 import { Plugin } from "../plugin"
 import { Bus } from "../bus"
 import { Session } from "../session"
+import { Instance } from "../project/instance"
+
+const discovered = Instance.state(() => new Set<string>())
+
+function publish(ctx?: Tool.InitContext, skills?: Awaited<ReturnType<typeof Skill.all>>) {
+  if (!ctx?.sessionID || !skills?.length) return
+
+  const seen = discovered()
+  for (const skill of skills) {
+    const key = `${ctx.sessionID}:${skill.name}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    Bus.publish(Session.Event.SkillDiscovered, {
+      sessionID: ctx.sessionID,
+      name: skill.name,
+      description: skill.description,
+      location: skill.location,
+    })
+  }
+}
 
 export const SkillTool = Tool.define("skill", async (ctx) => {
   const skills = await Skill.all()
-
-  // Emit per-skill discovery events when descriptions are registered in tool schema
-  if (ctx?.sessionID) {
-    for (const skill of skills) {
-      Bus.publish(Session.Event.SkillDiscovered, {
-        sessionID: ctx.sessionID,
-        name: skill.name,
-        description: skill.description,
-        location: skill.location,
-      })
-    }
-  }
+  publish(ctx, skills)
 
   // Filter skills by agent permissions if agent provided
   const agent = ctx?.agent
