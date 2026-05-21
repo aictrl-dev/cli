@@ -566,6 +566,11 @@ export const RunCommand = cmd({
             }
             if (props.sessionID === sessionID) {
               error = error ? error + EOL + err : err
+              // #70: propagate primary-session failures (auth, provider, retries-exhausted)
+              // to a non-zero exit code so CI wrappers see the failure instead of a
+              // spuriously-green job. process.exitCode (not process.exit) lets the
+              // loop drain to session.status idle and emit session_complete first.
+              process.exitCode = 1
             }
             if (emit("error", { error: props.error, sourceSessionID: props.sessionID })) continue
             UI.error(err)
