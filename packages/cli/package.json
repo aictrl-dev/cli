@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "version": "0.3.3",
+  "version": "0.3.5",
   "name": "@aictrl/cli",
   "description": "Headless execution engine for AI agent skills",
   "type": "module",
