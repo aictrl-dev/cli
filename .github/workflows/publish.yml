@@ -49,6 +49,10 @@ jobs:
           AICTRL_VERSION: ${{ github.event.release.tag_name }}
         run: |
           export AICTRL_VERSION="${AICTRL_VERSION#v}"
+          # Expose stripped version to subsequent steps so the publish-if-new.sh
+          # catalog:/workspace: resolver (and the smoke test below) can see it
+          # without each step re-doing the v-prefix strip. #72.
+          echo "AICTRL_VERSION=$AICTRL_VERSION" >> "$GITHUB_ENV"
           bun turbo build
 
       - name: Publish @aictrl/util
@@ -153,3 +157,35 @@ jobs:
       - name: Publish @aictrl/cli
         working-directory: packages/cli
         run: ${{ github.workspace }}/.github/scripts/publish-if-new.sh "@aictrl/cli"
+
+      - name: Smoke test - verify @aictrl/cli installs cleanly via npm
+        # Catches the v0.3.3-class bug where the published manifest carries
+        # Bun-only protocols (workspace:*, catalog:) that plain `npm install`
+        # rejects with EUNSUPPORTEDPROTOCOL. Without this gate, a broken
+        # publish goes unnoticed until consumers report install failures.
+        # #72.
+        run: |
+          set -euo pipefail
+          smoke="${RUNNER_TEMP}/aictrl-publish-smoke"
+          rm -rf "$smoke"
+          mkdir -p "$smoke"
+          cd "$smoke"
+          npm init -y > /dev/null
+
+          # CDN propagation can lag ~30-60s after publish; retry briefly.
+          for attempt in 1 2 3 4 5; do
+            if npm install "@aictrl/cli@${AICTRL_VERSION}" 2>&1 | tee install.log; then
+              echo "::notice::npm install @aictrl/cli@${AICTRL_VERSION} succeeded on attempt ${attempt}"
+              exit 0
+            fi
+            # EUNSUPPORTEDPROTOCOL means the resolver in publish-if-new.sh
+            # didn't catch a workspace:/catalog: leak. Retrying won't help.
+            if grep -q "EUNSUPPORTEDPROTOCOL" install.log; then
+              echo "::error::@aictrl/cli@${AICTRL_VERSION} ships protocol-prefixed deps that plain npm cannot resolve. The catalog:/workspace: resolver in publish-if-new.sh did not run or did not cover all fields. See aictrl-dev/cli#72."
+              exit 1
+            fi
+            echo "::warning::install attempt ${attempt} failed (likely CDN propagation), retrying in 30s..."
+            sleep 30
+          done
+          echo "::error::npm install @aictrl/cli@${AICTRL_VERSION} failed after 5 attempts"
+          exit 1
