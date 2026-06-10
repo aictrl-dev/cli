@@ -589,4 +589,95 @@ describe("request body", () => {
       },
     ])
   })
+
+  test("should pass snake_case reasoning_effort provider option", async () => {
+    let capturedBody: unknown
+    const mockFetch = mock(async (_url: string, init?: RequestInit) => {
+      capturedBody = JSON.parse(init?.body as string)
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(`data: [DONE]\n\n`))
+            controller.close()
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      )
+    })
+
+    const model = createModel(mockFetch)
+
+    await model.doStream({
+      prompt: TEST_PROMPT,
+      providerOptions: {
+        copilot: {
+          reasoningEffort: "high",
+          reasoning_effort: "none",
+        },
+      },
+      includeRawChunks: false,
+    })
+
+    expect((capturedBody as { reasoning_effort?: string }).reasoning_effort).toBe("none")
+  })
+
+  test("should pass reasoning_effort when set alone", async () => {
+    let capturedBody: unknown
+    const mockFetch = mock(async (_url: string, init?: RequestInit) => {
+      capturedBody = JSON.parse(init?.body as string)
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(`data: [DONE]\n\n`))
+            controller.close()
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      )
+    })
+
+    const model = createModel(mockFetch)
+
+    await model.doStream({
+      prompt: TEST_PROMPT,
+      providerOptions: {
+        copilot: {
+          reasoning_effort: "none",
+        },
+      },
+      includeRawChunks: false,
+    })
+
+    expect((capturedBody as { reasoning_effort?: string }).reasoning_effort).toBe("none")
+  })
+
+  test("should fall back to camelCase reasoningEffort when snake_case is absent", async () => {
+    let capturedBody: unknown
+    const mockFetch = mock(async (_url: string, init?: RequestInit) => {
+      capturedBody = JSON.parse(init?.body as string)
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(`data: [DONE]\n\n`))
+            controller.close()
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      )
+    })
+
+    const model = createModel(mockFetch)
+
+    await model.doStream({
+      prompt: TEST_PROMPT,
+      providerOptions: {
+        copilot: {
+          reasoningEffort: "high",
+        },
+      },
+      includeRawChunks: false,
+    })
+
+    expect((capturedBody as { reasoning_effort?: string }).reasoning_effort).toBe("high")
+  })
 })
