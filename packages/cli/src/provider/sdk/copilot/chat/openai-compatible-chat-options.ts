@@ -11,11 +11,13 @@ export const openaiCompatibleProviderOptions = z.object({
 
   /**
    * Reasoning effort for reasoning models. Defaults to `medium`.
+   * Alias of `reasoning_effort`; ignored when both are set.
    */
   reasoningEffort: z.string().optional(),
 
   /**
-   * OpenAI-compatible reasoning effort request field.
+   * OpenAI-compatible reasoning effort request field (wire name).
+   * Takes precedence over `reasoningEffort` when both are set.
    */
   reasoning_effort: z.string().optional(),
 
