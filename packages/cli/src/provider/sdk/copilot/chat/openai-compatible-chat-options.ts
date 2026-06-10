@@ -15,6 +15,11 @@ export const openaiCompatibleProviderOptions = z.object({
   reasoningEffort: z.string().optional(),
 
   /**
+   * OpenAI-compatible reasoning effort request field.
+   */
+  reasoning_effort: z.string().optional(),
+
+  /**
    * Controls the verbosity of the generated text. Defaults to `medium`.
    */
   textVerbosity: z.string().optional(),

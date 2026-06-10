@@ -589,4 +589,35 @@ describe("request body", () => {
       },
     ])
   })
+
+  test("should pass snake_case reasoning_effort provider option", async () => {
+    let capturedBody: unknown
+    const mockFetch = mock(async (_url: string, init?: RequestInit) => {
+      capturedBody = JSON.parse(init?.body as string)
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(`data: [DONE]\n\n`))
+            controller.close()
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      )
+    })
+
+    const model = createModel(mockFetch)
+
+    await model.doStream({
+      prompt: TEST_PROMPT,
+      providerOptions: {
+        copilot: {
+          reasoningEffort: "high",
+          reasoning_effort: "none",
+        },
+      },
+      includeRawChunks: false,
+    })
+
+    expect((capturedBody as { reasoning_effort?: string }).reasoning_effort).toBe("none")
+  })
 })
