@@ -68,6 +68,10 @@ Aictrl reads config from `.aictrl/` (project) or `~/.config/aictrl/` (global).
 | Google | `GOOGLE_API_KEY` |
 | OpenRouter | `OPENROUTER_API_KEY` |
 
+Use `--variant` to select provider-specific reasoning effort. For OpenAI-compatible
+Ollama models, `--variant none` sends `reasoning_effort: "none"` to disable
+thinking; model `options` can also set `reasoning_effort: "none"` directly.
+
 ## Local Development
 
 ```bash
