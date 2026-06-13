@@ -42,6 +42,16 @@ describe("run.ts v1 schema emissions (#63)", () => {
     expect(errIdx).toBeLessThan(source.lastIndexOf('emit("session_complete"'))
   })
 
+  test("primary session.error events are surfaced as session_error", async () => {
+    const source = await Bun.file(RUN_SRC).text()
+    const idx = source.indexOf('if (event.type === "session.error")')
+    expect(idx).toBeGreaterThan(-1)
+    const block = source.slice(idx, idx + 1400)
+    expect(block).toContain("classifySessionError(props.error)")
+    expect(block).toContain('emit("session_error"')
+    expect(block).toContain('emit("error"')
+  })
+
   test("text / reasoning / tool_use include sequenceNum", async () => {
     const source = await Bun.file(RUN_SRC).text()
     expect(source).toContain("sequenceNum")

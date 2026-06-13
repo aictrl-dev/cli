@@ -571,6 +571,12 @@ export const RunCommand = cmd({
               // spuriously-green job. process.exitCode (not process.exit) lets the
               // loop drain to session.status idle and emit session_complete first.
               process.exitCode = 1
+              const classified = classifySessionError(props.error)
+              emit("session_error", {
+                reason: classified.reason,
+                code: classified.code,
+                message: classified.message,
+              })
             }
             if (emit("error", { error: props.error, sourceSessionID: props.sessionID })) continue
             UI.error(err)

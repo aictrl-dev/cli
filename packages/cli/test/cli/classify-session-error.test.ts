@@ -15,6 +15,18 @@ describe("classifySessionError (#63)", () => {
     expect(res.code).toBe("401")
   })
 
+  test("stored ProviderAuthError → auth", () => {
+    const res = classifySessionError({
+      name: "ProviderAuthError",
+      data: {
+        providerID: "openai",
+        message: "Invalid API key",
+      },
+    })
+    expect(res.reason).toBe("auth")
+    expect(res.message).toBe("Invalid API key")
+  })
+
   test("AbortError → timeout", () => {
     const err = new Error("aborted")
     err.name = "AbortError"
@@ -33,5 +45,19 @@ describe("classifySessionError (#63)", () => {
   test("HTTP 500 → provider", () => {
     const res = classifySessionError({ status: 500, message: "internal" })
     expect(res.reason).toBe("provider")
+  })
+
+  test("stored APIError statusCode → provider", () => {
+    const res = classifySessionError({
+      name: "APIError",
+      data: {
+        message: "internal",
+        statusCode: 500,
+        isRetryable: true,
+      },
+    })
+    expect(res.reason).toBe("provider")
+    expect(res.code).toBe("500")
+    expect(res.message).toBe("internal")
   })
 })
