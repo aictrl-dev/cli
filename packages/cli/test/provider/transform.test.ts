@@ -1991,7 +1991,7 @@ describe("ProviderTransform.variants", () => {
   })
 
   describe("@ai-sdk/openai-compatible", () => {
-    test("returns WIDELY_SUPPORTED_EFFORTS with reasoningEffort", () => {
+    test("returns OPENAI_EFFORTS with reasoningEffort", () => {
       const model = createMockModel({
         id: "custom-provider/custom-model",
         providerID: "custom-provider",
@@ -2002,9 +2002,28 @@ describe("ProviderTransform.variants", () => {
         },
       })
       const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
+      expect(Object.keys(result)).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"])
+      expect(result.none).toEqual({ reasoningEffort: "none" })
+      expect(result.minimal).toEqual({ reasoningEffort: "minimal" })
       expect(result.low).toEqual({ reasoningEffort: "low" })
       expect(result.high).toEqual({ reasoningEffort: "high" })
+    })
+
+    test("returns none variant without reasoning capability", () => {
+      const model = createMockModel({
+        id: "ollama/qwen3",
+        providerID: "ollama",
+        api: {
+          id: "qwen3",
+          url: "http://localhost:11434/v1",
+          npm: "@ai-sdk/openai-compatible",
+        },
+        capabilities: {
+          reasoning: false,
+        },
+      })
+      const result = ProviderTransform.variants(model)
+      expect(result).toEqual({ none: { reasoningEffort: "none" } })
     })
   })
 
