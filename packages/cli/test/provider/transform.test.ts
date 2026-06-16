@@ -1614,6 +1614,25 @@ describe("ProviderTransform.variants", () => {
     expect(result).toEqual({})
   })
 
+  test("zai coding plan glm-5.2 maps variants to supported efforts", () => {
+    const model = createMockModel({
+      id: "glm-5.2",
+      providerID: "zai-coding-plan",
+      api: {
+        id: "glm-5.2",
+        url: "https://api.z.ai/api/coding/paas/v4",
+        npm: "@ai-sdk/openai-compatible",
+      },
+    })
+    const result = ProviderTransform.variants(model)
+    expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
+    expect(result.low).toEqual({ reasoningEffort: "high" })
+    expect(result.medium).toEqual({ reasoningEffort: "high" })
+    expect(result.high).toEqual({ reasoningEffort: "high" })
+    expect(result.xhigh).toEqual({ reasoningEffort: "max" })
+    expect(result.max).toEqual({ reasoningEffort: "max" })
+  })
+
   test("mistral returns empty object", () => {
     const model = createMockModel({
       id: "mistral/mistral-large",

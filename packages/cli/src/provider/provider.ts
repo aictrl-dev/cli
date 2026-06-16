@@ -578,8 +578,63 @@ export namespace Provider {
         },
       }
     },
-    "zai-coding-plan": async () => {
+    "zai-coding-plan": async (input) => {
       const apiKey = Env.get("ZHIPU_API_KEY")
+      input.models["glm-5.2"] ??= {
+        id: "glm-5.2",
+        providerID: input.id,
+        api: {
+          id: "glm-5.2",
+          url: "https://api.z.ai/api/coding/paas/v4",
+          npm: "@ai-sdk/openai-compatible",
+        },
+        name: "GLM-5.2",
+        family: "glm",
+        capabilities: {
+          temperature: true,
+          reasoning: true,
+          attachment: false,
+          toolcall: true,
+          input: {
+            text: true,
+            audio: false,
+            image: false,
+            video: false,
+            pdf: false,
+          },
+          output: {
+            text: true,
+            audio: false,
+            image: false,
+            video: false,
+            pdf: false,
+          },
+          interleaved: { field: "reasoning_content" },
+        },
+        cost: {
+          input: 0,
+          output: 0,
+          cache: {
+            read: 0,
+            write: 0,
+          },
+        },
+        limit: {
+          context: 1_000_000,
+          output: 131_072,
+        },
+        status: "active",
+        options: {},
+        headers: {},
+        release_date: "2026-06-13",
+        variants: {
+          low: { reasoningEffort: "high" },
+          medium: { reasoningEffort: "high" },
+          high: { reasoningEffort: "high" },
+          xhigh: { reasoningEffort: "max" },
+          max: { reasoningEffort: "max" },
+        },
+      }
       return {
         autoload: !!apiKey,
         options: {

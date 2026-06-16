@@ -323,6 +323,100 @@ describe("session.llm.stream", () => {
     })
   })
 
+  test("sends Coding Plan payload for GLM-5.2", async () => {
+    const server = state.server
+    if (!server) {
+      throw new Error("Server not initialized")
+    }
+
+    const providerID = "zai-coding-plan"
+    const modelID = "glm-5.2"
+    const fixture = await loadFixture(providerID, modelID)
+    const model = fixture.model
+
+    const request = waitRequest(
+      "/chat/completions",
+      new Response(createChatStream("Hello"), {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    )
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "aictrl.json"),
+          JSON.stringify({
+            $schema: "https://aictrl.ai/config.json",
+            enabled_providers: [providerID],
+            provider: {
+              [providerID]: {
+                options: {
+                  apiKey: "test-zai-key",
+                  baseURL: `${server.url.origin}/v1`,
+                },
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const resolved = await Provider.getModel(providerID, model.id)
+        const sessionID = "session-test-glm-52"
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [{ permission: "*", pattern: "*", action: "allow" }],
+        } satisfies Agent.Info
+
+        const user = {
+          id: "user-glm-52",
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: agent.name,
+          model: { providerID, modelID: resolved.id },
+          variant: "max",
+        } satisfies MessageV2.User
+
+        const stream = await LLM.stream({
+          user,
+          sessionID,
+          model: resolved,
+          agent,
+          system: ["You are a helpful assistant."],
+          abort: new AbortController().signal,
+          messages: [{ role: "user", content: "Hello" }],
+          tools: {},
+        })
+
+        for await (const _ of stream.fullStream) {
+        }
+
+        const capture = await request
+        const body = capture.body
+
+        expect(capture.url.pathname.endsWith("/chat/completions")).toBe(true)
+        expect(capture.headers.get("Authorization")).toBe("Bearer test-zai-key")
+        expect(body.model).toBe("glm-5.2")
+        expect(body.temperature).toBe(1)
+        expect(body.max_tokens).toBe(ProviderTransform.maxOutputTokens(resolved))
+        expect(body.thinking).toEqual({
+          type: "enabled",
+          clear_thinking: false,
+        })
+
+        const reasoning = (body.reasoningEffort as string | undefined) ?? (body.reasoning_effort as string | undefined)
+        expect(reasoning).toBe("max")
+      },
+    })
+  })
+
   test("sends responses API payload for OpenAI models", async () => {
     const server = state.server
     if (!server) {
