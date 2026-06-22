@@ -214,6 +214,50 @@ describe("tool_catalog event helpers", () => {
       })
     })
 
+    test("non-version frontmatter keys survive in skill.metadata", async () => {
+      await using tmp = await tmpdir({ git: true })
+      // SKILL.md with license, author, and version in frontmatter
+      const skillDir = path.join(tmp.path, ".claude", "skills", "licensed-skill")
+      await fs.mkdir(skillDir, { recursive: true })
+      await fs.writeFile(
+        path.join(skillDir, "SKILL.md"),
+        [
+          "---",
+          "name: licensed-skill",
+          "description: A skill with extra frontmatter",
+          "version: 2.1.0",
+          "license: MIT",
+          "author: aictrl-team",
+          "---",
+          "",
+          "Skill content here.",
+        ].join("\n"),
+      )
+
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const { Skill } = await import("../src/skill")
+          const skills = await Skill.all()
+
+          const s = skills.find((x) => x.name === "licensed-skill")
+          expect(s).toBeDefined()
+
+          // version still resolves via metadata.version
+          expect(s!.version).toBe("2.1.0")
+
+          // non-version keys survive in metadata
+          expect(s!.metadata).toBeDefined()
+          expect(s!.metadata["license"]).toBe("MIT")
+          expect(s!.metadata["author"]).toBe("aictrl-team")
+
+          // name and description are NOT duplicated in metadata
+          expect(s!.metadata["name"]).toBeUndefined()
+          expect(s!.metadata["description"]).toBeUndefined()
+        },
+      })
+    })
+
     test("skills[] does not include MCP tools or builtins", async () => {
       await using tmp = await tmpdir({ git: true })
       await writeSkill(tmp.path, "my-skill", "A skill", "1.0.0")

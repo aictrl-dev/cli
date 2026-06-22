@@ -21,7 +21,16 @@ export namespace Skill {
     description: z.string(),
     location: z.string(),
     content: z.string(),
-    /** Version from SKILL.md frontmatter `version` field. undefined when not declared. */
+    /**
+     * All frontmatter keys beyond `name`/`description`, with values
+     * string-coerced. Retains arbitrary skill metadata (e.g. version, license,
+     * author) without requiring per-field changes to the schema.
+     */
+    metadata: z.record(z.string(), z.string()).default({}),
+    /**
+     * Convenience accessor derived from `metadata.version`.
+     * undefined when the frontmatter has no `version` key.
+     */
     version: z.string().optional(),
   })
   export type Info = z.infer<typeof Info>
@@ -81,18 +90,25 @@ export namespace Skill {
 
       dirs.add(path.dirname(match))
 
-      // Capture version from frontmatter if present (used by tool_catalog event)
-      const version =
-        typeof md.data === "object" && md.data !== null && "version" in md.data
-          ? String(md.data.version)
-          : undefined
+      // Build metadata from every frontmatter key except name/description,
+      // string-coercing values (handles YAML numbers like `version: 1.0` → "1.0").
+      // version is derived from metadata.version as a convenience accessor.
+      const metadata: Record<string, string> =
+        typeof md.data === "object" && md.data !== null
+          ? Object.fromEntries(
+              Object.entries(md.data)
+                .filter(([k]) => k !== "name" && k !== "description")
+                .map(([k, v]) => [k, String(v)]),
+            )
+          : {}
 
       skills[parsed.data.name] = {
         name: parsed.data.name,
         description: parsed.data.description,
         location: match,
         content: md.content,
-        version,
+        metadata,
+        version: metadata.version,
       }
     }
 
