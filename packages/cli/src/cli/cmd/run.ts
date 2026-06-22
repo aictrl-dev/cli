@@ -80,6 +80,30 @@ function fallback(part: ToolPart) {
   })
 }
 
+/**
+ * Build the context-window utilization object for `message_complete` events.
+ *
+ * Returns `null` (meaning "unknown") when:
+ * - `contextLimit` is `null` — Provider.getModel threw (unregistered model)
+ * - `contextLimit` is `0`   — custom model without a registered limit defaults to
+ *   `context: 0` (provider.ts:929). A zero limit would yield `Infinity`/`NaN` for
+ *   ratio, which `JSON.stringify` serialises as `null` inside the object — diverging
+ *   from the documented top-level `null` contract (EVENTS.md).
+ *
+ * @internal exported for unit-testing only
+ */
+export function buildContextWindow(
+  contextLimit: number | null,
+  contextUsed: number,
+): { used: number; limit: number; ratio: number } | null {
+  if (contextLimit == null || contextLimit <= 0) return null
+  return {
+    used: contextUsed,
+    limit: contextLimit,
+    ratio: contextUsed / contextLimit,
+  }
+}
+
 function glob(info: ToolProps<typeof GlobTool>) {
   const root = info.input.path ?? ""
   const title = `Glob "${info.input.pattern}"`
@@ -478,20 +502,13 @@ export const RunCommand = cmd({
 
                 // Context-window utilization: used = input + cache.read (prompt tokens
                 // that actually hit the model's context window). limit comes from the
-                // model registry (models.dev). On lookup failure we emit null to signal
-                // "unknown" rather than a misleading zero ratio.
+                // model registry (models.dev). On lookup failure (or limit===0 for
+                // custom models) buildContextWindow returns null to signal "unknown".
                 const contextLimit = await Provider.getModel(info.providerID, info.modelID)
                   .then((m) => m.limit.context)
                   .catch(() => null)
                 const contextUsed = tokens.input + tokens.cache.read
-                const context =
-                  contextLimit != null
-                    ? {
-                        used: contextUsed,
-                        limit: contextLimit,
-                        ratio: contextUsed / contextLimit,
-                      }
-                    : null
+                const context = buildContextWindow(contextLimit, contextUsed)
 
                 emit("message_complete", {
                   modelID: info.modelID,
