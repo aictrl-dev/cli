@@ -80,6 +80,31 @@ function fallback(part: ToolPart) {
   })
 }
 
+/**
+ * Build the context-window utilization object for `message_complete` events.
+ *
+ * Returns `null` (meaning "unknown") when:
+ * - `contextLimit` is `null` — Provider.getModel threw (unregistered model)
+ * - `contextLimit` is `0`   — custom model without a registered limit defaults to
+ *   `limit.context = 0` (the provider's default for unregistered custom models).
+ *   A zero limit would yield `Infinity`/`NaN` for ratio, which `JSON.stringify`
+ *   serialises as `null` inside the object — diverging from the documented
+ *   top-level `null` contract (EVENTS.md).
+ *
+ * @internal exported for unit-testing only
+ */
+export function buildContextWindow(
+  contextLimit: number | null,
+  contextUsed: number,
+): { used: number; limit: number; ratio: number } | null {
+  if (contextLimit == null || contextLimit <= 0) return null
+  return {
+    used: contextUsed,
+    limit: contextLimit,
+    ratio: contextUsed / contextLimit,
+  }
+}
+
 function glob(info: ToolProps<typeof GlobTool>) {
   const root = info.input.path ?? ""
   const title = `Glob "${info.input.pattern}"`
@@ -463,12 +488,46 @@ export const RunCommand = cmd({
             const info = event.properties.info
             if (args.format === "json") {
               if (info.finish) {
+                // Build 5-way token breakdown mirroring upstream LLM.Usage shape.
+                // info.tokens already carries the full breakdown from StepFinishPart
+                // accumulation — reasoning and cache split are not dropped upstream.
+                const tokens = {
+                  input: info.tokens.input,
+                  output: info.tokens.output,
+                  reasoning: info.tokens.reasoning,
+                  cache: {
+                    read: info.tokens.cache.read,
+                    write: info.tokens.cache.write,
+                  },
+                }
+
+                // Context-window utilization: used = input + cache.read + cache.write
+                // (all prompt tokens that occupy the model's context window this turn).
+                // cache.write tokens are written to the cache ON this turn — they are
+                // part of the prompt sent to the model and count against the context
+                // window, just billed at the cache-write rate. Excluding them
+                // undercounts utilization on the first turn of a conversation.
+                // limit comes from the model registry (models.dev). On lookup failure
+                // (or limit===0 for custom models) buildContextWindow returns null.
+                const contextLimit = await Provider.getModel(info.providerID, info.modelID)
+                  .then((m) => m.limit.context)
+                  .catch((e) => {
+                    if (e instanceof Provider.ModelNotFoundError) return null
+                    throw e
+                  })
+                const contextUsed = tokens.input + tokens.cache.read + tokens.cache.write
+                const context = buildContextWindow(contextLimit, contextUsed)
+
                 emit("message_complete", {
                   modelID: info.modelID,
                   providerID: info.providerID,
                   agent: info.agent,
+                  // cost is sourced from info.cost which accumulates real per-step costs
+                  // from StepFinishPart. Do NOT use the new step.ended event cost field
+                  // which emits cost:0 and is reconciled later (the cost:0 trap).
                   cost: info.cost,
-                  tokens: info.tokens,
+                  tokens,
+                  context,
                   finish: info.finish,
                 })
               }

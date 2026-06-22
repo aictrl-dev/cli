@@ -82,12 +82,35 @@ Emitted when an assistant message finishes (one per LLM turn).
   "providerID": "anthropic",
   "agent": "default",
   "cost": { "input": 0.003, "output": 0.012, "cache": { "read": 0, "write": 0 } },
-  "tokens": { "input": 1024, "output": 512, "cache": { "read": 0, "write": 0 } },
+  "tokens": {
+    "input": 1024,
+    "output": 512,
+    "reasoning": 0,
+    "cache": { "read": 8800, "write": 1024 }
+  },
+  "context": { "used": 10848, "limit": 200000, "ratio": 0.05424 },
   "finish": "tool-calls"
 }
 ```
 
 `finish` values: `"tool-calls"` (model wants to call tools), `"end_turn"` (model is done), `"max_tokens"` (output truncated).
+
+**`tokens`** (5-way breakdown, mirrors upstream `LLM.Usage`):
+
+- `input` (number) — raw input tokens billed at the standard input rate.
+- `output` (number) — output (completion) tokens.
+- `reasoning` (number) — extended-thinking / reasoning tokens (0 when thinking is off).
+- `cache.read` (number) — tokens served from the prompt cache (billed at cache-read rate). Distinguishes cache hits from fresh input.
+- `cache.write` (number) — tokens written to the prompt cache (billed at cache-write rate).
+
+These fields are non-overlapping: a token is counted in exactly one bucket.
+
+**`context`** (context-window utilization):
+
+- `used` (number) — tokens occupying the model's context window this turn: `input + cache.read + cache.write`.
+- `limit` (number) — the model's total context-window size in tokens, sourced from the models.dev registry (`model.limit.context`).
+- `ratio` (number) — `used / limit` (≥0; may exceed 1 if usage exceeds the model's registered limit). A value approaching or exceeding 1 signals context-exhaustion risk.
+- `null` — emitted when the model's context limit is not known (e.g. unregistered custom endpoint).
 
 ### `text`
 
