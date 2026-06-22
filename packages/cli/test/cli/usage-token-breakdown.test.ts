@@ -25,13 +25,17 @@ describe("buildContextWindow (#86)", () => {
     expect(result).toBeNull()
   })
 
-  test("computes used as the value passed in (caller sets input + cache.read)", () => {
-    const input = 8000
-    const cacheRead = 1824
-    const contextUsed = input + cacheRead
+  test("computes used as the value passed in (caller sets input + cache.read + cache.write)", () => {
+    // Regression: cache.write must be included in contextUsed at the call site (run.ts).
+    // buildContextWindow receives the pre-summed value; this test verifies the helper
+    // honours it (and that the sum is documented correctly: input + cache.read + cache.write).
+    const input = 1024
+    const cacheRead = 8800
+    const cacheWrite = 1024
+    const contextUsed = input + cacheRead + cacheWrite // = 10848
     const result = buildContextWindow(200_000, contextUsed)
     expect(result).not.toBeNull()
-    expect(result!.used).toBe(9824)
+    expect(result!.used).toBe(10848)
   })
 
   test("sets limit to the contextLimit value", () => {
@@ -140,6 +144,18 @@ describe("message_complete emit block shape (source-verified, #86)", () => {
     const catchWindow = source.slice(getModelIdx, getModelIdx + 400)
     expect(catchWindow).toContain("ModelNotFoundError")
     expect(catchWindow).toContain("throw e")
+  })
+
+  test("contextUsed includes cache.write (regression: must not omit cache.write from context sum)", async () => {
+    // Regression for the bug where `contextUsed = tokens.input + tokens.cache.read`
+    // omitted cache.write, undercounting first-turn utilization. The fix is:
+    //   const contextUsed = tokens.input + tokens.cache.read + tokens.cache.write
+    // This source-text check verifies the three-way sum is present at the call site.
+    const source = await Bun.file(RUN_SRC).text()
+    const contextUsedIdx = source.indexOf("const contextUsed =")
+    expect(contextUsedIdx).toBeGreaterThan(-1)
+    const line = source.slice(contextUsedIdx, contextUsedIdx + 100)
+    expect(line).toContain("cache.write")
   })
 })
 

@@ -501,17 +501,21 @@ export const RunCommand = cmd({
                   },
                 }
 
-                // Context-window utilization: used = input + cache.read (prompt tokens
-                // that actually hit the model's context window). limit comes from the
-                // model registry (models.dev). On lookup failure (or limit===0 for
-                // custom models) buildContextWindow returns null to signal "unknown".
+                // Context-window utilization: used = input + cache.read + cache.write
+                // (all prompt tokens that occupy the model's context window this turn).
+                // cache.write tokens are written to the cache ON this turn — they are
+                // part of the prompt sent to the model and count against the context
+                // window, just billed at the cache-write rate. Excluding them
+                // undercounts utilization on the first turn of a conversation.
+                // limit comes from the model registry (models.dev). On lookup failure
+                // (or limit===0 for custom models) buildContextWindow returns null.
                 const contextLimit = await Provider.getModel(info.providerID, info.modelID)
                   .then((m) => m.limit.context)
                   .catch((e) => {
                     if (e instanceof Provider.ModelNotFoundError) return null
                     throw e
                   })
-                const contextUsed = tokens.input + tokens.cache.read
+                const contextUsed = tokens.input + tokens.cache.read + tokens.cache.write
                 const context = buildContextWindow(contextLimit, contextUsed)
 
                 emit("message_complete", {
