@@ -25,11 +25,19 @@ export namespace Skill {
      * All frontmatter keys beyond `name`/`description`, with values
      * string-coerced. Retains arbitrary skill metadata (e.g. version, license,
      * author) without requiring per-field changes to the schema.
+     *
+     * NOTE: `metadata` and `version` below are TYPE-ONLY fields — they are NOT
+     * validated by the `Info.pick({ name, description })` Zod parse in `addSkill`.
+     * Both are populated manually from raw frontmatter after the parse succeeds
+     * (see the `Object.fromEntries` block below). The schema fields exist solely
+     * to give `Skill.Info` a correct TypeScript type; runtime coercion is
+     * intentional to handle e.g. `version: 1.0` (YAML number) → `"1.0"` (string).
      */
     metadata: z.record(z.string(), z.string()).default({}),
     /**
      * Convenience accessor derived from `metadata.version`.
      * undefined when the frontmatter has no `version` key.
+     * TYPE-ONLY — see note on `metadata` above.
      */
     version: z.string().optional(),
   })

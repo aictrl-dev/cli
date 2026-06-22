@@ -14,6 +14,26 @@ The schema is versioned via `session_start.schemaVersion`. This document describ
 
 ## Lifecycle Events
 
+### `session_start`
+
+Emitted once when the session begins.
+
+```json
+{
+  "type": "session_start",
+  "schemaVersion": "1",
+  "model": "anthropic/claude-sonnet-4-20250514",
+  "agent": "default",
+  "permissions": [
+    { "permission": "bash", "pattern": "*", "action": "allow" },
+    { "permission": "write", "pattern": "*", "action": "ask" }
+  ]
+}
+```
+
+- `schemaVersion` (string, **required**) — pinned contract version. Currently `"1"`.
+- `permissions` (array, **required**) — the fully resolved permission ruleset for the session (merge of agent + session rules). In headless mode, any permission not matching an `allow` rule is auto-rejected.
+
 ### `tool_catalog`
 
 Emitted once per session, immediately after `session_start` and before the first model turn (present even for zero-turn or immediately-failing runs). Lists every tool and skill that was resolved for the session so consumers can structurally verify tool exposure without string-matching the model's prose.
@@ -52,26 +72,6 @@ Emitted once per session, immediately after `session_start` and before the first
 > **Use case:** The server-side completion gate (aictrl-dev/aictrl #3216) uses `tools[]` to verify that `record_finding` and `record_review_completed` were actually in the model's function list at dispatch time, and `skills[]` to record which skill version produced the review. Detects the "silent success" failure mode where a missing MCP server lets a run complete green without ever having the review tools available.
 >
 > **Note on builtin tool filtering:** The `source: "builtin"` entries in `tools[]` reflect the _instance-level superset_ registered in `ToolRegistry`. Per-model filters (e.g. `apply_patch` only on gpt-*, `codesearch`/`websearch` only for aictrl provider) are applied at dispatch time inside `resolveTools` and are **not** reflected here. Consumers should treat the presence of a builtin tool name as "registered and potentially available", not as "guaranteed to appear in the model's function list". The strong structural guarantee (tool present ↔ tool in dispatch list) applies only to `source: "mcp"` entries.
-
-### `session_start`
-
-Emitted once when the session begins.
-
-```json
-{
-  "type": "session_start",
-  "schemaVersion": "1",
-  "model": "anthropic/claude-sonnet-4-20250514",
-  "agent": "default",
-  "permissions": [
-    { "permission": "bash", "pattern": "*", "action": "allow" },
-    { "permission": "write", "pattern": "*", "action": "ask" }
-  ]
-}
-```
-
-- `schemaVersion` (string, **required**) — pinned contract version. Currently `"1"`.
-- `permissions` (array, **required**) — the fully resolved permission ruleset for the session (merge of agent + session rules). In headless mode, any permission not matching an `allow` rule is auto-rejected.
 
 ### `session_complete`
 

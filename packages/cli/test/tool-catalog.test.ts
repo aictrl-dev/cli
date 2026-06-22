@@ -299,6 +299,52 @@ describe("tool_catalog event helpers", () => {
         },
       })
     })
+
+    test("withTimeout wrapping surfaces a timed-out catalog as a rejection (regression: hanging MCP server must not stall session start)", async () => {
+      // This test verifies that when buildToolCatalogItems is wrapped with
+      // withTimeout (as done in run.ts), a never-resolving dep causes the
+      // outer promise to reject — NOT to hang indefinitely. The session-start
+      // guard in run.ts catches this and emits tool_catalog_error to stdout.
+      const { withTimeout } = await import("../src/util/timeout")
+
+      const neverResolvingDep = (): Promise<{ toolKey: string; serverName: string }[]> =>
+        new Promise(() => {
+          // intentionally never resolves or rejects — simulates a hanging MCP client
+        })
+
+      await using tmp = await tmpdir({ git: true })
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          await expect(
+            withTimeout(buildToolCatalogItems({ getMcpTools: neverResolvingDep }), 50),
+          ).rejects.toThrow(/timed out/i)
+        },
+      })
+    })
+
+    test("structured error path: catalog failure produces diagnosable error message (regression: console.error to stdout event)", async () => {
+      // Verifies that the rejection from buildToolCatalogItems carries enough
+      // information for the caller to construct a structured tool_catalog_error event.
+      // The key requirement: error.message must be a non-empty string.
+      const throwingDep = async (): Promise<{ toolKey: string; serverName: string }[]> => {
+        throw new Error("MCP server connection refused")
+      }
+
+      await using tmp = await tmpdir({ git: true })
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          let capturedMessage: string | undefined
+          await buildToolCatalogItems({ getMcpTools: throwingDep }).catch((err) => {
+            capturedMessage = err instanceof Error ? err.message : String(err)
+          })
+          expect(capturedMessage).toBeDefined()
+          expect(typeof capturedMessage).toBe("string")
+          expect(capturedMessage!.length).toBeGreaterThan(0)
+        },
+      })
+    })
   })
 
   describe("MCP tool key format", () => {

@@ -5,6 +5,7 @@ import { UI } from "../ui"
 import { cmd } from "./cmd"
 import { classifySessionError, SCHEMA_VERSION } from "./run.errors"
 import { buildToolCatalogItems } from "./tool-catalog"
+import { withTimeout } from "../../util/timeout"
 import { Flag } from "../../flag/flag"
 import { bootstrap } from "../bootstrap"
 import { EOL } from "os"
@@ -711,18 +712,25 @@ export const RunCommand = cmd({
       // Only build the catalog when output is JSON — emit() is a no-op
       // otherwise, and the catalog construction (MCP listTools + skill scan)
       // adds unnecessary latency for interactive sessions.
+      //
+      // Bounded by TOOL_CATALOG_TIMEOUT_MS so a hanging MCP server cannot
+      // indefinitely stall session start. On timeout or error the failure is
+      // emitted as a structured stdout event (tool_catalog_error) so JSON
+      // consumers can distinguish "catalog failed" from "catalog succeeded with
+      // no tools" — stderr is invisible to consumers reading the NDJSON stream.
+      const TOOL_CATALOG_TIMEOUT_MS = 10_000
       if (args.format === "json") {
-        await buildToolCatalogItems()
+        await withTimeout(buildToolCatalogItems(), TOOL_CATALOG_TIMEOUT_MS)
           .then(({ tools, skills }) => {
             emit("tool_catalog", { tools, skills })
           })
           .catch((err) => {
-            // Never let catalog collection block or crash the session, but
-            // surface the failure so a missing tool_catalog event is diagnosable.
-            console.error(
-              "failed to emit tool_catalog",
-              err instanceof Error ? err.message : String(err),
-            )
+            // Never let catalog collection block or crash the session.
+            // Emit a structured event so consumers reading stdout can detect
+            // the failure rather than silently missing the tool_catalog event.
+            emit("tool_catalog_error", {
+              error: err instanceof Error ? err.message : String(err),
+            })
           })
       }
 
