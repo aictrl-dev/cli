@@ -21,6 +21,8 @@ export namespace Skill {
     description: z.string(),
     location: z.string(),
     content: z.string(),
+    /** Version from SKILL.md frontmatter `version` field. undefined when not declared. */
+    version: z.string().optional(),
   })
   export type Info = z.infer<typeof Info>
 
@@ -79,11 +81,18 @@ export namespace Skill {
 
       dirs.add(path.dirname(match))
 
+      // Capture version from frontmatter if present (used by tool_catalog event)
+      const version =
+        typeof md.data === "object" && md.data !== null && "version" in md.data
+          ? String(md.data.version)
+          : undefined
+
       skills[parsed.data.name] = {
         name: parsed.data.name,
         description: parsed.data.description,
         location: match,
         content: md.content,
+        version,
       }
     }
 

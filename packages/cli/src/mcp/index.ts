@@ -642,6 +642,48 @@ export namespace MCP {
     return result
   }
 
+  /**
+   * Returns the resolved MCP tool list as lightweight entries for the
+   * `tool_catalog` NDJSON event (issue #85). Each entry carries the tool key
+   * (as exposed to the model) and the originating server name.
+   *
+   * This is intentionally separate from `tools()` to avoid the overhead of
+   * building full AI-SDK tool objects just for catalog reporting.
+   */
+  export async function toolEntries(): Promise<{ toolKey: string; serverName: string }[]> {
+    const result: { toolKey: string; serverName: string }[] = []
+    const s = await state()
+    const clientsSnapshot = await clients()
+
+    const connectedClients = Object.entries(clientsSnapshot).filter(
+      ([clientName]) => s.status[clientName]?.status === "connected",
+    )
+
+    const toolsResults = await Promise.all(
+      connectedClients.map(async ([clientName, client]) => {
+        const toolsResult = await client.listTools().catch((e) => {
+          log.error("failed to get tool entries", { clientName, error: e.message })
+          return undefined
+        })
+        return { clientName, toolsResult }
+      }),
+    )
+
+    for (const { clientName, toolsResult } of toolsResults) {
+      if (!toolsResult) continue
+      const sanitizedClientName = clientName.replace(/[^a-zA-Z0-9_-]/g, "_")
+      for (const mcpTool of toolsResult.tools) {
+        const sanitizedToolName = mcpTool.name.replace(/[^a-zA-Z0-9_-]/g, "_")
+        result.push({
+          toolKey: sanitizedClientName + "_" + sanitizedToolName,
+          serverName: clientName,
+        })
+      }
+    }
+
+    return result
+  }
+
   export async function prompts() {
     const s = await state()
     const clientsSnapshot = await clients()

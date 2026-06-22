@@ -4,6 +4,7 @@ import { pathToFileURL } from "bun"
 import { UI } from "../ui"
 import { cmd } from "./cmd"
 import { classifySessionError, SCHEMA_VERSION } from "./run.errors"
+import { buildToolCatalogItems } from "./tool-catalog"
 import { Flag } from "../../flag/flag"
 import { bootstrap } from "../bootstrap"
 import { EOL } from "os"
@@ -703,6 +704,17 @@ export const RunCommand = cmd({
         agent: agent,
         permissions: PermissionNext.merge(agentInfo.permission, rules),
       })
+
+      // Emit the resolved tool catalog (builtin + MCP tools) and available
+      // skills before the first model turn. Enables structural detection of
+      // "tool was not exposed" failure modes (issue #85).
+      await buildToolCatalogItems()
+        .then(({ tools, skills }) => {
+          emit("tool_catalog", { tools, skills })
+        })
+        .catch(() => {
+          // Never let catalog collection block or crash the session.
+        })
 
       const loopDone = loop()
         .then(() => {
