@@ -708,13 +708,23 @@ export const RunCommand = cmd({
       // Emit the resolved tool catalog (builtin + MCP tools) and available
       // skills before the first model turn. Enables structural detection of
       // "tool was not exposed" failure modes (issue #85).
-      await buildToolCatalogItems()
-        .then(({ tools, skills }) => {
-          emit("tool_catalog", { tools, skills })
-        })
-        .catch(() => {
-          // Never let catalog collection block or crash the session.
-        })
+      // Only build the catalog when output is JSON — emit() is a no-op
+      // otherwise, and the catalog construction (MCP listTools + skill scan)
+      // adds unnecessary latency for interactive sessions.
+      if (args.format === "json") {
+        await buildToolCatalogItems()
+          .then(({ tools, skills }) => {
+            emit("tool_catalog", { tools, skills })
+          })
+          .catch((err) => {
+            // Never let catalog collection block or crash the session, but
+            // surface the failure so a missing tool_catalog event is diagnosable.
+            console.error(
+              "failed to emit tool_catalog",
+              err instanceof Error ? err.message : String(err),
+            )
+          })
+      }
 
       const loopDone = loop()
         .then(() => {

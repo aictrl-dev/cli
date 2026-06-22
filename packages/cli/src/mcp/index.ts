@@ -600,6 +600,17 @@ export namespace MCP {
     s.status[name] = { status: "disabled" }
   }
 
+  /**
+   * Single source of truth for the MCP tool key used to identify a tool
+   * both in `tools()` (dispatch) and `toolEntries()` (catalog). Both paths
+   * must produce byte-identical keys so catalog consumers get correct answers.
+   */
+  function mcpToolKey(clientName: string, toolName: string): string {
+    const sanitizedClientName = clientName.replace(/[^a-zA-Z0-9_-]/g, "_")
+    const sanitizedToolName = toolName.replace(/[^a-zA-Z0-9_-]/g, "_")
+    return sanitizedClientName + "_" + sanitizedToolName
+  }
+
   export async function tools() {
     const result: Record<string, Tool> = {}
     const s = await state()
@@ -634,9 +645,7 @@ export namespace MCP {
       const entry = isMcpConfigured(mcpConfig) ? mcpConfig : undefined
       const timeout = entry?.timeout ?? defaultTimeout
       for (const mcpTool of toolsResult.tools) {
-        const sanitizedClientName = clientName.replace(/[^a-zA-Z0-9_-]/g, "_")
-        const sanitizedToolName = mcpTool.name.replace(/[^a-zA-Z0-9_-]/g, "_")
-        result[sanitizedClientName + "_" + sanitizedToolName] = await convertMcpTool(mcpTool, client, timeout)
+        result[mcpToolKey(clientName, mcpTool.name)] = await convertMcpTool(mcpTool, client, timeout)
       }
     }
     return result
@@ -647,8 +656,8 @@ export namespace MCP {
    * `tool_catalog` NDJSON event (issue #85). Each entry carries the tool key
    * (as exposed to the model) and the originating server name.
    *
-   * This is intentionally separate from `tools()` to avoid the overhead of
-   * building full AI-SDK tool objects just for catalog reporting.
+   * Uses `mcpToolKey()` — the same helper as `tools()` — so the key format is
+   * guaranteed identical to what `resolveTools` dispatches to the model.
    */
   export async function toolEntries(): Promise<{ toolKey: string; serverName: string }[]> {
     const result: { toolKey: string; serverName: string }[] = []
@@ -671,11 +680,9 @@ export namespace MCP {
 
     for (const { clientName, toolsResult } of toolsResults) {
       if (!toolsResult) continue
-      const sanitizedClientName = clientName.replace(/[^a-zA-Z0-9_-]/g, "_")
       for (const mcpTool of toolsResult.tools) {
-        const sanitizedToolName = mcpTool.name.replace(/[^a-zA-Z0-9_-]/g, "_")
         result.push({
-          toolKey: sanitizedClientName + "_" + sanitizedToolName,
+          toolKey: mcpToolKey(clientName, mcpTool.name),
           serverName: clientName,
         })
       }

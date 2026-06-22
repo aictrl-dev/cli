@@ -280,4 +280,48 @@ describe("tool_catalog event helpers", () => {
       })
     })
   })
+
+  describe("buildToolCatalogItems — error propagation", () => {
+    test("rejects when a dep throws, so the caller catch can log it (regression for silent-swallow bug)", async () => {
+      // If buildToolCatalogItems swallowed errors itself, this would resolve.
+      // It must reject so callers have a chance to log before discarding.
+      const throwingDep = async (): Promise<{ toolKey: string; serverName: string }[]> => {
+        throw new Error("simulated MCP failure")
+      }
+
+      await using tmp = await tmpdir({ git: true })
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          await expect(
+            buildToolCatalogItems({ getMcpTools: throwingDep }),
+          ).rejects.toThrow("simulated MCP failure")
+        },
+      })
+    })
+  })
+
+  describe("MCP tool key format", () => {
+    test("special characters in server/tool names are sanitized to underscores", async () => {
+      await using tmp = await tmpdir({ git: true })
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          // Simulate a server name with special chars
+          const getMcpTools = async () => [
+            { toolKey: "my_server_my_tool", serverName: "my.server" },
+            { toolKey: "other__server_tool__name", serverName: "other/ server" },
+          ]
+
+          const { tools } = await buildToolCatalogItems({ getMcpTools })
+          const mcpTools = tools.filter((t: ToolCatalogEntry) => t.source === "mcp")
+
+          // Keys must match sanitized format: [a-zA-Z0-9_-] only
+          for (const t of mcpTools) {
+            expect(t.name).toMatch(/^[a-zA-Z0-9_-]+$/)
+          }
+        },
+      })
+    })
+  })
 })
