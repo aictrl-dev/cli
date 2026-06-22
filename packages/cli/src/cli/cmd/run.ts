@@ -473,6 +473,11 @@ export const RunCommand = cmd({
 
       const events = await sdk.event.subscribe()
       let error: string | undefined
+      // Guard: at most one session_error is emitted per run regardless of which
+      // failure path fires first (in-loop session.error handler, loopDone.catch,
+      // or promptResult rejection). Without this a mid-run session.error event
+      // can fire site 1 while promptResult/loop() also rejects and fires site 2/3.
+      let sessionErrorEmitted = false
       const startTime = Date.now()
       const childSessions = new Set<string>()
       const seqBySession = new Map<string, number>()
@@ -632,6 +637,20 @@ export const RunCommand = cmd({
               // spuriously-green job. process.exitCode (not process.exit) lets the
               // loop drain to session.status idle and emit session_complete first.
               process.exitCode = 1
+              if (!sessionErrorEmitted) {
+                sessionErrorEmitted = true
+                const classified = classifySessionError(props.error)
+                // Structured session_error (classified reason/code/message) is emitted for the
+                // primary session only. The generic "error" event below fires for both primary
+                // and child-session failures and carries the raw error object — these are
+                // intentionally distinct channels: session_error is for structured telemetry/CI
+                // consumers, "error" is the legacy observable for raw error pass-through.
+                emit("session_error", {
+                  reason: classified.reason,
+                  code: classified.code,
+                  message: classified.message,
+                })
+              }
             }
             if (emit("error", { error: props.error, sourceSessionID: props.sessionID })) continue
             UI.error(err)
@@ -802,11 +821,14 @@ export const RunCommand = cmd({
         })
         .catch((e) => {
           const classified = classifySessionError(e)
-          emit("session_error", {
-            reason: classified.reason,
-            code: classified.code,
-            message: classified.message,
-          })
+          if (!sessionErrorEmitted) {
+            sessionErrorEmitted = true
+            emit("session_error", {
+              reason: classified.reason,
+              code: classified.code,
+              message: classified.message,
+            })
+          }
           emit("session_complete", {
             durationMs: Date.now() - startTime,
             error: classified.message,
@@ -849,11 +871,14 @@ export const RunCommand = cmd({
           (e) => {
             const classified = classifySessionError(e)
             error = error ? error + EOL + classified.message : classified.message
-            emit("session_error", {
-              reason: classified.reason,
-              code: classified.code,
-              message: classified.message,
-            })
+            if (!sessionErrorEmitted) {
+              sessionErrorEmitted = true
+              emit("session_error", {
+                reason: classified.reason,
+                code: classified.code,
+                message: classified.message,
+              })
+            }
             emit("session_complete", {
               durationMs: Date.now() - startTime,
               error: classified.message,
