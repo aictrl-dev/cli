@@ -572,6 +572,11 @@ export const RunCommand = cmd({
               // loop drain to session.status idle and emit session_complete first.
               process.exitCode = 1
               const classified = classifySessionError(props.error)
+              // Structured session_error (classified reason/code/message) is emitted for the
+              // primary session only. The generic "error" event below fires for both primary
+              // and child-session failures and carries the raw error object — these are
+              // intentionally distinct channels: session_error is for structured telemetry/CI
+              // consumers, "error" is the legacy observable for raw error pass-through.
               emit("session_error", {
                 reason: classified.reason,
                 code: classified.code,

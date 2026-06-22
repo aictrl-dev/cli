@@ -46,7 +46,11 @@ describe("run.ts v1 schema emissions (#63)", () => {
     const source = await Bun.file(RUN_SRC).text()
     const idx = source.indexOf('if (event.type === "session.error")')
     expect(idx).toBeGreaterThan(-1)
-    const block = source.slice(idx, idx + 1400)
+    // Bound the window to the *next* event handler so the assertions don't
+    // depend on a magic character count that must be bumped as the block grows.
+    const after = source.slice(idx + 1)
+    const nextHandlerOffset = after.indexOf('if (event.type === "')
+    const block = nextHandlerOffset === -1 ? after : after.slice(0, nextHandlerOffset)
     expect(block).toContain("classifySessionError(props.error)")
     expect(block).toContain('emit("session_error"')
     expect(block).toContain('emit("error"')
