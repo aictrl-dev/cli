@@ -600,6 +600,17 @@ export namespace MCP {
     s.status[name] = { status: "disabled" }
   }
 
+  /**
+   * Single source of truth for the MCP tool key used to identify a tool
+   * both in `tools()` (dispatch) and `toolEntries()` (catalog). Both paths
+   * must produce byte-identical keys so catalog consumers get correct answers.
+   */
+  function mcpToolKey(clientName: string, toolName: string): string {
+    const sanitizedClientName = clientName.replace(/[^a-zA-Z0-9_-]/g, "_")
+    const sanitizedToolName = toolName.replace(/[^a-zA-Z0-9_-]/g, "_")
+    return sanitizedClientName + "_" + sanitizedToolName
+  }
+
   export async function tools() {
     const result: Record<string, Tool> = {}
     const s = await state()
@@ -634,11 +645,49 @@ export namespace MCP {
       const entry = isMcpConfigured(mcpConfig) ? mcpConfig : undefined
       const timeout = entry?.timeout ?? defaultTimeout
       for (const mcpTool of toolsResult.tools) {
-        const sanitizedClientName = clientName.replace(/[^a-zA-Z0-9_-]/g, "_")
-        const sanitizedToolName = mcpTool.name.replace(/[^a-zA-Z0-9_-]/g, "_")
-        result[sanitizedClientName + "_" + sanitizedToolName] = await convertMcpTool(mcpTool, client, timeout)
+        result[mcpToolKey(clientName, mcpTool.name)] = await convertMcpTool(mcpTool, client, timeout)
       }
     }
+    return result
+  }
+
+  /**
+   * Returns the resolved MCP tool list as lightweight entries for the
+   * `tool_catalog` NDJSON event (issue #85). Each entry carries the tool key
+   * (as exposed to the model) and the originating server name.
+   *
+   * Uses `mcpToolKey()` — the same helper as `tools()` — so the key format is
+   * guaranteed identical to what `resolveTools` dispatches to the model.
+   */
+  export async function toolEntries(): Promise<{ toolKey: string; serverName: string }[]> {
+    const result: { toolKey: string; serverName: string }[] = []
+    const s = await state()
+    const clientsSnapshot = await clients()
+
+    const connectedClients = Object.entries(clientsSnapshot).filter(
+      ([clientName]) => s.status[clientName]?.status === "connected",
+    )
+
+    const toolsResults = await Promise.all(
+      connectedClients.map(async ([clientName, client]) => {
+        const toolsResult = await client.listTools().catch((e) => {
+          log.error("failed to get tool entries", { clientName, error: e.message })
+          return undefined
+        })
+        return { clientName, toolsResult }
+      }),
+    )
+
+    for (const { clientName, toolsResult } of toolsResults) {
+      if (!toolsResult) continue
+      for (const mcpTool of toolsResult.tools) {
+        result.push({
+          toolKey: mcpToolKey(clientName, mcpTool.name),
+          serverName: clientName,
+        })
+      }
+    }
+
     return result
   }
 

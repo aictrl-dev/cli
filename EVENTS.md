@@ -34,6 +34,45 @@ Emitted once when the session begins.
 - `schemaVersion` (string, **required**) — pinned contract version. Currently `"1"`.
 - `permissions` (array, **required**) — the fully resolved permission ruleset for the session (merge of agent + session rules). In headless mode, any permission not matching an `allow` rule is auto-rejected.
 
+### `tool_catalog`
+
+Emitted once per session, immediately after `session_start` and before the first model turn (present even for zero-turn or immediately-failing runs). Lists every tool and skill that was resolved for the session so consumers can structurally verify tool exposure without string-matching the model's prose.
+
+```json
+{
+  "type": "tool_catalog",
+  "sessionID": "ses_…",
+  "timestamp": 1741500000000,
+  "tools": [
+    { "name": "record_finding", "source": "mcp", "server": "aictrl" },
+    { "name": "record_review_completed", "source": "mcp", "server": "aictrl" },
+    { "name": "bash", "source": "builtin" },
+    { "name": "read", "source": "builtin" }
+  ],
+  "skills": [
+    { "name": "code-review", "version": "1.4.0" },
+    { "name": "fullstack-code-review", "version": null }
+  ]
+}
+```
+
+#### `tools[]` — builtin and MCP tools resolved for this session
+
+- **`name`** (string, **required**) — the tool/function name as exposed to the model. Mirrors upstream `ToolListItem.id`. For MCP tools this is `{serverName}_{toolName}` (both sanitised to `[a-zA-Z0-9_-]`).
+- **`source`** (string, **required**) — `"builtin"` for tools built into the CLI; `"mcp"` for tools provided by a connected MCP server.
+- **`server`** (string, optional) — the MCP server (client name from config) that provides this tool. Present only when `source` is `"mcp"`.
+
+`description` and `parameters` are intentionally omitted to keep the event lean. The primary consumer only needs `name` + `source` to verify tool exposure.
+
+#### `skills[]` — skill packs resolved for this session (separate from `tools[]`)
+
+- **`name`** (string, **required**) — skill name from `SKILL.md` frontmatter.
+- **`version`** (string or null, **required**) — version string from the `version` field in `SKILL.md` frontmatter. `null` when no version is declared.
+
+> **Use case:** The server-side completion gate (aictrl-dev/aictrl #3216) uses `tools[]` to verify that `record_finding` and `record_review_completed` were actually in the model's function list at dispatch time, and `skills[]` to record which skill version produced the review. Detects the "silent success" failure mode where a missing MCP server lets a run complete green without ever having the review tools available.
+>
+> **Note on builtin tool filtering:** The `source: "builtin"` entries in `tools[]` reflect the _instance-level superset_ registered in `ToolRegistry`. Per-model filters (e.g. `apply_patch` only on gpt-*, `codesearch`/`websearch` only for aictrl provider) are applied at dispatch time inside `resolveTools` and are **not** reflected here. Consumers should treat the presence of a builtin tool name as "registered and potentially available", not as "guaranteed to appear in the model's function list". The strong structural guarantee (tool present ↔ tool in dispatch list) applies only to `source: "mcp"` entries.
+
 ### `session_complete`
 
 Emitted once when the session ends (success or failure).
