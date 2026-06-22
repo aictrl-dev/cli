@@ -1,0 +1,2 @@
+- For model-only support changes, use a patch version bump. Example: adding a new model after `0.3.7` should bump to `0.3.8`, not `0.4.0`.
+- Reserve minor version bumps for broader feature or compatibility changes, not routine model catalog/provider additions.
