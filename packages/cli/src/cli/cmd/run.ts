@@ -463,12 +463,46 @@ export const RunCommand = cmd({
             const info = event.properties.info
             if (args.format === "json") {
               if (info.finish) {
+                // Build 5-way token breakdown mirroring upstream LLM.Usage shape.
+                // info.tokens already carries the full breakdown from StepFinishPart
+                // accumulation — reasoning and cache split are not dropped upstream.
+                const tokens = {
+                  input: info.tokens.input,
+                  output: info.tokens.output,
+                  reasoning: info.tokens.reasoning,
+                  cache: {
+                    read: info.tokens.cache.read,
+                    write: info.tokens.cache.write,
+                  },
+                }
+
+                // Context-window utilization: used = input + cache.read (prompt tokens
+                // that actually hit the model's context window). limit comes from the
+                // model registry (models.dev). On lookup failure we emit null to signal
+                // "unknown" rather than a misleading zero ratio.
+                const contextLimit = await Provider.getModel(info.providerID, info.modelID)
+                  .then((m) => m.limit.context)
+                  .catch(() => null)
+                const contextUsed = tokens.input + tokens.cache.read
+                const context =
+                  contextLimit != null
+                    ? {
+                        used: contextUsed,
+                        limit: contextLimit,
+                        ratio: contextUsed / contextLimit,
+                      }
+                    : null
+
                 emit("message_complete", {
                   modelID: info.modelID,
                   providerID: info.providerID,
                   agent: info.agent,
+                  // cost is sourced from info.cost which accumulates real per-step costs
+                  // from StepFinishPart. Do NOT use the new step.ended event cost field
+                  // which emits cost:0 and is reconciled later (the cost:0 trap).
                   cost: info.cost,
-                  tokens: info.tokens,
+                  tokens,
+                  context,
                   finish: info.finish,
                 })
               }
