@@ -77,6 +77,15 @@ describe("buildContextWindow (#86)", () => {
     const result = buildContextWindow(0, 9824)
     expect(JSON.stringify(result)).toBe("null")
   })
+
+  test("ratio may exceed 1 when usage exceeds the registered limit (unclamped)", () => {
+    // EVENTS.md documents ratio as ≥0 (may exceed 1), not clamped to [0,1].
+    // Stale/lowered model.limit.context can produce ratio > 1 in production.
+    const result = buildContextWindow(100_000, 110_000)
+    expect(result).not.toBeNull()
+    expect(result!.ratio).toBeGreaterThan(1)
+    expect(result!.ratio).toBeCloseTo(1.1, 10)
+  })
 })
 
 describe("message_complete emit block shape (source-verified, #86)", () => {
@@ -120,6 +129,17 @@ describe("message_complete emit block shape (source-verified, #86)", () => {
     expect(idx).toBeGreaterThan(-1)
     const block = source.slice(idx, idx + 800)
     expect(block).toContain("cost:")
+  })
+
+  test("getModel catch rethrows non-ModelNotFoundError (targeted catch, not swallow-all)", async () => {
+    // Verify the catch block only silences ModelNotFoundError; unexpected errors must propagate.
+    // Source check: catch body must reference ModelNotFoundError (not be an empty arrow).
+    const source = await Bun.file(RUN_SRC).text()
+    const getModelIdx = source.indexOf("Provider.getModel(info.providerID")
+    expect(getModelIdx).toBeGreaterThan(-1)
+    const catchWindow = source.slice(getModelIdx, getModelIdx + 400)
+    expect(catchWindow).toContain("ModelNotFoundError")
+    expect(catchWindow).toContain("throw e")
   })
 })
 

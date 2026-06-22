@@ -88,7 +88,7 @@ Emitted when an assistant message finishes (one per LLM turn).
     "reasoning": 0,
     "cache": { "read": 8800, "write": 1024 }
   },
-  "context": { "used": 9824, "limit": 200000, "ratio": 0.049 },
+  "context": { "used": 9824, "limit": 200000, "ratio": 0.04912 },
   "finish": "tool-calls"
 }
 ```
@@ -109,7 +109,7 @@ These fields are non-overlapping: a token is counted in exactly one bucket.
 
 - `used` (number) — tokens occupying the model's context window this turn: `input + cache.read`.
 - `limit` (number) — the model's total context-window size in tokens, sourced from the models.dev registry (`model.limit.context`).
-- `ratio` (number) — `used / limit` (0–1). A value approaching 1 signals context-exhaustion risk.
+- `ratio` (number) — `used / limit` (≥0; may exceed 1 if usage exceeds the model's registered limit). A value approaching or exceeding 1 signals context-exhaustion risk.
 - `null` — emitted when the model's context limit is not known (e.g. unregistered custom endpoint).
 
 ### `text`

@@ -86,9 +86,10 @@ function fallback(part: ToolPart) {
  * Returns `null` (meaning "unknown") when:
  * - `contextLimit` is `null` — Provider.getModel threw (unregistered model)
  * - `contextLimit` is `0`   — custom model without a registered limit defaults to
- *   `context: 0` (provider.ts:929). A zero limit would yield `Infinity`/`NaN` for
- *   ratio, which `JSON.stringify` serialises as `null` inside the object — diverging
- *   from the documented top-level `null` contract (EVENTS.md).
+ *   `limit.context = 0` (the provider's default for unregistered custom models).
+ *   A zero limit would yield `Infinity`/`NaN` for ratio, which `JSON.stringify`
+ *   serialises as `null` inside the object — diverging from the documented
+ *   top-level `null` contract (EVENTS.md).
  *
  * @internal exported for unit-testing only
  */
@@ -506,7 +507,10 @@ export const RunCommand = cmd({
                 // custom models) buildContextWindow returns null to signal "unknown".
                 const contextLimit = await Provider.getModel(info.providerID, info.modelID)
                   .then((m) => m.limit.context)
-                  .catch(() => null)
+                  .catch((e) => {
+                    if (e instanceof Provider.ModelNotFoundError) return null
+                    throw e
+                  })
                 const contextUsed = tokens.input + tokens.cache.read
                 const context = buildContextWindow(contextLimit, contextUsed)
 
