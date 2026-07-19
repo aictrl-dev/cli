@@ -8,6 +8,7 @@ function create(argv: string[]) {
     for (let index = 0; index < argv.length; index++) {
       const arg = argv[index]
       if (arg === "--print-logs") continue
+      if (arg.startsWith("--print-logs=")) continue
       if (arg === "--log-level") {
         index++
         continue

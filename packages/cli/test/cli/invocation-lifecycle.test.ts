@@ -113,6 +113,10 @@ describe("run --format json invocation lifecycle (#90)", () => {
       await output(spawn(["--log-level", "ERROR", "run", "--format", "json", "--dir", "/missing/aictrl-90", "prompt"])),
       "validation",
     )
+    expectFailure(
+      await output(spawn(["--print-logs=false", "run", "--format", "json", "--dir", "/missing/aictrl-90", "prompt"])),
+      "validation",
+    )
   })
 
   test("reports bootstrap failure", async () => {
