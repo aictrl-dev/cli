@@ -38,6 +38,7 @@ import { BashTool } from "../../tool/bash"
 import { TodoWriteTool } from "../../tool/todo"
 import { Locale } from "../../util/locale"
 import { Stdout } from "../stdout"
+import { signals } from "../signals"
 
 type ToolProps<T extends Tool.Info> = {
   input: Tool.InferParameters<T>
@@ -825,6 +826,32 @@ export const RunCommand = cmd({
         permissions: PermissionNext.merge(agentInfo.permission, rules),
       })
 
+      function cancel() {
+        Promise.resolve(sdk.session.abort({ sessionID })).catch((e) => {
+          console.error(e)
+        })
+      }
+
+      using control = signals((signal) => {
+        error = error ? error + EOL + signal.message : signal.message
+        if (!sessionErrorEmitted) {
+          sessionErrorEmitted = true
+          emit("session_error", {
+            reason: signal.reason,
+            code: String(signal.code),
+            message: signal.message,
+          })
+        }
+        cancel()
+      })
+
+      function flush() {
+        if (!control.current) return Promise.resolve()
+        return new Promise<void>((resolve) => {
+          process.stdout.write("", () => resolve())
+        })
+      }
+
       // Emit the resolved tool catalog (builtin + MCP tools) and available
       // skills before the first model turn. Enables structural detection of
       // "tool was not exposed" failure modes (issue #85).
@@ -878,6 +905,12 @@ export const RunCommand = cmd({
           process.exitCode = 1
         })
 
+      if (control.current) {
+        await loopDone
+        await flush()
+        return
+      }
+
       if (args.command) {
         await sdk.session.command({
           sessionID,
@@ -897,6 +930,7 @@ export const RunCommand = cmd({
           parts: [...files, { type: "text", text: message }],
         })
       }
+      if (control.current) cancel()
 
       // Race loopDone against promptResult to handle early prompt failures.
       // If SessionPrompt.prompt() rejects BEFORE it enters its internal loop()
@@ -929,6 +963,7 @@ export const RunCommand = cmd({
           },
         ),
       ])
+      await flush()
     }
 
     if (args.attach) {
@@ -960,6 +995,9 @@ export const RunCommand = cmd({
           async share(opts: any) {
             const share = await Session.share(opts.sessionID)
             return { data: { share } }
+          },
+          abort(opts: any) {
+            SessionPrompt.cancel(opts.sessionID)
           },
           async prompt(opts: any) {
             promptResult = SessionPrompt.prompt({

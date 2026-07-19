@@ -89,7 +89,7 @@ Emitted once when the session ends (success or failure).
 
 > **Deprecated in v1.** Prefer the structured `session_error` event for new consumers. `session_complete.error` remains populated for back-compat and will be removed in a future schema version.
 >
-> Note: `session_error` is only emitted when the session terminates abnormally (provider/auth/rate-limit/timeout/OOM). Non-fatal errors that accumulate during an otherwise-successful run surface as individual `error` events and may also appear concatenated in `session_complete.error` without a preceding `session_error`. Alerting logic should key on `session_error`, not on `session_complete.error`.
+> Note: `session_error` is only emitted when the session terminates abnormally (provider/auth/rate-limit/timeout/OOM/interruption/termination). Non-fatal errors that accumulate during an otherwise-successful run surface as individual `error` events and may also appear concatenated in `session_complete.error` without a preceding `session_error`. Alerting logic should key on `session_error`, not on `session_complete.error`.
 
 ### `session_error`
 
@@ -104,8 +104,8 @@ Emitted immediately before `session_complete` when the session terminates abnorm
 }
 ```
 
-- `reason` (string, **required**) — one of `rate_limit`, `auth`, `timeout`, `oom`, `provider`, `unknown`.
-- `code` (string, optional) — provider HTTP status code or error code when available.
+- `reason` (string, **required**) — one of `rate_limit`, `auth`, `timeout`, `oom`, `provider`, `interrupted`, `terminated`, `unknown`. `SIGINT` produces `interrupted`; `SIGTERM` produces `terminated`. Signals are not inferred to be timeouts.
+- `code` (string, optional) — provider HTTP status code, error code, or conventional signal-derived exit code (`130` for `SIGINT`, `143` for `SIGTERM`) when available.
 - `message` (string, **required**) — human-readable error message.
 
 ## Message Events

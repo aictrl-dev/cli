@@ -1,6 +1,14 @@
 export const SCHEMA_VERSION = "1"
 
-export type SessionErrorReason = "rate_limit" | "auth" | "timeout" | "oom" | "provider" | "unknown"
+export type SessionErrorReason =
+  | "rate_limit"
+  | "auth"
+  | "timeout"
+  | "oom"
+  | "provider"
+  | "interrupted"
+  | "terminated"
+  | "unknown"
 
 export type ClassifiedSessionError = {
   reason: SessionErrorReason
