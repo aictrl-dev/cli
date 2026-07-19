@@ -71,7 +71,7 @@ Emitted once per session, immediately after `session_start` and before the first
 
 > **Use case:** The server-side completion gate (aictrl-dev/aictrl #3216) uses `tools[]` to verify that `record_finding` and `record_review_completed` were actually in the model's function list at dispatch time, and `skills[]` to record which skill version produced the review. Detects the "silent success" failure mode where a missing MCP server lets a run complete green without ever having the review tools available.
 >
-> **Note on builtin tool filtering:** The `source: "builtin"` entries in `tools[]` reflect the _instance-level superset_ registered in `ToolRegistry`. Per-model filters (e.g. `apply_patch` only on gpt-*, `codesearch`/`websearch` only for aictrl provider) are applied at dispatch time inside `resolveTools` and are **not** reflected here. Consumers should treat the presence of a builtin tool name as "registered and potentially available", not as "guaranteed to appear in the model's function list". The strong structural guarantee (tool present ↔ tool in dispatch list) applies only to `source: "mcp"` entries.
+> **Note on builtin tool filtering:** The `source: "builtin"` entries in `tools[]` reflect the _instance-level superset_ registered in `ToolRegistry`. Per-model filters (e.g. `apply_patch` only on gpt-\*, `codesearch`/`websearch` only for aictrl provider) are applied at dispatch time inside `resolveTools` and are **not** reflected here. Consumers should treat the presence of a builtin tool name as "registered and potentially available", not as "guaranteed to appear in the model's function list". The strong structural guarantee (tool present ↔ tool in dispatch list) applies only to `source: "mcp"` entries.
 
 ### `session_complete`
 
@@ -117,11 +117,15 @@ Emitted when an assistant message finishes (one per LLM turn).
 ```json
 {
   "type": "message_complete",
+  "messageID": "msg_01abc...",
   "modelID": "claude-sonnet-4-20250514",
   "providerID": "anthropic",
   "agent": "default",
+  "status": "completed",
+  "usageStatus": "reported",
   "cost": { "input": 0.003, "output": 0.012, "cache": { "read": 0, "write": 0 } },
   "tokens": {
+    "total": 11360,
     "input": 1024,
     "output": 512,
     "reasoning": 0,
@@ -132,10 +136,14 @@ Emitted when an assistant message finishes (one per LLM turn).
 }
 ```
 
-`finish` values: `"tool-calls"` (model wants to call tools), `"end_turn"` (model is done), `"max_tokens"` (output truncated).
+- `messageID` (string, **required**) — stable assistant-message identity. A message produces at most one `message_complete`; consumers should use this field rather than timestamps for identity.
+- `status` (string, **required**) — `"completed"`, `"error"`, or `"aborted"`.
+- `usageStatus` (string, **required**) — `"reported"` when the provider supplied usage, `"missing"` when it did not, or `"estimated"` for an explicitly estimated future source. The CLI does not currently estimate usage.
+- `finish` (string, optional) — provider finish reason, such as `"tool-calls"`, `"end_turn"`, or `"max_tokens"`. It can be absent on failed or aborted turns.
 
 **`tokens`** (5-way breakdown, mirrors upstream `LLM.Usage`):
 
+- `total` (number) — provider-reported total, or a finite total computed from sufficient reported components.
 - `input` (number) — raw input tokens billed at the standard input rate.
 - `output` (number) — output (completion) tokens.
 - `reasoning` (number) — extended-thinking / reasoning tokens (0 when thinking is off).
@@ -144,12 +152,16 @@ Emitted when an assistant message finishes (one per LLM turn).
 
 These fields are non-overlapping: a token is counted in exactly one bucket.
 
+`tokens` is `null` when `usageStatus` is `"missing"`. This distinguishes unavailable usage from a provider-reported zero, which has `usageStatus: "reported"` and numeric zero fields. The additional identity, status, and provenance fields are additive to schema v1; successful events retain the existing `modelID`, `providerID`, `agent`, `cost`, `tokens`, `context`, and `finish` fields.
+
+For compatibility with sessions written before usage provenance was persisted, a legacy terminal message with a finish reason is treated as `"reported"`; one without a finish reason is treated as `"missing"`.
+
 **`context`** (context-window utilization):
 
 - `used` (number) — tokens occupying the model's context window this turn: `input + cache.read + cache.write`.
 - `limit` (number) — the model's total context-window size in tokens, sourced from the models.dev registry (`model.limit.context`).
 - `ratio` (number) — `used / limit` (≥0; may exceed 1 if usage exceeds the model's registered limit). A value approaching or exceeding 1 signals context-exhaustion risk.
-- `null` — emitted when the model's context limit is not known (e.g. unregistered custom endpoint).
+- `null` — emitted when the model's context limit is not known (e.g. unregistered custom endpoint), or usage is missing.
 
 ### `text`
 

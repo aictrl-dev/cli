@@ -271,7 +271,8 @@ export namespace SessionPrompt {
       cb.reject(reason)
     }
     delete s[sessionID]
-    SessionStatus.set(sessionID, { type: "idle" })
+    // The loop's deferred cleanup publishes idle after the terminal assistant
+    // update, so event consumers cannot stop before observing the aborted turn.
     return
   }
 
@@ -290,7 +291,12 @@ export namespace SessionPrompt {
       })
     }
 
-    using _ = defer(() => cancel(sessionID))
+    using _ = defer(() => {
+      cancel(sessionID)
+      // Keep idle after processor persistence. Headless consumers use this as
+      // the boundary after which all terminal message events have been queued.
+      SessionStatus.set(sessionID, { type: "idle" })
+    })
 
     // Structured output state
     // Note: On session resumption, state is reset but outputFormat is preserved
@@ -373,6 +379,7 @@ export namespace SessionPrompt {
             root: Instance.worktree,
           },
           cost: 0,
+          usageStatus: "missing",
           tokens: {
             input: 0,
             output: 0,
@@ -584,6 +591,7 @@ export namespace SessionPrompt {
             root: Instance.worktree,
           },
           cost: 0,
+          usageStatus: "missing",
           tokens: {
             input: 0,
             output: 0,
@@ -1551,6 +1559,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         created: Date.now(),
       },
       role: "assistant",
+      usageStatus: "missing",
       tokens: {
         input: 0,
         output: 0,

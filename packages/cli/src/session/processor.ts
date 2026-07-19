@@ -251,6 +251,7 @@ export namespace SessionProcessor {
                   input.assistantMessage.finish = value.finishReason
                   input.assistantMessage.cost += usage.cost
                   input.assistantMessage.tokens = usage.tokens
+                  input.assistantMessage.usageStatus = usage.usageStatus
                   await Session.updatePart({
                     id: Identifier.ascending("part"),
                     reason: value.finishReason,
@@ -371,7 +372,6 @@ export namespace SessionProcessor {
                   sessionID: input.assistantMessage.sessionID,
                   error: input.assistantMessage.error,
                 })
-                SessionStatus.set(input.sessionID, { type: "idle" })
                 break
               }
               const delay = SessionRetry.delay(attempt, error.name === "APIError" ? error : undefined)
@@ -389,7 +389,6 @@ export namespace SessionProcessor {
               sessionID: input.assistantMessage.sessionID,
               error: input.assistantMessage.error,
             })
-            SessionStatus.set(input.sessionID, { type: "idle" })
           }
           if (snapshot) {
             const patch = await Snapshot.patch(snapshot)
@@ -423,6 +422,8 @@ export namespace SessionProcessor {
             }
           }
           input.assistantMessage.time.completed = Date.now()
+          // Persist the terminal message before SessionPrompt's deferred idle
+          // status; headless consumers stop reading when they observe idle.
           await Session.updateMessage(input.assistantMessage)
           if (needsCompaction) return "compact"
           if (blocked) return "stop"

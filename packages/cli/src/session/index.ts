@@ -808,23 +808,32 @@ export namespace Session {
       metadata: z.custom<ProviderMetadata>().optional(),
     }),
     (input) => {
-      const safe = (value: number) => {
-        if (!Number.isFinite(value)) return 0
+      const safe = (value: number | undefined) => {
+        if (typeof value !== "number" || !Number.isFinite(value)) return 0
         return value
       }
+      const cacheWrite =
+        input.metadata?.["anthropic"]?.["cacheCreationInputTokens"] ??
+        // @ts-expect-error
+        input.metadata?.["bedrock"]?.["usage"]?.["cacheWriteInputTokens"] ??
+        // @ts-expect-error
+        input.metadata?.["venice"]?.["usage"]?.["cacheCreationInputTokens"]
+      const usageStatus = [
+        input.usage.totalTokens,
+        input.usage.inputTokens,
+        input.usage.outputTokens,
+        input.usage.reasoningTokens,
+        input.usage.cachedInputTokens,
+        cacheWrite,
+      ].some(Number.isFinite)
+        ? ("reported" as const)
+        : ("missing" as const)
       const inputTokens = safe(input.usage.inputTokens ?? 0)
       const outputTokens = safe(input.usage.outputTokens ?? 0)
       const reasoningTokens = safe(input.usage.reasoningTokens ?? 0)
 
       const cacheReadInputTokens = safe(input.usage.cachedInputTokens ?? 0)
-      const cacheWriteInputTokens = safe(
-        (input.metadata?.["anthropic"]?.["cacheCreationInputTokens"] ??
-          // @ts-expect-error
-          input.metadata?.["bedrock"]?.["usage"]?.["cacheWriteInputTokens"] ??
-          // @ts-expect-error
-          input.metadata?.["venice"]?.["usage"]?.["cacheCreationInputTokens"] ??
-          0) as number,
-      )
+      const cacheWriteInputTokens = safe(cacheWrite as number | undefined)
 
       // Providers where inputTokens EXCLUDES cached tokens
       const excludesCachedTokens = [
@@ -850,9 +859,12 @@ export namespace Session {
           input.model.api.npm === "@ai-sdk/amazon-bedrock" ||
           input.model.api.npm === "@ai-sdk/google-vertex/anthropic"
         ) {
+          if (!Number.isFinite(input.usage.inputTokens) || !Number.isFinite(input.usage.outputTokens)) return
           return adjustedInputTokens + outputTokens + cacheReadInputTokens + cacheWriteInputTokens
         }
-        return input.usage.totalTokens
+        if (Number.isFinite(input.usage.totalTokens)) return input.usage.totalTokens
+        if (!Number.isFinite(input.usage.inputTokens) || !Number.isFinite(input.usage.outputTokens)) return
+        return inputTokens + outputTokens
       })
 
       const tokens = {
@@ -871,6 +883,7 @@ export namespace Session {
           ? input.model.cost.experimentalOver200K
           : input.model.cost
       return {
+        usageStatus,
         cost: safe(
           new Decimal(0)
             .add(new Decimal(tokens.input).mul(costInfo?.input ?? 0).div(1_000_000))

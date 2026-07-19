@@ -410,6 +410,31 @@ describe("session.getUsage", () => {
     expect(Number.isNaN(result.cost)).toBe(false)
   })
 
+  test("distinguishes reported zero usage from missing usage", () => {
+    const model = createModel({ context: 100_000, output: 32_000 })
+    const reported = Session.getUsage({
+      model,
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+      },
+    })
+    const missing = Session.getUsage({
+      model,
+      usage: {
+        inputTokens: undefined,
+        outputTokens: undefined,
+        totalTokens: undefined,
+      },
+    })
+
+    expect(reported.usageStatus).toBe("reported")
+    expect(reported.tokens.total).toBe(0)
+    expect(missing.usageStatus).toBe("missing")
+    expect(missing.tokens.total).toBeUndefined()
+  })
+
   test("calculates cost correctly", () => {
     const model = createModel({
       context: 100_000,
