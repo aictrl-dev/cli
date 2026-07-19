@@ -378,9 +378,10 @@ export const RunCommand = cmd({
   handler: async (args) => {
     Invocation.phase("validation")
 
-    function fail(message: string, code: string) {
+    async function fail(message: string, code: string) {
       Invocation.abort(message, code)
       UI.error(message)
+      await Invocation.flush()
       process.exit(1)
     }
 
@@ -388,14 +389,14 @@ export const RunCommand = cmd({
       .map((arg) => (arg.includes(" ") ? `"${arg.replace(/"/g, '\\"')}"` : arg))
       .join(" ")
 
-    const directory = (() => {
+    const directory = await (async () => {
       if (!args.dir) return undefined
       if (args.attach) return args.dir
       try {
         process.chdir(args.dir)
         return process.cwd()
       } catch {
-        fail("Failed to change directory to " + args.dir, "INVOCATION_INVALID_DIRECTORY")
+        await fail("Failed to change directory to " + args.dir, "INVOCATION_INVALID_DIRECTORY")
       }
     })()
 
@@ -406,7 +407,7 @@ export const RunCommand = cmd({
       for (const filePath of list) {
         const resolvedPath = path.resolve(process.cwd(), filePath)
         if (!(await Filesystem.exists(resolvedPath))) {
-          fail(`File not found: ${filePath}`, "INVOCATION_FILE_NOT_FOUND")
+          await fail(`File not found: ${filePath}`, "INVOCATION_FILE_NOT_FOUND")
         }
 
         const mime = (await Filesystem.isDir(resolvedPath)) ? "application/x-directory" : "text/plain"
@@ -427,11 +428,11 @@ export const RunCommand = cmd({
     }
 
     if (message.trim().length === 0 && !args.command) {
-      fail("You must provide a message or a command", "INVOCATION_EMPTY_INPUT")
+      await fail("You must provide a message or a command", "INVOCATION_EMPTY_INPUT")
     }
 
     if (args.fork && !args.continue && !args.session) {
-      fail("--fork requires --continue or --session", "INVOCATION_INVALID_ARGUMENTS")
+      await fail("--fork requires --continue or --session", "INVOCATION_INVALID_ARGUMENTS")
     }
 
     const rules: PermissionNext.Ruleset = [
@@ -825,7 +826,7 @@ export const RunCommand = cmd({
       Invocation.phase("session")
       const sessionID = await session(sdk)
       if (!sessionID) {
-        fail("Session not found", "INVOCATION_SESSION_CREATE_FAILED")
+        await fail("Session not found", "INVOCATION_SESSION_CREATE_FAILED")
       }
       Invocation.link(sessionID)
       await share(sdk, sessionID)

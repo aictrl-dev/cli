@@ -49,7 +49,7 @@ function expectFailure(result: Awaited<ReturnType<typeof output>>, phase: string
   expect(error.invocationID).toBe(start.invocationID)
   expect(error.phase).toBe(phase)
   expect(error).not.toHaveProperty("sessionID")
-  expect(typeof error.message).toBe("string")
+  expect(error.message).toBe(`Invocation failed during ${phase}`)
   expect(complete.invocationID).toBe(start.invocationID)
   expect(complete.status).toBe("error")
   expect(complete).not.toHaveProperty("sessionID")
@@ -87,10 +87,10 @@ describe("run --format json invocation lifecycle (#90)", () => {
   })
 
   test("reports a missing file as a validation error", async () => {
-    expectFailure(
-      await output(spawn(["run", "--format", "json", "--file", "/missing/aictrl-90.txt", "prompt"])),
-      "validation",
-    )
+    const missing = "/missing/" + "a".repeat(100_000)
+    const result = await output(spawn(["run", "--format", "json", "--file", missing, "prompt"]))
+    expectFailure(result, "validation")
+    expect(JSON.stringify(result.events)).not.toContain(missing)
   })
 
   test("reports empty input as a validation error", async () => {
@@ -99,6 +99,20 @@ describe("run --format json invocation lifecycle (#90)", () => {
 
   test("reports argument parsing failure", async () => {
     expectFailure(await output(spawn(["run", "--format", "json", "--unknown-option"])), "parse")
+  })
+
+  test("does not start a run invocation for a positional token on another command", async () => {
+    const proc = spawn(["session", "list", "run", "--format", "json"])
+    const stdout = await new Response(proc.stdout).text()
+    await proc.exited
+    expect(stdout).not.toContain('"type":"invocation_')
+  })
+
+  test("recognizes run after global options", async () => {
+    expectFailure(
+      await output(spawn(["--log-level", "ERROR", "run", "--format", "json", "--dir", "/missing/aictrl-90", "prompt"])),
+      "validation",
+    )
   })
 
   test("reports bootstrap failure", async () => {
@@ -177,6 +191,41 @@ describe("run --format json invocation lifecycle (#90)", () => {
           .filter((event) => String(event.type).startsWith("session_"))
           .every((event) => event.invocationID === start?.invocationID),
       ).toBe(true)
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("reports a post-session failure as an invocation error result", async () => {
+    const id = "sess-invocation-failure-90"
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url)
+        if (req.method === "GET" && url.pathname === "/event") {
+          return new Response("", { headers: { "content-type": "text/event-stream" } })
+        }
+        if (req.method === "POST" && url.pathname === "/session") return Response.json({ id })
+        if (req.method === "GET" && url.pathname === "/config") {
+          return new Response('{"post-session-secret"', {
+            headers: { "content-type": "application/json" },
+          })
+        }
+        if (req.method === "POST" && url.pathname.endsWith("/message")) return Response.json({})
+        return Response.json({})
+      },
+    })
+
+    try {
+      const result = await output(
+        spawn(["run", "--format", "json", "--attach", `http://localhost:${server.port}`, "prompt"]),
+      )
+      expect(result.code).not.toBe(0)
+      expect(result.events.find((event) => event.type === "invocation_complete")).toMatchObject({
+        sessionID: id,
+        status: "error",
+      })
+      expect(JSON.stringify(result.events)).not.toContain("post-session-secret")
     } finally {
       server.stop(true)
     }

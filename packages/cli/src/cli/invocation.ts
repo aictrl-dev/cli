@@ -4,7 +4,19 @@ import { SCHEMA_VERSION } from "./cmd/run.errors"
 export type InvocationPhase = "parse" | "validation" | "stdin" | "bootstrap" | "session"
 
 function create(argv: string[]) {
-  const run = argv.indexOf("run")
+  const run = (() => {
+    for (let index = 0; index < argv.length; index++) {
+      const arg = argv[index]
+      if (arg === "--print-logs") continue
+      if (arg === "--log-level") {
+        index++
+        continue
+      }
+      if (arg.startsWith("--log-level=")) continue
+      return arg === "run" ? index : -1
+    }
+    return -1
+  })()
   const json =
     run !== -1 &&
     argv.slice(run + 1).some((arg, index, args) => {
@@ -17,17 +29,23 @@ function create(argv: string[]) {
   let sessionID: string | undefined
   let failed = false
   let completed = false
+  let writes = Promise.resolve()
 
   function emit(type: string, data: Record<string, unknown> = {}) {
     if (!invocationID) return
-    process.stdout.write(
+    const line =
       JSON.stringify({
         type,
         timestamp: Date.now(),
         schemaVersion: SCHEMA_VERSION,
         invocationID,
         ...data,
-      }) + EOL,
+      }) + EOL
+    writes = writes.then(
+      () =>
+        new Promise<void>((resolve) => {
+          process.stdout.write(line, () => resolve())
+        }),
     )
   }
 
@@ -43,18 +61,14 @@ function create(argv: string[]) {
     link(id: string) {
       sessionID = id
     },
-    error(error: unknown, code = "INVOCATION_FAILED") {
-      if (!invocationID || sessionID || failed || completed) return
+    error(_error: unknown, code = "INVOCATION_FAILED") {
+      if (!invocationID || failed || completed) return
       failed = true
+      if (sessionID) return
       emit("invocation_error", {
         phase,
         code,
-        message:
-          error instanceof Error
-            ? error.message
-            : error && typeof error === "object" && "message" in error
-              ? String(error.message)
-              : String(error),
+        message: `Invocation failed during ${phase}`,
       })
     },
     complete() {
@@ -65,6 +79,9 @@ function create(argv: string[]) {
         durationMs: Date.now() - started,
         ...(sessionID ? { sessionID } : {}),
       })
+    },
+    flush() {
+      return writes
     },
   }
 }
@@ -90,6 +107,9 @@ export const Invocation = {
   },
   complete() {
     current.complete()
+  },
+  flush() {
+    return current.flush()
   },
 }
 

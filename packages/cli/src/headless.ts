@@ -24,21 +24,23 @@ import { Invocation, startInvocation } from "./cli/invocation"
 
 startInvocation()
 
-process.on("unhandledRejection", (e) => {
+process.on("unhandledRejection", async (e) => {
   Invocation.abort(e)
   Log.Default.error("rejection", {
     e: e instanceof Error ? e.message : e,
     stack: e instanceof Error ? e.stack : undefined,
   })
+  await Invocation.flush()
   process.exit(1)
 })
 
-process.on("uncaughtException", (e) => {
+process.on("uncaughtException", async (e) => {
   Invocation.abort(e)
   Log.Default.error("exception", {
     e: e instanceof Error ? e.message : e,
     stack: e instanceof Error ? e.stack : undefined,
   })
+  await Invocation.flush()
   process.exit(1)
 })
 
@@ -128,6 +130,7 @@ cli = cli
     }
     if (err) throw err
     Invocation.abort(msg ?? "Invalid command line arguments", "INVOCATION_PARSE_ERROR")
+    if (Invocation.id) throw new Error(msg ?? "Invalid command line arguments")
     process.exit(1)
   })
   .strict()
@@ -163,6 +166,7 @@ try {
   process.exitCode = 1
 } finally {
   Invocation.complete()
+  await Invocation.flush()
   await Shutdown.flush()
   process.exit()
 }

@@ -44,15 +44,16 @@ Emitted for a fatal error before session creation, immediately before `invocatio
   "invocationID": "7d142250-8bdc-43df-99af-efa252db62a7",
   "phase": "validation",
   "code": "INVOCATION_FILE_NOT_FOUND",
-  "message": "File not found: input.txt"
+  "message": "Invocation failed during validation"
 }
 ```
 
 - `phase` (string, **required**) — one of `parse`, `validation`, `stdin`, `bootstrap`, or `session`.
 - `code` (string, **required**) — stable machine-readable error category.
-- `message` (string, **required**) — human-readable error message.
+- `message` (string, **required**) — sanitized human-readable phase summary. Details remain on stderr and in the log.
 
-Errors after a real session has been created use `session_error` instead.
+Errors after a real session has been created use `session_error` instead. They also set
+`invocation_complete.status` to `error`, so the invocation result always agrees with the process result.
 
 ### `invocation_complete`
 
