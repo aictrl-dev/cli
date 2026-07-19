@@ -55,9 +55,9 @@ Set `AICTRL_HEADLESS=true` in your environment to force headless behavior even i
 
 Model streams have a five-minute idle timeout by default. Every stream event resets
 the timer, so long-running responses that continue making progress are unaffected.
-Set `AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS` to a positive number of milliseconds to
+Set `AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS` to a positive decimal integer of milliseconds to
 override the timeout, or `0` to disable it. Missing, empty, negative, fractional, and
-non-numeric values use the 300000 ms default.
+non-decimal, non-numeric, or unsafe integer values use the 300000 ms default.
 
 ## GitHub Integration
 
