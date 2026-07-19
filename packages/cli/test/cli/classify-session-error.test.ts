@@ -2,6 +2,19 @@ import { describe, expect, test } from "bun:test"
 import { classifySessionError } from "../../src/cli/cmd/run.errors"
 
 describe("classifySessionError (#63)", () => {
+  test("model stream idle timeout has a stable timeout code", () => {
+    expect(
+      classifySessionError({
+        name: "StreamIdleTimeoutError",
+        data: { message: "Model stream produced no events for 300000ms", timeout: 300000 },
+      }),
+    ).toEqual({
+      reason: "timeout",
+      code: "MODEL_STREAM_IDLE_TIMEOUT",
+      message: "Model stream produced no events for 300000ms",
+    })
+  })
+
   test("HTTP 429 → rate_limit", () => {
     const res = classifySessionError({ status: 429, message: "Rate limit exceeded" })
     expect(res.reason).toBe("rate_limit")

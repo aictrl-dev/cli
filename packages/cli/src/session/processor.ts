@@ -17,6 +17,8 @@ import { PermissionNext } from "@/permission/next"
 import { Question } from "@/question"
 import { NamedError } from "@aictrl/util/error"
 import { ProviderTermination } from "@/provider/termination"
+import { StreamIdle } from "./idle"
+import { Flag } from "@/flag/flag"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
@@ -91,9 +93,17 @@ export namespace SessionProcessor {
           try {
             let currentText: MessageV2.TextPart | undefined
             let reasoningMap: Record<string, MessageV2.ReasoningPart> = {}
-            const stream = await LLM.stream(streamInput)
+            const controller = new AbortController()
+            const stream = await LLM.stream({
+              ...streamInput,
+              abort: AbortSignal.any([streamInput.abort, controller.signal]),
+            })
 
-            for await (const value of stream.fullStream) {
+            for await (const value of StreamIdle.timeout(
+              stream.fullStream,
+              Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS,
+              () => controller.abort(),
+            )) {
               input.abort.throwIfAborted()
               switch (value.type) {
                 case "start":
