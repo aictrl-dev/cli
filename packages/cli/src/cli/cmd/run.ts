@@ -108,6 +108,14 @@ export function buildContextWindow(
   }
 }
 
+export async function attachedContextLimit(
+  providerID: string,
+  modelID: string,
+  providers = ModelsDev.get(),
+): Promise<number | null> {
+  return providers.then((providers) => providers[providerID]?.models[modelID]?.limit.context ?? null).catch(() => null)
+}
+
 function glob(info: ToolProps<typeof GlobTool>) {
   const root = info.input.path ?? ""
   const title = `Glob "${info.input.pattern}"`
@@ -533,9 +541,7 @@ export const RunCommand = cmd({
                 // limit comes from the model registry (models.dev). On lookup failure
                 // (or limit===0 for custom models) buildContextWindow returns null.
                 const contextLimit = await (args.attach
-                  ? ModelsDev.get()
-                      .then((providers) => providers[info.providerID]?.models[info.modelID]?.limit.context ?? null)
-                      .catch(() => null)
+                  ? attachedContextLimit(info.providerID, info.modelID)
                   : Provider.getModel(info.providerID, info.modelID)
                       .then((m) => m.limit.context)
                       .catch((e) => {

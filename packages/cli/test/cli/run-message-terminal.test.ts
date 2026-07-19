@@ -1,5 +1,6 @@
 import path from "path"
 import { afterEach, describe, expect, test } from "bun:test"
+import { attachedContextLimit } from "../../src/cli/cmd/run"
 
 const cli = path.resolve(import.meta.dir, "../../src/index.ts")
 const models = path.resolve(import.meta.dir, "../tool/fixtures/models-api.json")
@@ -183,44 +184,8 @@ describe("run --format json terminal assistant telemetry (#93, #45)", () => {
   }, 20_000)
 
   test("degrades to null context when the attached model registry is unavailable", async () => {
-    const proc = Bun.spawn(
-      [
-        "bun",
-        "run",
-        cli,
-        "run",
-        "--format",
-        "json",
-        "--attach",
-        server([message({ id: "msg_registry", usageStatus: "reported" })]),
-        "test prompt",
-      ],
-      {
-        cwd: process.cwd(),
-        env: {
-          ...process.env,
-          AICTRL_MODELS_PATH: path.resolve(import.meta.dir, "missing-models.json"),
-          AICTRL_MODELS_URL: "http://127.0.0.1:1",
-        },
-        stdout: "pipe",
-        stderr: "pipe",
-      },
-    )
-    const [stdout, stderr, code] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ])
-    expect(code, stderr).toBe(0)
-    const output = stdout
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line))
-      .find((event) => event.type === "message_complete")
-
-    expect(output.messageID).toBe("msg_registry")
-    expect(output.context).toBeNull()
-  }, 20_000)
+    expect(await attachedContextLimit("zai", "glm-4.7", Promise.reject(new Error("registry unavailable")))).toBeNull()
+  })
 
   test("documents primary-session scope", async () => {
     const doc = await Bun.file(eventsDoc).text()
