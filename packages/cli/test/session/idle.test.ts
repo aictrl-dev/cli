@@ -44,15 +44,15 @@ describe("model stream idle timeout", () => {
     })
   })
 
-  test("releases the inner iterator after an idle timeout", async () => {
+  test("calls return on the inner iterator after an idle timeout", async () => {
     const pending = Promise.withResolvers<IteratorResult<string>>()
-    let released = false
+    let called = false
     const stream = {
       [Symbol.asyncIterator]() {
         return {
           next: () => pending.promise,
           async return() {
-            released = true
+            called = true
             return { done: true as const, value: undefined }
           },
         }
@@ -60,7 +60,7 @@ describe("model stream idle timeout", () => {
     }
 
     await StreamIdle.timeout(stream, 10, () => {}).next().catch(() => {})
-    expect(released).toBe(true)
+    expect(called).toBe(true)
   })
 
   test("releases the inner iterator when the consumer stops early", async () => {
