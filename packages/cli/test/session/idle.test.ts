@@ -4,6 +4,22 @@ import { MessageV2 } from "../../src/session/message-v2"
 import { Flag } from "../../src/flag/flag"
 
 describe("model stream idle timeout", () => {
+  test("uses its own abort signal when the caller signal is undefined", () => {
+    const idle = StreamIdle.signal()
+
+    expect(idle.signal.aborted).toBe(false)
+    idle.controller.abort()
+    expect(idle.signal.aborted).toBe(true)
+  })
+
+  test("combines a supplied caller signal with its timeout controller", () => {
+    const caller = new AbortController()
+    const idle = StreamIdle.signal(caller.signal)
+
+    caller.abort()
+    expect(idle.signal.aborted).toBe(true)
+  })
+
   test("fails and aborts a stream whose next event stalls", async () => {
     const pending = Promise.withResolvers<IteratorResult<string>>()
     let aborted = false
@@ -26,6 +42,46 @@ describe("model stream idle timeout", () => {
       message: "Model stream produced no events for 10ms",
       timeout: 10,
     })
+  })
+
+  test("releases the inner iterator after an idle timeout", async () => {
+    const pending = Promise.withResolvers<IteratorResult<string>>()
+    let released = false
+    const stream = {
+      [Symbol.asyncIterator]() {
+        return {
+          next: () => pending.promise,
+          async return() {
+            released = true
+            return { done: true as const, value: undefined }
+          },
+        }
+      },
+    }
+
+    await StreamIdle.timeout(stream, 10, () => {}).next().catch(() => {})
+    expect(released).toBe(true)
+  })
+
+  test("releases the inner iterator when the consumer stops early", async () => {
+    let released = false
+    const stream = {
+      [Symbol.asyncIterator]() {
+        return {
+          value: 0,
+          async next() {
+            return { done: false as const, value: ++this.value }
+          },
+          async return() {
+            released = true
+            return { done: true as const, value: undefined }
+          },
+        }
+      },
+    }
+
+    for await (const _ of StreamIdle.timeout(stream, 100, () => {})) break
+    expect(released).toBe(true)
   })
 
   test("resets after each event instead of limiting total stream duration", async () => {
@@ -76,6 +132,12 @@ describe("AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS", () => {
       process.env.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS = "0"
       expect(Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS).toBe(0)
       process.env.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS = "invalid"
+      expect(Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS).toBe(300_000)
+      process.env.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS = "1e3"
+      expect(Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS).toBe(300_000)
+      process.env.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS = "0x10"
+      expect(Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS).toBe(300_000)
+      process.env.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS = "9007199254740992"
       expect(Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS).toBe(300_000)
     } finally {
       if (original === undefined) delete process.env.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS
