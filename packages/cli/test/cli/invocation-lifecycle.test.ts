@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import path from "path"
+import { pathToFileURL } from "url"
 import { tmpdir } from "../fixture/fixture"
 
 const CLI = path.resolve(import.meta.dir, "../../src/headless.ts")
+const MAIN = path.resolve(import.meta.dir, "../../src/index.ts")
+const INVOCATION = pathToFileURL(path.resolve(import.meta.dir, "../../src/cli/invocation.ts")).href
 
 function events(stdout: string) {
   return stdout
@@ -11,8 +14,8 @@ function events(stdout: string) {
     .map((line) => JSON.parse(line) as Record<string, unknown>)
 }
 
-function spawn(args: string[], cwd = process.cwd()) {
-  return Bun.spawn(["bun", "run", "--conditions=browser", CLI, ...args], {
+function spawn(args: string[], cwd = process.cwd(), cli = CLI) {
+  return Bun.spawn(["bun", "run", "--conditions=browser", cli, ...args], {
     cwd,
     env: {
       ...process.env,
@@ -98,7 +101,18 @@ describe("run --format json invocation lifecycle (#90)", () => {
   })
 
   test("reports argument parsing failure", async () => {
-    expectFailure(await output(spawn(["run", "--format", "json", "--unknown-option"])), "parse")
+    for (const cli of [CLI, MAIN]) {
+      const result = await output(spawn(["run", "--format", "json", "--unknown-option"], process.cwd(), cli))
+      expectFailure(result, "parse")
+      expect(result.events.find((event) => event.type === "invocation_error")?.code).toBe("INVOCATION_PARSE_ERROR")
+    }
+  })
+
+  test("ignores JSON format tokens after the argument separator", async () => {
+    const proc = spawn(["run", "--dir", "/missing/aictrl-90", "--", "--format=json", "prompt"])
+    const stdout = await new Response(proc.stdout).text()
+    await proc.exited
+    expect(stdout).not.toContain('"type":"invocation_')
   })
 
   test("does not start a run invocation for a positional token on another command", async () => {
@@ -233,5 +247,65 @@ describe("run --format json invocation lifecycle (#90)", () => {
     } finally {
       server.stop(true)
     }
+  })
+
+  test("flush resolves when stdout rejects a lifecycle write", async () => {
+    const proc = Bun.spawn(
+      [
+        "bun",
+        "-e",
+        `
+          const module = await import(${JSON.stringify(INVOCATION)})
+          const write = process.stdout.write.bind(process.stdout)
+          process.stdout.write = () => {
+            throw new Error("closed")
+          }
+          module.startInvocation(["run", "--format", "json"])
+          module.Invocation.abort("failed")
+          await module.Invocation.flush()
+          process.stdout.write = write
+          process.stdout.write("flushed")
+        `,
+      ],
+      { stdout: "pipe", stderr: "pipe" },
+    )
+    const [stdout, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited])
+    expect(code).toBe(0)
+    expect(stdout).toBe("flushed")
+  })
+
+  test("late failure during pre-terminal drain produces one error completion", async () => {
+    const proc = Bun.spawn(
+      [
+        "bun",
+        "-e",
+        `
+          const module = await import(${JSON.stringify(INVOCATION)})
+          const write = process.stdout.write.bind(process.stdout)
+          const lines = []
+          process.stdout.write = (chunk, callback) => {
+            lines.push(String(chunk))
+            setTimeout(() => callback?.(), 20)
+            return true
+          }
+          module.startInvocation(["run", "--format", "json"])
+          const done = (async () => {
+            await module.Invocation.flush()
+            module.Invocation.complete()
+            await module.Invocation.flush()
+          })()
+          setTimeout(() => module.Invocation.abort("late"), 5)
+          await done
+          process.stdout.write = write
+          process.stdout.write(JSON.stringify(lines))
+        `,
+      ],
+      { stdout: "pipe", stderr: "pipe" },
+    )
+    const [stdout, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited])
+    const result = JSON.parse(stdout).flatMap((line: string) => events(line))
+    expect(code).toBe(0)
+    expect(result.filter((event: Record<string, unknown>) => event.type === "invocation_complete")).toHaveLength(1)
+    expect(result.find((event: Record<string, unknown>) => event.type === "invocation_complete")?.status).toBe("error")
   })
 })

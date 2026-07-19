@@ -40,7 +40,7 @@ process.on("unhandledRejection", async (e) => {
     e: e instanceof Error ? e.message : e,
     stack: e instanceof Error ? e.stack : undefined,
   })
-  await Invocation.flush()
+  await Invocation.drain()
   process.exit(1)
 })
 
@@ -50,7 +50,7 @@ process.on("uncaughtException", async (e) => {
     e: e instanceof Error ? e.message : e,
     stack: e instanceof Error ? e.stack : undefined,
   })
-  await Invocation.flush()
+  await Invocation.drain()
   process.exit(1)
 })
 
@@ -219,8 +219,9 @@ try {
   }
   process.exitCode = 1
 } finally {
+  await Invocation.drain()
   Invocation.complete()
-  await Invocation.flush()
+  await Invocation.drain()
   // Some subprocesses don't react properly to SIGTERM and similar signals.
   // Most notably, some docker-container-based MCP servers don't handle such signals unless
   // run using `docker run --init`.

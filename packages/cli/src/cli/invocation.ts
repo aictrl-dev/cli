@@ -1,5 +1,6 @@
 import { EOL } from "os"
 import { SCHEMA_VERSION } from "./cmd/run.errors"
+import { Stdout } from "./stdout"
 
 export type InvocationPhase = "parse" | "validation" | "stdin" | "bootstrap" | "session"
 
@@ -18,9 +19,10 @@ function create(argv: string[]) {
     }
     return -1
   })()
+  const args = argv.slice(run + 1)
   const json =
     run !== -1 &&
-    argv.slice(run + 1).some((arg, index, args) => {
+    args.slice(0, args.indexOf("--") === -1 ? undefined : args.indexOf("--")).some((arg, index, args) => {
       if (arg === "--format=json") return true
       return arg === "--format" && args[index + 1] === "json"
     })
@@ -42,12 +44,7 @@ function create(argv: string[]) {
         invocationID,
         ...data,
       }) + EOL
-    writes = writes.then(
-      () =>
-        new Promise<void>((resolve) => {
-          process.stdout.write(line, () => resolve())
-        }),
-    )
+    writes = writes.then(() => Stdout.write(line)).catch(() => {})
   }
 
   if (invocationID) emit("invocation_start")
@@ -111,6 +108,9 @@ export const Invocation = {
   },
   flush() {
     return current.flush()
+  },
+  drain() {
+    return current.flush().catch(() => {})
   },
 }
 
