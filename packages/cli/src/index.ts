@@ -30,8 +30,12 @@ import { Global } from "./global"
 import { JsonMigration } from "./storage/json-migration"
 import { Database } from "./storage/db"
 import { Shutdown } from "./cli/shutdown"
+import { Invocation, startInvocation } from "./cli/invocation"
+
+startInvocation()
 
 process.on("unhandledRejection", (e) => {
+  Invocation.abort(e)
   Log.Default.error("rejection", {
     e: e instanceof Error ? e.message : e,
     stack: e instanceof Error ? e.stack : undefined,
@@ -40,6 +44,7 @@ process.on("unhandledRejection", (e) => {
 })
 
 process.on("uncaughtException", (e) => {
+  Invocation.abort(e)
   Log.Default.error("exception", {
     e: e instanceof Error ? e.message : e,
     stack: e instanceof Error ? e.stack : undefined,
@@ -162,9 +167,10 @@ cli = cli
       msg?.startsWith("Invalid values:")
     ) {
       if (err) throw err
-      cli.showHelp("log")
+      if (!Invocation.id) cli.showHelp("log")
     }
     if (err) throw err
+    Invocation.abort(msg ?? "Invalid command line arguments", "INVOCATION_PARSE_ERROR")
     process.exit(1)
   })
   .strict()
@@ -172,6 +178,7 @@ cli = cli
 try {
   await cli.parse()
 } catch (e) {
+  Invocation.error(e)
   let data: Record<string, any> = {}
   if (e instanceof NamedError) {
     const obj = e.toObject()
@@ -209,6 +216,7 @@ try {
   }
   process.exitCode = 1
 } finally {
+  Invocation.complete()
   // Some subprocesses don't react properly to SIGTERM and similar signals.
   // Most notably, some docker-container-based MCP servers don't handle such signals unless
   // run using `docker run --init`.

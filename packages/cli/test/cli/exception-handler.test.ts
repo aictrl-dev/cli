@@ -75,9 +75,9 @@ describe("exception handler exit behavior", () => {
     // Both should find process.exit(1) within the handler (before the next major block)
     expect(exitAfterUncaught).toBeGreaterThan(uncaughtIdx)
     expect(exitAfterRejection).toBeGreaterThan(rejectionIdx)
-    // Handlers are close together, so exit should be within ~200 chars
-    expect(exitAfterUncaught - uncaughtIdx).toBeLessThan(200)
-    expect(exitAfterRejection - rejectionIdx).toBeLessThan(200)
+    // Handlers are close together, allowing room for invocation lifecycle cleanup.
+    expect(exitAfterUncaught - uncaughtIdx).toBeLessThan(250)
+    expect(exitAfterRejection - rejectionIdx).toBeLessThan(250)
   })
 
   test("headless.ts exception handlers include process.exit(1)", async () => {
@@ -94,8 +94,8 @@ describe("exception handler exit behavior", () => {
 
     expect(exitAfterUncaught).toBeGreaterThan(uncaughtIdx)
     expect(exitAfterRejection).toBeGreaterThan(rejectionIdx)
-    expect(exitAfterUncaught - uncaughtIdx).toBeLessThan(200)
-    expect(exitAfterRejection - rejectionIdx).toBeLessThan(200)
+    expect(exitAfterUncaught - uncaughtIdx).toBeLessThan(250)
+    expect(exitAfterRejection - rejectionIdx).toBeLessThan(250)
   })
 
   test("exception handlers log stack traces", async () => {

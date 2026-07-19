@@ -38,6 +38,7 @@ import { BashTool } from "../../tool/bash"
 import { TodoWriteTool } from "../../tool/todo"
 import { Locale } from "../../util/locale"
 import { Stdout } from "../stdout"
+import { Invocation } from "../invocation"
 
 type ToolProps<T extends Tool.Info> = {
   input: Tool.InferParameters<T>
@@ -375,6 +376,14 @@ export const RunCommand = cmd({
       })
   },
   handler: async (args) => {
+    Invocation.phase("validation")
+
+    function fail(message: string, code: string) {
+      Invocation.abort(message, code)
+      UI.error(message)
+      process.exit(1)
+    }
+
     let message = [...args.message, ...(args["--"] || [])]
       .map((arg) => (arg.includes(" ") ? `"${arg.replace(/"/g, '\\"')}"` : arg))
       .join(" ")
@@ -386,8 +395,7 @@ export const RunCommand = cmd({
         process.chdir(args.dir)
         return process.cwd()
       } catch {
-        UI.error("Failed to change directory to " + args.dir)
-        process.exit(1)
+        fail("Failed to change directory to " + args.dir, "INVOCATION_INVALID_DIRECTORY")
       }
     })()
 
@@ -398,8 +406,7 @@ export const RunCommand = cmd({
       for (const filePath of list) {
         const resolvedPath = path.resolve(process.cwd(), filePath)
         if (!(await Filesystem.exists(resolvedPath))) {
-          UI.error(`File not found: ${filePath}`)
-          process.exit(1)
+          fail(`File not found: ${filePath}`, "INVOCATION_FILE_NOT_FOUND")
         }
 
         const mime = (await Filesystem.isDir(resolvedPath)) ? "application/x-directory" : "text/plain"
@@ -413,16 +420,18 @@ export const RunCommand = cmd({
       }
     }
 
-    if (!process.stdin.isTTY) message += "\n" + (await Bun.stdin.text())
+    if (!process.stdin.isTTY) {
+      Invocation.phase("stdin")
+      message += "\n" + (await Bun.stdin.text())
+      Invocation.phase("validation")
+    }
 
     if (message.trim().length === 0 && !args.command) {
-      UI.error("You must provide a message or a command")
-      process.exit(1)
+      fail("You must provide a message or a command", "INVOCATION_EMPTY_INPUT")
     }
 
     if (args.fork && !args.continue && !args.session) {
-      UI.error("--fork requires --continue or --session")
-      process.exit(1)
+      fail("--fork requires --continue or --session", "INVOCATION_INVALID_ARGUMENTS")
     }
 
     const rules: PermissionNext.Ruleset = [
@@ -508,7 +517,9 @@ export const RunCommand = cmd({
 
       function emit(type: string, data: Record<string, unknown>) {
         if (args.format === "json") {
-          Stdout.write(JSON.stringify({ type, timestamp: Date.now(), sessionID, ...data }) + EOL)
+          Stdout.write(
+            JSON.stringify({ type, timestamp: Date.now(), invocationID: Invocation.id, sessionID, ...data }) + EOL,
+          )
           return true
         }
         return false
@@ -811,11 +822,12 @@ export const RunCommand = cmd({
       })()
       const agent = agentInfo.name
 
+      Invocation.phase("session")
       const sessionID = await session(sdk)
       if (!sessionID) {
-        UI.error("Session not found")
-        process.exit(1)
+        fail("Session not found", "INVOCATION_SESSION_CREATE_FAILED")
       }
+      Invocation.link(sessionID)
       await share(sdk, sessionID)
 
       emit("session_start", {
@@ -936,6 +948,7 @@ export const RunCommand = cmd({
       return await execute(sdk)
     }
 
+    Invocation.phase("bootstrap")
     await bootstrap(process.cwd(), async () => {
       const sdk = {
         session: {
