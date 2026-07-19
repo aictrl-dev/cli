@@ -22,7 +22,7 @@ const info = {
   },
 } as const satisfies Record<Signals.Info["name"], Signals.Info>
 
-export function cancel(run: () => unknown, fail: () => void) {
+export function attempt(run: () => unknown, fail: () => void) {
   Promise.resolve().then(run).catch(fail)
 }
 

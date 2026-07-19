@@ -39,7 +39,7 @@ import { TodoWriteTool } from "../../tool/todo"
 import { Locale } from "../../util/locale"
 import { Log } from "../../util/log"
 import { Stdout } from "../stdout"
-import { cancel, signals } from "../signals"
+import { attempt, signals } from "../signals"
 
 type ToolProps<T extends Tool.Info> = {
   input: Tool.InferParameters<T>
@@ -487,7 +487,22 @@ export const RunCommand = cmd({
     let promptResult: Promise<any> = Promise.resolve()
 
     async function execute(sdk: any) {
-      let output = Promise.resolve()
+      // Signal-local delivery barrier. #91 owns the shared stdout writer that
+      // will replace this state when its PR is integrated.
+      const output = {
+        failed: false,
+        pending: new Set<Promise<void>>(),
+      }
+      const fail = (error: unknown) => {
+        if (error instanceof Error && "code" in error && error.code === "EPIPE") return
+        output.failed = true
+      }
+      if (args.format === "json") process.stdout.on("error", fail)
+      using _stdout = {
+        [Symbol.dispose]() {
+          if (args.format === "json") process.stdout.off("error", fail)
+        },
+      }
 
       function tool(part: ToolPart) {
         try {
@@ -691,7 +706,7 @@ export const RunCommand = cmd({
               // to a non-zero exit code so CI wrappers see the failure instead of a
               // spuriously-green job. process.exitCode (not process.exit) lets the
               // loop drain to session.status idle and emit session_complete first.
-              process.exitCode = 1
+              if (!control.current) process.exitCode = 1
               if (!sessionErrorEmitted) {
                 sessionErrorEmitted = true
                 const classified = classifySessionError(props.error)
@@ -839,8 +854,11 @@ export const RunCommand = cmd({
         permissions: PermissionNext.merge(agentInfo.permission, rules),
       })
 
+      let aborted = false
       function abort() {
-        cancel(
+        if (aborted) return
+        aborted = true
+        attempt(
           () => sdk.session.abort({ sessionID }),
           () => Log.Default.error("session abort failed"),
         )
@@ -866,9 +884,9 @@ export const RunCommand = cmd({
         },
       )
 
-      function flush() {
-        if (!control.current) return Promise.resolve()
-        return output
+      async function flush() {
+        while (output.pending.size) await Promise.allSettled(output.pending)
+        if (output.failed) throw new Error("stdout write failed")
       }
 
       // Emit the resolved tool catalog (builtin + MCP tools) and available
@@ -914,8 +932,10 @@ export const RunCommand = cmd({
             })
           }
           complete(error ?? classified.message)
-          console.error(e)
-          process.exitCode = 1
+          if (!control.current) {
+            console.error(e)
+            process.exitCode = 1
+          }
         })
 
       if (control.current) {
@@ -958,7 +978,9 @@ export const RunCommand = cmd({
           // If prompt rejects, surface the error immediately
           (e) => {
             const classified = classifySessionError(e)
-            error = error ? error + EOL + classified.message : classified.message
+            if (!control.current) {
+              error = error ? error + EOL + classified.message : classified.message
+            }
             if (!sessionErrorEmitted) {
               sessionErrorEmitted = true
               emit("session_error", {
@@ -968,8 +990,10 @@ export const RunCommand = cmd({
               })
             }
             complete(error ?? classified.message)
-            console.error(e)
-            process.exitCode = 1
+            if (!control.current) {
+              console.error(e)
+              process.exitCode = 1
+            }
           },
         ),
       ])

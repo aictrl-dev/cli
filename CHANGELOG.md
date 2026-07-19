@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Compatibility
+
+- **NDJSON v1 terminal reasons are an open set** — `session_error.reason` now includes `interrupted` for `SIGINT` and `terminated` for `SIGTERM`, and `code` may contain the conventional signal-derived exit code (`130` or `143`). Schema v1 consumers should treat unknown event types, fields, and enum-like string values as forward-compatible additions.
+
 ## 0.3.2 (2026-04-11)
 
 ### Fixes

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import path from "path"
-import { cancel } from "../../src/cli/signals"
+import { attempt } from "../../src/cli/signals"
 
 const signal = path.resolve(import.meta.dir, "../../src/cli/signals.ts")
 
@@ -74,10 +74,10 @@ async function output(reader: ReadableStreamDefaultReader<Uint8Array>) {
 }
 
 describe("graceful headless signals", () => {
-  test.each(["sync", "async"])("cancel contains %s failures", async (mode) => {
+  test.each(["sync", "async"])("attempt contains %s failures", async (mode) => {
     const failure = Promise.withResolvers<string>()
 
-    cancel(
+    attempt(
       () => {
         if (mode === "sync") throw new Error("private abort detail")
         return Promise.reject(new Error("private abort detail"))

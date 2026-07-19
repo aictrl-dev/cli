@@ -4,11 +4,13 @@ import path from "path"
 const entry = path.resolve(import.meta.dir, "../../src/index.ts")
 const sessionID = "ses_signal_test"
 
-async function server(provider = false) {
+async function server(options: { provider?: boolean; hold?: boolean } = {}) {
   const state: {
+    aborts: number
+    message?: ReturnType<typeof Promise.withResolvers<Response>>
     stream?: ReadableStreamDefaultController<Uint8Array>
     prompted: boolean
-  } = { prompted: false }
+  } = { aborts: 0, prompted: false }
   const encoder = new TextEncoder()
   const app = Bun.serve({
     port: 0,
@@ -32,7 +34,7 @@ async function server(provider = false) {
       }
       if (request.method === "POST" && url.pathname.endsWith("/message")) {
         state.prompted = true
-        if (provider) {
+        if (options.provider) {
           state.stream?.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({
@@ -48,9 +50,14 @@ async function server(provider = false) {
             ),
           )
         }
+        if (options.hold) {
+          state.message = Promise.withResolvers<Response>()
+          return state.message.promise
+        }
         return Response.json({})
       }
       if (request.method === "POST" && url.pathname.endsWith("/abort")) {
+        state.aborts++
         state.stream?.enqueue(
           encoder.encode(
             `data: ${JSON.stringify({
@@ -62,6 +69,7 @@ async function server(provider = false) {
             })}\n\n`,
           ),
         )
+        state.message?.resolve(Response.json({}))
         return Response.json(true)
       }
       return Response.json({ error: "not found" }, { status: 404 })
@@ -142,7 +150,7 @@ describe("run --format json graceful signal cancellation", () => {
   )
 
   test("a provider error remains the canonical terminal error when a signal follows", async () => {
-    const mock = await server(true)
+    const mock = await server({ provider: true })
     const proc = Bun.spawn(
       ["bun", "run", "--conditions=browser", entry, "run", "--format", "json", "--attach", mock.url, "test"],
       {
@@ -178,6 +186,74 @@ describe("run --format json graceful signal cancellation", () => {
       expect(output.find((event) => event.type === "session_complete")).toMatchObject({
         error: "provider failed first",
       })
+    } finally {
+      clearTimeout(timeout)
+      proc.kill("SIGKILL")
+      mock.app.stop(true)
+    }
+  }, 20_000)
+
+  test("a signal aborts an in-flight prompt exactly once", async () => {
+    const mock = await server({ hold: true })
+    const proc = Bun.spawn(
+      ["bun", "run", "--conditions=browser", entry, "run", "--format", "json", "--attach", mock.url, "test"],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          ANTHROPIC_API_KEY: "",
+          OPENAI_API_KEY: "",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    )
+    const timeout = setTimeout(() => proc.kill("SIGKILL"), 15_000)
+
+    try {
+      for (let tries = 0; !mock.state.prompted && tries < 300; tries++) {
+        await Bun.sleep(25)
+      }
+      expect(mock.state.prompted).toBe(true)
+
+      proc.kill("SIGTERM")
+
+      expect(await proc.exited).toBe(143)
+      expect(mock.state.aborts).toBe(1)
+    } finally {
+      clearTimeout(timeout)
+      proc.kill("SIGKILL")
+      mock.app.stop(true)
+    }
+  }, 20_000)
+
+  test("a closed stdout consumer does not replace the signal exit code", async () => {
+    const mock = await server()
+    const proc = Bun.spawn(
+      ["bun", "run", "--conditions=browser", entry, "run", "--format", "json", "--attach", mock.url, "test"],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          ANTHROPIC_API_KEY: "",
+          OPENAI_API_KEY: "",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    )
+    const timeout = setTimeout(() => proc.kill("SIGKILL"), 15_000)
+
+    try {
+      for (let tries = 0; !mock.state.prompted && tries < 300; tries++) {
+        await Bun.sleep(25)
+      }
+      expect(mock.state.prompted).toBe(true)
+      await proc.stdout.cancel()
+
+      proc.kill("SIGINT")
+
+      expect(await proc.exited).toBe(130)
     } finally {
       clearTimeout(timeout)
       proc.kill("SIGKILL")

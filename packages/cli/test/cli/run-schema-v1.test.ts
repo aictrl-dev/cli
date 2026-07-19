@@ -57,6 +57,13 @@ describe("run.ts v1 schema emissions (#63)", () => {
     expect(block).toContain('emit("error"')
   })
 
+  test("signal cancellation errors preserve the signal exit code", async () => {
+    const source = await Bun.file(RUN_SRC).text()
+    const caught = source.match(/if \(!control\.current\) \{\s+console\.error\(e\)\s+process\.exitCode = 1\s+\}/g)
+    expect(caught).toHaveLength(2)
+    expect(source).toContain("if (!control.current) process.exitCode = 1")
+  })
+
   test("text / reasoning / tool_use include sequenceNum", async () => {
     const source = await Bun.file(RUN_SRC).text()
     expect(source).toContain("sequenceNum")
