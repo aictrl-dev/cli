@@ -155,6 +155,11 @@ try {
   }
   process.exitCode = 1
 } finally {
-  await Stdout.flush()
+  await Stdout.flush().catch((error) => {
+    Log.Default.error("stdout flush failed", {
+      error: error instanceof Error ? error.message : error,
+    })
+    process.exitCode = 1
+  })
   process.exit()
 }

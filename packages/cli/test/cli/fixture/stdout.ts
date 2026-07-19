@@ -5,10 +5,15 @@ if (process.argv.includes("--error")) {
   Stdout.write("")
   await Stdout.flush()
   process.stdout.emit("error", Object.assign(new Error("broken stdout"), { code: "EIO" }))
-  await Stdout.flush().then(
-    () => process.exit(2),
-    (error) => process.exit(error instanceof Error && error.message === "broken stdout" ? 0 : 3),
+  const write = await Stdout.write("").then(
+    () => false,
+    (error) => error instanceof Error && error.message === "broken stdout",
   )
+  const flush = await Stdout.flush().then(
+    () => false,
+    (error) => error instanceof Error && error.message === "broken stdout",
+  )
+  process.exit(write && flush ? 0 : 2)
 }
 
 const records = Array.from({ length: 1024 }, (_, index) =>
@@ -24,5 +29,9 @@ Array.from({ length: process.argv.includes("--epipe") ? 8 : 1 }).forEach(() =>
 )
 Stdout.write(JSON.stringify({ type: "complete" }) + "\n")
 await Stdout.flush()
-if (process.argv.includes("--epipe")) process.exit(Stdout.closed() ? 0 : 2)
+if (process.argv.includes("--epipe")) {
+  const status = process.argv.find((arg) => arg.startsWith("--status="))?.slice("--status=".length)
+  if (status) await Bun.write(status, Stdout.isClosed() ? "closed" : "open")
+  process.exit(Stdout.isClosed() ? 0 : 2)
+}
 process.exit()

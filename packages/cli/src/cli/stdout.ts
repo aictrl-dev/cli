@@ -1,9 +1,9 @@
 const state = {
   bound: false,
   closed: false,
-  error: undefined as unknown,
   pending: new Set<Promise<void>>(),
 }
+let failure: unknown
 
 function epipe(error: unknown) {
   return error instanceof Error && "code" in error && error.code === "EPIPE"
@@ -12,9 +12,10 @@ function epipe(error: unknown) {
 function fail(error: unknown) {
   if (epipe(error)) {
     state.closed = true
-    return
+    return false
   }
-  state.error = error
+  failure = error
+  return true
 }
 
 function bind() {
@@ -26,24 +27,36 @@ function bind() {
 export namespace Stdout {
   export function write(chunk: string) {
     bind()
+    if (failure !== undefined) {
+      const pending = Promise.reject(failure)
+      pending.catch(() => {})
+      return pending
+    }
     if (state.closed || process.stdout.destroyed || process.stdout.writableEnded) return Promise.resolve()
-    const pending = new Promise<void>((resolve) => {
+    const pending = new Promise<void>((resolve, reject) => {
       process.stdout.write(chunk, (error) => {
-        if (error) fail(error)
+        if (error && fail(error)) {
+          reject(error)
+          return
+        }
         resolve()
       })
     })
     state.pending.add(pending)
-    pending.then(() => state.pending.delete(pending))
+    pending.catch(() => {})
+    pending.then(
+      () => state.pending.delete(pending),
+      () => state.pending.delete(pending),
+    )
     return pending
   }
 
   export async function flush() {
-    while (state.pending.size) await Promise.all(state.pending)
-    if (state.error) throw state.error
+    while (state.pending.size) await Promise.allSettled(state.pending)
+    if (failure !== undefined) throw failure
   }
 
-  export function closed() {
+  export function isClosed() {
     return state.closed
   }
 }
