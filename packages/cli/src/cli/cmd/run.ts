@@ -13,6 +13,7 @@ import { Filesystem } from "../../util/filesystem"
 import { createAictrlClient } from "@aictrl/sdk"
 import type { ToolPart } from "@aictrl/sdk/v2"
 import { Provider } from "../../provider/provider"
+import { ModelsDev } from "../../provider/models"
 import { Agent } from "../../agent/agent"
 import { PermissionNext } from "../../permission/next"
 import { Session } from "../../session"
@@ -507,7 +508,11 @@ export const RunCommand = cmd({
                     : {
                         total:
                           info.tokens.total ??
-                          info.tokens.input + info.tokens.output + info.tokens.cache.read + info.tokens.cache.write,
+                          info.tokens.input +
+                            info.tokens.output +
+                            info.tokens.reasoning +
+                            info.tokens.cache.read +
+                            info.tokens.cache.write,
                         input: info.tokens.input,
                         output: info.tokens.output,
                         reasoning: info.tokens.reasoning,
@@ -525,14 +530,16 @@ export const RunCommand = cmd({
                 // undercounts utilization on the first turn of a conversation.
                 // limit comes from the model registry (models.dev). On lookup failure
                 // (or limit===0 for custom models) buildContextWindow returns null.
-                const contextLimit = args.attach
-                  ? null
-                  : await Provider.getModel(info.providerID, info.modelID)
+                const contextLimit = await (args.attach
+                  ? ModelsDev.get().then(
+                      (providers) => providers[info.providerID]?.models[info.modelID]?.limit.context ?? null,
+                    )
+                  : Provider.getModel(info.providerID, info.modelID)
                       .then((m) => m.limit.context)
                       .catch((e) => {
                         if (e instanceof Provider.ModelNotFoundError) return null
                         throw e
-                      })
+                      }))
                 const contextUsed = tokens ? tokens.input + tokens.cache.read + tokens.cache.write : null
                 const context = contextUsed === null ? null : buildContextWindow(contextLimit, contextUsed)
 

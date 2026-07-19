@@ -2,6 +2,7 @@ import path from "path"
 import { afterEach, describe, expect, test } from "bun:test"
 
 const cli = path.resolve(import.meta.dir, "../../src/index.ts")
+const models = path.resolve(import.meta.dir, "../tool/fixtures/models-api.json")
 const sessionID = "ses_primary"
 const servers: Bun.Server<unknown>[] = []
 
@@ -90,7 +91,6 @@ describe("run --format json terminal assistant telemetry (#93, #45)", () => {
   test("emits one scoped terminal event per message with explicit status and usage provenance", async () => {
     const zero = message({ id: "msg_zero", usageStatus: "reported" })
     const partial = {
-      total: 24,
       input: 10,
       output: 4,
       reasoning: 2,
@@ -117,11 +117,19 @@ describe("run --format json terminal assistant telemetry (#93, #45)", () => {
     ]
     const proc = Bun.spawn(["bun", "run", cli, "run", "--format", "json", "--attach", server(events), "test prompt"], {
       cwd: process.cwd(),
+      env: {
+        ...process.env,
+        AICTRL_MODELS_PATH: models,
+      },
       stdout: "pipe",
       stderr: "pipe",
     })
-    const stdout = await new Response(proc.stdout).text()
-    await proc.exited
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ])
+    expect(code, stderr).toBe(0)
     const output = stdout
       .split("\n")
       .filter(Boolean)
@@ -145,6 +153,11 @@ describe("run --format json terminal assistant telemetry (#93, #45)", () => {
       output: 4,
       reasoning: 2,
       cache: { read: 8, write: 0 },
+    })
+    expect(output[3].context).toEqual({
+      used: 18,
+      limit: 204_800,
+      ratio: 18 / 204_800,
     })
   }, 20_000)
 })

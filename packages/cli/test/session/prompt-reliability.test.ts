@@ -2,12 +2,15 @@ import path from "path"
 import { describe, expect, test } from "bun:test"
 import { Log } from "../../src/util/log"
 import { SessionRetry } from "../../src/session/retry"
+import { Instance } from "../../src/project/instance"
+import { Bus } from "../../src/bus"
+import { SessionStatus } from "../../src/session/status"
+import { SessionPrompt } from "../../src/session/prompt"
+import { Session } from "../../src/session"
 
 Log.init({ print: false })
 
 const PROMPT_SRC = path.resolve(import.meta.dir, "../../src/session/prompt.ts")
-const PROCESSOR_SRC = path.resolve(import.meta.dir, "../../src/session/processor.ts")
-
 describe("prompt.ts reliability guards", () => {
   test("cancel rejects queued callbacks before deleting state", async () => {
     const source = await Bun.file(PROMPT_SRC).text()
@@ -25,26 +28,31 @@ describe("prompt.ts reliability guards", () => {
     expect(rejectPos).toBeLessThan(deletePos)
   })
 
-  test("terminal assistant update is queued before idle status", async () => {
-    const prompt = await Bun.file(PROMPT_SRC).text()
-    const processor = await Bun.file(PROCESSOR_SRC).text()
-    const cleanup = prompt.slice(
-      prompt.indexOf("using _ = defer(() => {"),
-      prompt.indexOf("// Structured output state"),
-    )
-    const terminal = processor.slice(
-      processor.indexOf("input.assistantMessage.time.completed = Date.now()"),
-      processor.indexOf('if (needsCompaction) return "compact"'),
-    )
-    const failure = processor.slice(
-      processor.indexOf("} catch (e: any) {"),
-      processor.indexOf("input.assistantMessage.time.completed = Date.now()"),
-    )
+  test("shell-owned cancellation publishes idle", async () => {
+    await Instance.provide({
+      directory: path.join(import.meta.dir, "../.."),
+      fn: async () => {
+        const session = await Session.create({})
+        const statuses: string[] = []
+        const unsub = Bus.subscribe(SessionStatus.Event.Status, (event) => {
+          if (event.properties.sessionID === session.id) statuses.push(event.properties.status.type)
+        })
 
-    expect(cleanup.indexOf("cancel(sessionID)")).toBeLessThan(cleanup.indexOf("SessionStatus.set(sessionID"))
-    expect(failure).not.toContain('type: "idle"')
-    expect(terminal).toContain("await Session.updateMessage(input.assistantMessage)")
-    expect(terminal).not.toContain("SessionStatus.set")
+        await SessionPrompt.shell({
+          sessionID: session.id,
+          agent: "build",
+          model: {
+            providerID: "zai",
+            modelID: "glm-4.7",
+          },
+          command: "printf test",
+        })
+
+        unsub()
+        expect(statuses).toContain("idle")
+        await Session.remove(session.id)
+      },
+    })
   })
 
   test("dispose handler rejects queued callbacks", async () => {

@@ -101,7 +101,7 @@ describe("message_complete emit block shape (source-verified, #86)", () => {
     const source = await Bun.file(RUN_SRC).text()
     const emitIdx = source.indexOf('emit("message_complete"')
     expect(emitIdx).toBeGreaterThan(-1)
-    const blockStart = Math.max(0, emitIdx - 1500)
+    const blockStart = Math.max(0, emitIdx - 2000)
     const block = source.slice(blockStart, emitIdx + 200)
     expect(block).toContain("reasoning")
     expect(block).toContain("cache")
