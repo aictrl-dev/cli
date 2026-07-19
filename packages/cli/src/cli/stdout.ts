@@ -1,43 +1,49 @@
 const state = {
+  bound: false,
   closed: false,
-  queue: Promise.resolve(),
+  error: undefined as unknown,
+  pending: new Set<Promise<void>>(),
 }
 
-function pipe(error: unknown) {
+function epipe(error: unknown) {
   return error instanceof Error && "code" in error && error.code === "EPIPE"
 }
 
-function output(chunk: string, flush = false) {
-  if (state.closed || process.stdout.destroyed || process.stdout.writableEnded) return Promise.resolve()
-  return new Promise<void>((resolve) => {
-    const drain = () => resolve()
-    const wait = { ready: true, done: false }
-    wait.ready = process.stdout.write(chunk, (error) => {
-      wait.done = true
-      if (error) state.closed = true
-      if (!wait.ready) process.stdout.off("drain", drain)
-      resolve()
-    })
-    if (!wait.ready && !wait.done && !flush) process.stdout.once("drain", drain)
-  })
-}
-
-process.stdout.on("error", (error) => {
-  if (pipe(error)) {
+function fail(error: unknown) {
+  if (epipe(error)) {
     state.closed = true
     return
   }
-  throw error
-})
+  state.error = error
+}
+
+function bind() {
+  if (state.bound) return
+  state.bound = true
+  process.stdout.on("error", fail)
+}
 
 export namespace Stdout {
   export function write(chunk: string) {
-    state.queue = state.queue.then(() => output(chunk))
-    return state.queue
+    bind()
+    if (state.closed || process.stdout.destroyed || process.stdout.writableEnded) return Promise.resolve()
+    const pending = new Promise<void>((resolve) => {
+      process.stdout.write(chunk, (error) => {
+        if (error) fail(error)
+        resolve()
+      })
+    })
+    state.pending.add(pending)
+    pending.then(() => state.pending.delete(pending))
+    return pending
   }
 
   export async function flush() {
-    await state.queue
-    await output("", true)
+    while (state.pending.size) await Promise.all(state.pending)
+    if (state.error) throw state.error
+  }
+
+  export function closed() {
+    return state.closed
   }
 }
