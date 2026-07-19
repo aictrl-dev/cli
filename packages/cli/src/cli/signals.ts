@@ -22,10 +22,15 @@ const info = {
   },
 } as const satisfies Record<Signals.Info["name"], Signals.Info>
 
-export function signals(cancel: (info: Signals.Info) => void, grace = 5_000) {
+export function cancel(run: () => unknown, fail: () => void) {
+  Promise.resolve().then(run).catch(fail)
+}
+
+export function signals(stop: (info: Signals.Info) => void, grace = 5_000, expire?: (info: Signals.Info) => unknown) {
   const state: {
     current?: Signals.Info
     timer?: ReturnType<typeof setTimeout>
+    hard?: ReturnType<typeof setTimeout>
     resolve?: (info: Signals.Info) => void
   } = {}
   const received = new Promise<Signals.Info>((resolve) => {
@@ -39,8 +44,19 @@ export function signals(cancel: (info: Signals.Info) => void, grace = 5_000) {
     }
     state.current = signal
     process.exitCode = signal.code
-    state.timer = setTimeout(() => process.exit(signal.code), grace)
-    cancel(signal)
+    state.timer = setTimeout(() => {
+      state.hard = setTimeout(() => process.exit(signal.code), 250)
+      Promise.resolve()
+        .then(() => expire?.(signal))
+        .then(
+          () => {
+            if (state.hard) clearTimeout(state.hard)
+            process.exit(signal.code)
+          },
+          () => process.exit(signal.code),
+        )
+    }, grace)
+    stop(signal)
     state.resolve?.(signal)
   }
 
@@ -51,6 +67,7 @@ export function signals(cancel: (info: Signals.Info) => void, grace = 5_000) {
 
   const dispose = () => {
     if (state.timer) clearTimeout(state.timer)
+    if (state.hard) clearTimeout(state.hard)
     process.off("SIGINT", sigint)
     process.off("SIGTERM", sigterm)
   }

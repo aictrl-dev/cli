@@ -10,7 +10,7 @@ When running `aictrl run --format json`, the CLI emits newline-delimited JSON (N
 }
 ```
 
-The schema is versioned via `session_start.schemaVersion`. This document describes **schema version `"1"`**. Consumers should pin to this version and treat unknown fields as forward-compatible additions.
+The schema is versioned via `session_start.schemaVersion`. This document describes **schema version `"1"`**. Consumers should pin to this version and treat unknown event types, fields, and enum-like string values as forward-compatible additions.
 
 ## Lifecycle Events
 

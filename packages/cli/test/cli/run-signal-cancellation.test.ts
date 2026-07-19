@@ -4,7 +4,7 @@ import path from "path"
 const entry = path.resolve(import.meta.dir, "../../src/index.ts")
 const sessionID = "ses_signal_test"
 
-async function server() {
+async function server(provider = false) {
   const state: {
     stream?: ReadableStreamDefaultController<Uint8Array>
     prompted: boolean
@@ -32,6 +32,22 @@ async function server() {
       }
       if (request.method === "POST" && url.pathname.endsWith("/message")) {
         state.prompted = true
+        if (provider) {
+          state.stream?.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                type: "session.error",
+                properties: {
+                  sessionID,
+                  error: {
+                    name: "ProviderError",
+                    data: { message: "provider failed first" },
+                  },
+                },
+              })}\n\n`,
+            ),
+          )
+        }
         return Response.json({})
       }
       if (request.method === "POST" && url.pathname.endsWith("/abort")) {
@@ -124,4 +140,48 @@ describe("run --format json graceful signal cancellation", () => {
     },
     20_000,
   )
+
+  test("a provider error remains the canonical terminal error when a signal follows", async () => {
+    const mock = await server(true)
+    const proc = Bun.spawn(
+      ["bun", "run", "--conditions=browser", entry, "run", "--format", "json", "--attach", mock.url, "test"],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          ANTHROPIC_API_KEY: "",
+          OPENAI_API_KEY: "",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    )
+    const timeout = setTimeout(() => proc.kill("SIGKILL"), 15_000)
+
+    try {
+      for (let tries = 0; !mock.state.prompted && tries < 300; tries++) {
+        await Bun.sleep(25)
+      }
+      expect(mock.state.prompted).toBe(true)
+      await Bun.sleep(100)
+
+      proc.kill("SIGTERM")
+
+      const [stdout, exit] = await Promise.all([new Response(proc.stdout).text(), proc.exited])
+      expect(exit).toBe(143)
+      const output = events(stdout)
+      expect(output.filter((event) => event.type === "session_error")).toHaveLength(1)
+      expect(output.find((event) => event.type === "session_error")).toMatchObject({
+        reason: "unknown",
+        message: "provider failed first",
+      })
+      expect(output.find((event) => event.type === "session_complete")).toMatchObject({
+        error: "provider failed first",
+      })
+    } finally {
+      clearTimeout(timeout)
+      proc.kill("SIGKILL")
+      mock.app.stop(true)
+    }
+  }, 20_000)
 })

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import path from "path"
+import { cancel } from "../../src/cli/signals"
 
 const signal = path.resolve(import.meta.dir, "../../src/cli/signals.ts")
 
@@ -13,13 +14,19 @@ function child(grace = 1_000, complete = true) {
 
         const emit = (type, data = {}) =>
           process.stdout.write(JSON.stringify({ type, ...data }) + "\\n")
-        const control = signals((info) => {
-          emit("session_error", {
-            reason: info.reason,
-            code: String(info.code),
-            message: info.message,
-          })
-        }, ${grace})
+        const control = signals(
+          (info) => {
+            emit("session_error", {
+              reason: info.reason,
+              code: String(info.code),
+              message: info.message,
+            })
+          },
+          ${grace},
+          () => new Promise((resolve) => {
+            process.stdout.write(JSON.stringify({ type: "session_complete" }) + "\\n", resolve)
+          }),
+        )
 
         emit("ready")
         await control.received
@@ -67,6 +74,20 @@ async function output(reader: ReadableStreamDefaultReader<Uint8Array>) {
 }
 
 describe("graceful headless signals", () => {
+  test.each(["sync", "async"])("cancel contains %s failures", async (mode) => {
+    const failure = Promise.withResolvers<string>()
+
+    cancel(
+      () => {
+        if (mode === "sync") throw new Error("private abort detail")
+        return Promise.reject(new Error("private abort detail"))
+      },
+      () => failure.resolve("abort failed"),
+    )
+
+    expect(await failure.promise).toBe("abort failed")
+  })
+
   test.each([
     ["SIGINT", "interrupted", 130],
     ["SIGTERM", "terminated", 143],
@@ -107,6 +128,6 @@ describe("graceful headless signals", () => {
     proc.kill("SIGINT")
 
     expect(await proc.exited).toBe(130)
-    expect((await output(reader)).map((event) => event.type)).toEqual(["session_error"])
+    expect((await output(reader)).map((event) => event.type)).toEqual(["session_error", "session_complete"])
   })
 })

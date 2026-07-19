@@ -37,8 +37,9 @@ import { SkillTool } from "../../tool/skill"
 import { BashTool } from "../../tool/bash"
 import { TodoWriteTool } from "../../tool/todo"
 import { Locale } from "../../util/locale"
+import { Log } from "../../util/log"
 import { Stdout } from "../stdout"
-import { signals } from "../signals"
+import { cancel, signals } from "../signals"
 
 type ToolProps<T extends Tool.Info> = {
   input: Tool.InferParameters<T>
@@ -486,6 +487,8 @@ export const RunCommand = cmd({
     let promptResult: Promise<any> = Promise.resolve()
 
     async function execute(sdk: any) {
+      let output = Promise.resolve()
+
       function tool(part: ToolPart) {
         try {
           if (part.tool === "bash") return bash(props<typeof BashTool>(part))
@@ -522,6 +525,7 @@ export const RunCommand = cmd({
       // or promptResult rejection). Without this a mid-run session.error event
       // can fire site 1 while promptResult/loop() also rejects and fires site 2/3.
       let sessionErrorEmitted = false
+      let sessionCompleteEmitted = false
       const startTime = Date.now()
       const childSessions = new Set<string>()
       const emitted = new Set<string>()
@@ -530,6 +534,15 @@ export const RunCommand = cmd({
         const n = (seqBySession.get(sid) ?? 0) + 1
         seqBySession.set(sid, n)
         return n
+      }
+
+      function complete(message = error ?? null) {
+        if (sessionCompleteEmitted) return
+        sessionCompleteEmitted = true
+        emit("session_complete", {
+          durationMs: Date.now() - startTime,
+          error: message,
+        })
       }
 
       async function loop() {
@@ -826,30 +839,36 @@ export const RunCommand = cmd({
         permissions: PermissionNext.merge(agentInfo.permission, rules),
       })
 
-      function cancel() {
-        Promise.resolve(sdk.session.abort({ sessionID })).catch((e) => {
-          console.error(e)
-        })
+      function abort() {
+        cancel(
+          () => sdk.session.abort({ sessionID }),
+          () => Log.Default.error("session abort failed"),
+        )
       }
 
-      using control = signals((signal) => {
-        error = error ? error + EOL + signal.message : signal.message
-        if (!sessionErrorEmitted) {
-          sessionErrorEmitted = true
-          emit("session_error", {
-            reason: signal.reason,
-            code: String(signal.code),
-            message: signal.message,
-          })
-        }
-        cancel()
-      })
+      using control = signals(
+        (signal) => {
+          if (!sessionErrorEmitted) {
+            error = signal.message
+            sessionErrorEmitted = true
+            emit("session_error", {
+              reason: signal.reason,
+              code: String(signal.code),
+              message: signal.message,
+            })
+          }
+          abort()
+        },
+        5_000,
+        async (signal) => {
+          complete(error ?? signal.message)
+          await flush()
+        },
+      )
 
       function flush() {
         if (!control.current) return Promise.resolve()
-        return new Promise<void>((resolve) => {
-          process.stdout.write("", () => resolve())
-        })
+        return output
       }
 
       // Emit the resolved tool catalog (builtin + MCP tools) and available
@@ -882,10 +901,7 @@ export const RunCommand = cmd({
 
       const loopDone = loop()
         .then(() => {
-          emit("session_complete", {
-            durationMs: Date.now() - startTime,
-            error: error ?? null,
-          })
+          complete()
         })
         .catch((e) => {
           const classified = classifySessionError(e)
@@ -897,10 +913,7 @@ export const RunCommand = cmd({
               message: classified.message,
             })
           }
-          emit("session_complete", {
-            durationMs: Date.now() - startTime,
-            error: classified.message,
-          })
+          complete(error ?? classified.message)
           console.error(e)
           process.exitCode = 1
         })
@@ -930,7 +943,7 @@ export const RunCommand = cmd({
           parts: [...files, { type: "text", text: message }],
         })
       }
-      if (control.current) cancel()
+      if (control.current) abort()
 
       // Race loopDone against promptResult to handle early prompt failures.
       // If SessionPrompt.prompt() rejects BEFORE it enters its internal loop()
@@ -954,10 +967,7 @@ export const RunCommand = cmd({
                 message: classified.message,
               })
             }
-            emit("session_complete", {
-              durationMs: Date.now() - startTime,
-              error: classified.message,
-            })
+            complete(error ?? classified.message)
             console.error(e)
             process.exitCode = 1
           },
@@ -997,7 +1007,7 @@ export const RunCommand = cmd({
             return { data: { share } }
           },
           abort(opts: any) {
-            SessionPrompt.cancel(opts.sessionID)
+            return SessionPrompt.cancel(opts.sessionID)
           },
           async prompt(opts: any) {
             promptResult = SessionPrompt.prompt({

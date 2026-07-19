@@ -39,7 +39,8 @@ describe("run.ts v1 schema emissions (#63)", () => {
     const source = await Bun.file(RUN_SRC).text()
     const errIdx = source.indexOf('emit("session_error"')
     expect(errIdx).toBeGreaterThan(-1)
-    expect(errIdx).toBeLessThan(source.lastIndexOf('emit("session_complete"'))
+    expect(source.slice(errIdx).indexOf("complete(")).toBeGreaterThan(-1)
+    expect(source).toContain("if (sessionCompleteEmitted) return")
   })
 
   test("primary session.error events are surfaced as session_error", async () => {
