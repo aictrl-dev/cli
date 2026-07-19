@@ -16,6 +16,9 @@ export function classifySessionError(err: unknown): ClassifiedSessionError {
   if (status === 429) return { reason: "rate_limit", code: "429", message }
   if (status === 401 || status === 403) return { reason: "auth", code: String(status), message }
   if (name === "ProviderAuthError") return { reason: "auth", code: status ? String(status) : undefined, message }
+  if (name === "StreamIdleTimeoutError") {
+    return { reason: "timeout", code: "MODEL_STREAM_IDLE_TIMEOUT", message }
+  }
   if (name === "AbortError" || /timeout/i.test(message)) {
     return { reason: "timeout", code: status ? String(status) : undefined, message }
   }
