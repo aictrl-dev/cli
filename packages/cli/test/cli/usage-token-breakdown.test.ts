@@ -181,10 +181,11 @@ describe("EVENTS.md documents token breakdown and context (#86)", () => {
 
   test("EVENTS.md documents null as the unknown-limit sentinel", async () => {
     const doc = await Bun.file(EVENTS_MD).text()
-    const idx = doc.indexOf("message_complete")
+    const idx = doc.indexOf("### `message_complete`")
     expect(idx).toBeGreaterThan(-1)
-    // null sentinel doc is ~1593 chars after message_complete heading; use 2000 window
-    const section = doc.slice(idx, idx + 2000)
+    const end = doc.indexOf("### `text`", idx)
+    expect(end).toBeGreaterThan(idx)
+    const section = doc.slice(idx, end)
     // The documented contract: null = context limit not known
     expect(section).toContain("null")
   })

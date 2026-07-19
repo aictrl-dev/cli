@@ -508,11 +508,13 @@ export const RunCommand = cmd({
                     : {
                         total:
                           info.tokens.total ??
-                          info.tokens.input +
-                            info.tokens.output +
-                            info.tokens.reasoning +
-                            info.tokens.cache.read +
-                            info.tokens.cache.write,
+                          (info.usageStatus === undefined
+                            ? info.tokens.input +
+                              info.tokens.output +
+                              info.tokens.reasoning +
+                              info.tokens.cache.read +
+                              info.tokens.cache.write
+                            : undefined),
                         input: info.tokens.input,
                         output: info.tokens.output,
                         reasoning: info.tokens.reasoning,
@@ -531,9 +533,9 @@ export const RunCommand = cmd({
                 // limit comes from the model registry (models.dev). On lookup failure
                 // (or limit===0 for custom models) buildContextWindow returns null.
                 const contextLimit = await (args.attach
-                  ? ModelsDev.get().then(
-                      (providers) => providers[info.providerID]?.models[info.modelID]?.limit.context ?? null,
-                    )
+                  ? ModelsDev.get()
+                      .then((providers) => providers[info.providerID]?.models[info.modelID]?.limit.context ?? null)
+                      .catch(() => null)
                   : Provider.getModel(info.providerID, info.modelID)
                       .then((m) => m.limit.context)
                       .catch((e) => {

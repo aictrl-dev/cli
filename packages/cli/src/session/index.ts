@@ -808,7 +808,7 @@ export namespace Session {
       metadata: z.custom<ProviderMetadata>().optional(),
     }),
     (input) => {
-      const safe = (value: number | undefined) => {
+      const safe = (value: unknown) => {
         if (typeof value !== "number" || !Number.isFinite(value)) return 0
         return value
       }
@@ -833,7 +833,7 @@ export namespace Session {
       const reasoningTokens = safe(input.usage.reasoningTokens ?? 0)
 
       const cacheReadInputTokens = safe(input.usage.cachedInputTokens ?? 0)
-      const cacheWriteInputTokens = safe(cacheWrite as number | undefined)
+      const cacheWriteInputTokens = safe(cacheWrite)
 
       // Providers where inputTokens EXCLUDES cached tokens
       const excludesCachedTokens = [
@@ -863,8 +863,7 @@ export namespace Session {
           return adjustedInputTokens + outputTokens + cacheReadInputTokens + cacheWriteInputTokens
         }
         if (Number.isFinite(input.usage.totalTokens)) return input.usage.totalTokens
-        if (!Number.isFinite(input.usage.inputTokens) || !Number.isFinite(input.usage.outputTokens)) return
-        return inputTokens + outputTokens
+        return
       })
 
       const tokens = {

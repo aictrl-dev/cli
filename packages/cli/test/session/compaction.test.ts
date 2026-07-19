@@ -435,6 +435,27 @@ describe("session.getUsage", () => {
     expect(missing.tokens.total).toBeUndefined()
   })
 
+  test("omits total when a generic provider reports only partial components", () => {
+    const model = createModel({ context: 100_000, output: 32_000, npm: "@ai-sdk/openai" })
+    const result = Session.getUsage({
+      model,
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: undefined,
+        reasoningTokens: 2,
+      },
+    })
+
+    expect(result.usageStatus).toBe("reported")
+    expect(result.tokens).toMatchObject({
+      input: 10,
+      output: 5,
+      reasoning: 2,
+    })
+    expect(result.tokens.total).toBeUndefined()
+  })
+
   test("calculates cost correctly", () => {
     const model = createModel({
       context: 100_000,

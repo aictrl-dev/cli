@@ -112,7 +112,8 @@ Emitted immediately before `session_complete` when the session terminates abnorm
 
 ### `message_complete`
 
-Emitted when an assistant message finishes (one per LLM turn).
+Emitted when a primary-session assistant message finishes (one per LLM turn). Child-session assistant messages are
+excluded; use the child-session lifecycle events when tracking subagents.
 
 ```json
 {
