@@ -19,6 +19,7 @@ import path from "path"
 import { Global } from "./global"
 import { JsonMigration } from "./storage/json-migration"
 import { Database } from "./storage/db"
+import { Shutdown } from "./cli/shutdown"
 
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {
@@ -154,5 +155,6 @@ try {
   }
   process.exitCode = 1
 } finally {
+  await Shutdown.flush()
   process.exit()
 }
