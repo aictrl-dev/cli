@@ -2,19 +2,20 @@ import path from "path"
 import { describe, expect, test } from "bun:test"
 import { Log } from "../../src/util/log"
 import { SessionRetry } from "../../src/session/retry"
+import { Instance } from "../../src/project/instance"
+import { Bus } from "../../src/bus"
+import { SessionStatus } from "../../src/session/status"
+import { SessionPrompt } from "../../src/session/prompt"
+import { Session } from "../../src/session"
 
 Log.init({ print: false })
 
 const PROMPT_SRC = path.resolve(import.meta.dir, "../../src/session/prompt.ts")
-
 describe("prompt.ts reliability guards", () => {
   test("cancel rejects queued callbacks before deleting state", async () => {
     const source = await Bun.file(PROMPT_SRC).text()
     // cancel() must iterate callbacks and reject before delete
-    const cancelFn = source.slice(
-      source.indexOf("export function cancel("),
-      source.indexOf("export const LoopInput"),
-    )
+    const cancelFn = source.slice(source.indexOf("export function cancel("), source.indexOf("export const LoopInput"))
     expect(cancelFn).toBeTruthy()
     // Must contain a for loop that calls cb.reject or similar
     expect(cancelFn).toMatch(/for\s*\(.*\bcb\b.*\bcallbacks\b/)
@@ -25,6 +26,33 @@ describe("prompt.ts reliability guards", () => {
     expect(rejectPos).toBeGreaterThan(-1)
     expect(deletePos).toBeGreaterThan(-1)
     expect(rejectPos).toBeLessThan(deletePos)
+  })
+
+  test("shell-owned cancellation publishes idle", async () => {
+    await Instance.provide({
+      directory: path.join(import.meta.dir, "../.."),
+      fn: async () => {
+        const session = await Session.create({})
+        const statuses: string[] = []
+        const unsub = Bus.subscribe(SessionStatus.Event.Status, (event) => {
+          if (event.properties.sessionID === session.id) statuses.push(event.properties.status.type)
+        })
+
+        await SessionPrompt.shell({
+          sessionID: session.id,
+          agent: "build",
+          model: {
+            providerID: "zai",
+            modelID: "glm-4.7",
+          },
+          command: "printf test",
+        })
+
+        unsub()
+        expect(statuses).toContain("idle")
+        await Session.remove(session.id)
+      },
+    })
   })
 
   test("dispose handler rejects queued callbacks", async () => {

@@ -429,6 +429,7 @@ export namespace MessageV2 {
         write: z.number(),
       }),
     }),
+    usageStatus: z.enum(["reported", "missing", "estimated"]).optional(),
     structured: z.any().optional(),
     variant: z.string().optional(),
     finish: z.string().optional(),

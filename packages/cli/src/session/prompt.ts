@@ -68,6 +68,7 @@ export namespace SessionPrompt {
         string,
         {
           abort: AbortController
+          loop: boolean
           callbacks: {
             resolve(input: MessageV2.WithParts): void
             reject(reason?: any): void
@@ -239,12 +240,13 @@ export namespace SessionPrompt {
     return parts
   }
 
-  function start(sessionID: string) {
+  function start(sessionID: string, loop = false) {
     const s = state()
     if (s[sessionID]) return
     const controller = new AbortController()
     s[sessionID] = {
       abort: controller,
+      loop,
       callbacks: [],
     }
     return controller.signal
@@ -254,6 +256,7 @@ export namespace SessionPrompt {
     const s = state()
     if (!s[sessionID]) return
 
+    s[sessionID].loop = true
     return s[sessionID].abort.signal
   }
 
@@ -263,7 +266,7 @@ export namespace SessionPrompt {
     const match = s[sessionID]
     if (!match) {
       SessionStatus.set(sessionID, { type: "idle" })
-      return
+      return true
     }
     match.abort.abort()
     const reason = new Error("Session cancelled")
@@ -271,8 +274,9 @@ export namespace SessionPrompt {
       cb.reject(reason)
     }
     delete s[sessionID]
+    if (match.loop) return false
     SessionStatus.set(sessionID, { type: "idle" })
-    return
+    return true
   }
 
   export const LoopInput = z.object({
@@ -282,7 +286,7 @@ export namespace SessionPrompt {
   export const loop = fn(LoopInput, async (input) => {
     const { sessionID, resume_existing } = input
 
-    const abort = resume_existing ? resume(sessionID) : start(sessionID)
+    const abort = resume_existing ? resume(sessionID) : start(sessionID, true)
     if (!abort) {
       return new Promise<MessageV2.WithParts>((resolve, reject) => {
         const callbacks = state()[sessionID].callbacks
@@ -290,7 +294,12 @@ export namespace SessionPrompt {
       })
     }
 
-    using _ = defer(() => cancel(sessionID))
+    using _ = defer(() => {
+      if (cancel(sessionID)) return
+      // Keep idle after processor persistence. Headless consumers use this as
+      // the boundary after which all terminal message events have been queued.
+      SessionStatus.set(sessionID, { type: "idle" })
+    })
 
     // Structured output state
     // Note: On session resumption, state is reset but outputFormat is preserved
@@ -373,6 +382,7 @@ export namespace SessionPrompt {
             root: Instance.worktree,
           },
           cost: 0,
+          usageStatus: "missing",
           tokens: {
             input: 0,
             output: 0,
@@ -584,6 +594,7 @@ export namespace SessionPrompt {
             root: Instance.worktree,
           },
           cost: 0,
+          usageStatus: "missing",
           tokens: {
             input: 0,
             output: 0,
@@ -1551,6 +1562,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         created: Date.now(),
       },
       role: "assistant",
+      usageStatus: "missing",
       tokens: {
         input: 0,
         output: 0,

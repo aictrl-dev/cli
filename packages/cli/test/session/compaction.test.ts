@@ -410,6 +410,52 @@ describe("session.getUsage", () => {
     expect(Number.isNaN(result.cost)).toBe(false)
   })
 
+  test("distinguishes reported zero usage from missing usage", () => {
+    const model = createModel({ context: 100_000, output: 32_000 })
+    const reported = Session.getUsage({
+      model,
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+      },
+    })
+    const missing = Session.getUsage({
+      model,
+      usage: {
+        inputTokens: undefined,
+        outputTokens: undefined,
+        totalTokens: undefined,
+      },
+    })
+
+    expect(reported.usageStatus).toBe("reported")
+    expect(reported.tokens.total).toBe(0)
+    expect(missing.usageStatus).toBe("missing")
+    expect(missing.tokens.total).toBeUndefined()
+  })
+
+  test("omits total when a generic provider reports only partial components", () => {
+    const model = createModel({ context: 100_000, output: 32_000, npm: "@ai-sdk/openai" })
+    const result = Session.getUsage({
+      model,
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: undefined,
+        reasoningTokens: 2,
+      },
+    })
+
+    expect(result.usageStatus).toBe("reported")
+    expect(result.tokens).toMatchObject({
+      input: 10,
+      output: 5,
+      reasoning: 2,
+    })
+    expect(result.tokens.total).toBeUndefined()
+  })
+
   test("calculates cost correctly", () => {
     const model = createModel({
       context: 100_000,

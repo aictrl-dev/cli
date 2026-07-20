@@ -11,11 +11,13 @@ import { bootstrap } from "../bootstrap"
 import { EOL } from "os"
 import { Filesystem } from "../../util/filesystem"
 import { createAictrlClient } from "@aictrl/sdk"
-import type { Message, ToolPart } from "@aictrl/sdk/v2"
+import type { ToolPart } from "@aictrl/sdk/v2"
 import { Provider } from "../../provider/provider"
+import { ModelsDev } from "../../provider/models"
 import { Agent } from "../../agent/agent"
 import { PermissionNext } from "../../permission/next"
 import { Session } from "../../session"
+import type { MessageV2 } from "../../session/message-v2"
 import { SessionPrompt } from "../../session/prompt"
 import { Config } from "../../config/config"
 import { GlobalBus } from "../../bus/global"
@@ -105,6 +107,46 @@ export function buildContextWindow(
     used: contextUsed,
     limit: contextLimit,
     ratio: contextUsed / contextLimit,
+  }
+}
+
+export async function attachedContextLimit(
+  providerID: string,
+  modelID: string,
+  providers = ModelsDev.get(),
+): Promise<number | null> {
+  return providers.then((providers) => providers[providerID]?.models[modelID]?.limit.context ?? null).catch(() => null)
+}
+
+type TerminalUsageInfo = Pick<MessageV2.Assistant, "finish" | "usageStatus" | "tokens">
+
+function legacyTotal(info: TerminalUsageInfo) {
+  if (info.usageStatus !== undefined) return
+  return (
+    info.tokens.input + info.tokens.output + info.tokens.reasoning + info.tokens.cache.read + info.tokens.cache.write
+  )
+}
+
+function terminalUsage(info: TerminalUsageInfo) {
+  const usageStatus = info.usageStatus ?? (info.finish ? "reported" : "missing")
+  if (usageStatus === "missing") {
+    return {
+      usageStatus,
+      tokens: null,
+    }
+  }
+  return {
+    usageStatus,
+    tokens: {
+      total: info.tokens.total ?? legacyTotal(info),
+      input: info.tokens.input,
+      output: info.tokens.output,
+      reasoning: info.tokens.reasoning,
+      cache: {
+        read: info.tokens.cache.read,
+        write: info.tokens.cache.write,
+      },
+    },
   }
 }
 
@@ -481,6 +523,7 @@ export const RunCommand = cmd({
       let sessionErrorEmitted = false
       const startTime = Date.now()
       const childSessions = new Set<string>()
+      const emitted = new Set<string>()
       const seqBySession = new Map<string, number>()
       function nextSeq(sid: string): number {
         const n = (seqBySession.get(sid) ?? 0) + 1
@@ -495,19 +538,9 @@ export const RunCommand = cmd({
           if (event.type === "message.updated" && event.properties.info.role === "assistant") {
             const info = event.properties.info
             if (args.format === "json") {
-              if (info.finish) {
-                // Build 5-way token breakdown mirroring upstream LLM.Usage shape.
-                // info.tokens already carries the full breakdown from StepFinishPart
-                // accumulation — reasoning and cache split are not dropped upstream.
-                const tokens = {
-                  input: info.tokens.input,
-                  output: info.tokens.output,
-                  reasoning: info.tokens.reasoning,
-                  cache: {
-                    read: info.tokens.cache.read,
-                    write: info.tokens.cache.write,
-                  },
-                }
+              if (info.sessionID === sessionID && info.time.completed !== undefined && !emitted.has(info.id)) {
+                emitted.add(info.id)
+                const usage = terminalUsage(info)
 
                 // Context-window utilization: used = input + cache.read + cache.write
                 // (all prompt tokens that occupy the model's context window this turn).
@@ -517,25 +550,32 @@ export const RunCommand = cmd({
                 // undercounts utilization on the first turn of a conversation.
                 // limit comes from the model registry (models.dev). On lookup failure
                 // (or limit===0 for custom models) buildContextWindow returns null.
-                const contextLimit = await Provider.getModel(info.providerID, info.modelID)
-                  .then((m) => m.limit.context)
-                  .catch((e) => {
-                    if (e instanceof Provider.ModelNotFoundError) return null
-                    throw e
-                  })
-                const contextUsed = tokens.input + tokens.cache.read + tokens.cache.write
-                const context = buildContextWindow(contextLimit, contextUsed)
+                const contextLimit = await (args.attach
+                  ? attachedContextLimit(info.providerID, info.modelID)
+                  : Provider.getModel(info.providerID, info.modelID)
+                      .then((m) => m.limit.context)
+                      .catch((e) => {
+                        if (e instanceof Provider.ModelNotFoundError) return null
+                        throw e
+                      }))
+                const contextUsed = usage.tokens
+                  ? usage.tokens.input + usage.tokens.cache.read + usage.tokens.cache.write
+                  : null
+                const context = contextUsed === null ? null : buildContextWindow(contextLimit, contextUsed)
 
                 emit("message_complete", {
+                  messageID: info.id,
                   modelID: info.modelID,
                   providerID: info.providerID,
                   agent: info.agent,
+                  context,
                   // cost is sourced from info.cost which accumulates real per-step costs
                   // from StepFinishPart. Do NOT use the new step.ended event cost field
                   // which emits cost:0 and is reconciled later (the cost:0 trap).
                   cost: info.cost,
-                  tokens,
-                  context,
+                  tokens: usage.tokens,
+                  usageStatus: usage.usageStatus,
+                  status: info.error?.name === "MessageAbortedError" ? "aborted" : info.error ? "error" : "completed",
                   finish: info.finish,
                 })
               }

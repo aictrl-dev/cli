@@ -124,6 +124,7 @@ export namespace SessionCompaction {
         root: Instance.worktree,
       },
       cost: 0,
+      usageStatus: "missing",
       tokens: {
         output: 0,
         input: 0,
