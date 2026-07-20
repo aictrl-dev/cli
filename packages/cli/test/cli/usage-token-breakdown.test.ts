@@ -97,12 +97,13 @@ describe("message_complete emit block shape (source-verified, #86)", () => {
   // that cannot be covered by pure unit-testing buildContextWindow.
   const RUN_SRC = path.resolve(import.meta.dir, "../../src/cli/cmd/run.ts")
 
-  test("emit block passes tokens with reasoning and cache read/write fields", async () => {
+  test("terminal usage helper preserves reasoning and cache read/write fields", async () => {
     const source = await Bun.file(RUN_SRC).text()
-    const emitIdx = source.indexOf('emit("message_complete"')
-    expect(emitIdx).toBeGreaterThan(-1)
-    const blockStart = Math.max(0, emitIdx - 2000)
-    const block = source.slice(blockStart, emitIdx + 200)
+    const start = source.indexOf("function terminalUsage(")
+    const end = source.indexOf("function glob(", start)
+    expect(start).toBeGreaterThan(-1)
+    expect(end).toBeGreaterThan(start)
+    const block = source.slice(start, end)
     expect(block).toContain("reasoning")
     expect(block).toContain("cache")
     expect(block).toContain("read")
@@ -154,7 +155,7 @@ describe("message_complete emit block shape (source-verified, #86)", () => {
     const source = await Bun.file(RUN_SRC).text()
     const contextUsedIdx = source.indexOf("const contextUsed =")
     expect(contextUsedIdx).toBeGreaterThan(-1)
-    const line = source.slice(contextUsedIdx, contextUsedIdx + 100)
+    const line = source.slice(contextUsedIdx, contextUsedIdx + 160)
     expect(line).toContain("cache.write")
   })
 })

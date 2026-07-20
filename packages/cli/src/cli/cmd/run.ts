@@ -17,6 +17,7 @@ import { ModelsDev } from "../../provider/models"
 import { Agent } from "../../agent/agent"
 import { PermissionNext } from "../../permission/next"
 import { Session } from "../../session"
+import type { MessageV2 } from "../../session/message-v2"
 import { SessionPrompt } from "../../session/prompt"
 import { Config } from "../../config/config"
 import { GlobalBus } from "../../bus/global"
@@ -114,6 +115,38 @@ export async function attachedContextLimit(
   providers = ModelsDev.get(),
 ): Promise<number | null> {
   return providers.then((providers) => providers[providerID]?.models[modelID]?.limit.context ?? null).catch(() => null)
+}
+
+type TerminalUsageInfo = Pick<MessageV2.Assistant, "finish" | "usageStatus" | "tokens">
+
+function legacyTotal(info: TerminalUsageInfo) {
+  if (info.usageStatus !== undefined) return
+  return (
+    info.tokens.input + info.tokens.output + info.tokens.reasoning + info.tokens.cache.read + info.tokens.cache.write
+  )
+}
+
+function terminalUsage(info: TerminalUsageInfo) {
+  const usageStatus = info.usageStatus ?? (info.finish ? "reported" : "missing")
+  if (usageStatus === "missing") {
+    return {
+      usageStatus,
+      tokens: null,
+    }
+  }
+  return {
+    usageStatus,
+    tokens: {
+      total: info.tokens.total ?? legacyTotal(info),
+      input: info.tokens.input,
+      output: info.tokens.output,
+      reasoning: info.tokens.reasoning,
+      cache: {
+        read: info.tokens.cache.read,
+        write: info.tokens.cache.write,
+      },
+    },
+  }
 }
 
 function glob(info: ToolProps<typeof GlobTool>) {
@@ -506,31 +539,7 @@ export const RunCommand = cmd({
             if (args.format === "json") {
               if (info.sessionID === sessionID && info.time.completed !== undefined && !emitted.has(info.id)) {
                 emitted.add(info.id)
-                const usageStatus = info.usageStatus ?? (info.finish ? "reported" : "missing")
-                // Build 5-way token breakdown mirroring upstream LLM.Usage shape.
-                // info.tokens already carries the full breakdown from StepFinishPart
-                // accumulation — reasoning and cache split are not dropped upstream.
-                const tokens =
-                  usageStatus === "missing"
-                    ? null
-                    : {
-                        total:
-                          info.tokens.total ??
-                          (info.usageStatus === undefined
-                            ? info.tokens.input +
-                              info.tokens.output +
-                              info.tokens.reasoning +
-                              info.tokens.cache.read +
-                              info.tokens.cache.write
-                            : undefined),
-                        input: info.tokens.input,
-                        output: info.tokens.output,
-                        reasoning: info.tokens.reasoning,
-                        cache: {
-                          read: info.tokens.cache.read,
-                          write: info.tokens.cache.write,
-                        },
-                      }
+                const usage = terminalUsage(info)
 
                 // Context-window utilization: used = input + cache.read + cache.write
                 // (all prompt tokens that occupy the model's context window this turn).
@@ -548,7 +557,9 @@ export const RunCommand = cmd({
                         if (e instanceof Provider.ModelNotFoundError) return null
                         throw e
                       }))
-                const contextUsed = tokens ? tokens.input + tokens.cache.read + tokens.cache.write : null
+                const contextUsed = usage.tokens
+                  ? usage.tokens.input + usage.tokens.cache.read + usage.tokens.cache.write
+                  : null
                 const context = contextUsed === null ? null : buildContextWindow(contextLimit, contextUsed)
 
                 emit("message_complete", {
@@ -561,8 +572,8 @@ export const RunCommand = cmd({
                   // from StepFinishPart. Do NOT use the new step.ended event cost field
                   // which emits cost:0 and is reconciled later (the cost:0 trap).
                   cost: info.cost,
-                  tokens,
-                  usageStatus,
+                  tokens: usage.tokens,
+                  usageStatus: usage.usageStatus,
                   status: info.error?.name === "MessageAbortedError" ? "aborted" : info.error ? "error" : "completed",
                   finish: info.finish,
                 })
