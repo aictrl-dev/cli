@@ -63,12 +63,20 @@ describe("stdout", () => {
     expect(await new Response(child.stderr).text()).toBe("")
   })
 
-  test("entrypoints handle flush failures before forced exit", async () => {
-    for (const entry of ["index.ts", "headless.ts"]) {
-      const source = await Bun.file(path.join(import.meta.dir, "../../src", entry)).text()
-      const flush = source.lastIndexOf("await Stdout.flush().catch")
-      expect(flush).toBeGreaterThan(-1)
-      expect(source.indexOf("process.exit()", flush)).toBeGreaterThan(flush)
-    }
+  test("flush failure sets exit status without blocking forced exit", async () => {
+    await using tmp = await tmpdir()
+    const status = path.join(tmp.path, "status")
+    const child = Bun.spawn(
+      [process.execPath, path.join(import.meta.dir, "fixture", "stdout.ts"), "--shutdown-error", `--status=${status}`],
+      {
+        cwd: path.join(import.meta.dir, "../.."),
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    )
+
+    expect(await child.exited).toBe(1)
+    expect(await Bun.file(status).text()).toBe("1")
+    expect(await new Response(child.stderr).text()).toBe("")
   })
 })

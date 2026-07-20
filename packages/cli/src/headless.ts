@@ -19,7 +19,7 @@ import path from "path"
 import { Global } from "./global"
 import { JsonMigration } from "./storage/json-migration"
 import { Database } from "./storage/db"
-import { Stdout } from "./cli/stdout"
+import { Shutdown } from "./cli/shutdown"
 
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {
@@ -155,11 +155,6 @@ try {
   }
   process.exitCode = 1
 } finally {
-  await Stdout.flush().catch((error) => {
-    Log.Default.error("stdout flush failed", {
-      error: error instanceof Error ? error.message : error,
-    })
-    process.exitCode = 1
-  })
+  await Shutdown.flush()
   process.exit()
 }

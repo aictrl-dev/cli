@@ -1,6 +1,16 @@
 import { Stdout } from "../../../src/cli/stdout"
+import { Shutdown } from "../../../src/cli/shutdown"
 
 if (process.argv.includes("--idle")) process.exit(process.stdout.listenerCount("error"))
+if (process.argv.includes("--shutdown-error")) {
+  Stdout.write("")
+  await Stdout.flush()
+  process.stdout.emit("error", Object.assign(new Error("broken stdout"), { code: "EIO" }))
+  await Shutdown.flush()
+  const status = process.argv.find((arg) => arg.startsWith("--status="))?.slice("--status=".length)
+  if (status) await Bun.write(status, String(process.exitCode))
+  process.exit()
+}
 if (process.argv.includes("--error")) {
   Stdout.write("")
   await Stdout.flush()
