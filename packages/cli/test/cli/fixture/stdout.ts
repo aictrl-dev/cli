@@ -6,6 +6,7 @@ if (process.argv.includes("--shutdown-error")) {
   Stdout.write("")
   await Stdout.flush()
   process.stdout.emit("error", Object.assign(new Error("broken stdout"), { code: "EIO" }))
+  if (process.argv.includes("--signal-exit")) process.exitCode = 143
   await Shutdown.flush()
   const status = process.argv.find((arg) => arg.startsWith("--status="))?.slice("--status=".length)
   if (status) await Bun.write(status, String(process.exitCode))

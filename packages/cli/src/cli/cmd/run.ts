@@ -38,8 +38,9 @@ import { BashTool } from "../../tool/bash"
 import { TodoWriteTool } from "../../tool/todo"
 import { Locale } from "../../util/locale"
 import { Log } from "../../util/log"
+import { Shutdown } from "../shutdown"
 import { Stdout } from "../stdout"
-import { attempt, signals } from "../signals"
+import { attempt, signals, type Signals } from "../signals"
 
 type ToolProps<T extends Tool.Info> = {
   input: Tool.InferParameters<T>
@@ -487,23 +488,6 @@ export const RunCommand = cmd({
     let promptResult: Promise<any> = Promise.resolve()
 
     async function execute(sdk: any) {
-      // Signal-local delivery barrier. #91 owns the shared stdout writer that
-      // will replace this state when its PR is integrated.
-      const output = {
-        failed: false,
-        pending: new Set<Promise<void>>(),
-      }
-      const fail = (error: unknown) => {
-        if (error instanceof Error && "code" in error && error.code === "EPIPE") return
-        output.failed = true
-      }
-      if (args.format === "json") process.stdout.on("error", fail)
-      using _stdout = {
-        [Symbol.dispose]() {
-          if (args.format === "json") process.stdout.off("error", fail)
-        },
-      }
-
       function tool(part: ToolPart) {
         try {
           if (part.tool === "bash") return bash(props<typeof BashTool>(part))
@@ -558,6 +542,12 @@ export const RunCommand = cmd({
           durationMs: Date.now() - startTime,
           error: message,
         })
+      }
+
+      function report(reason: string, code: string | undefined, message: string) {
+        if (sessionErrorEmitted) return
+        sessionErrorEmitted = true
+        emit("session_error", { reason, code, message })
       }
 
       async function loop() {
@@ -707,20 +697,11 @@ export const RunCommand = cmd({
               // spuriously-green job. process.exitCode (not process.exit) lets the
               // loop drain to session.status idle and emit session_complete first.
               if (!control.current) process.exitCode = 1
-              if (!sessionErrorEmitted) {
-                sessionErrorEmitted = true
-                const classified = classifySessionError(props.error)
-                // Structured session_error (classified reason/code/message) is emitted for the
-                // primary session only. The generic "error" event below fires for both primary
-                // and child-session failures and carries the raw error object — these are
-                // intentionally distinct channels: session_error is for structured telemetry/CI
-                // consumers, "error" is the legacy observable for raw error pass-through.
-                emit("session_error", {
-                  reason: classified.reason,
-                  code: classified.code,
-                  message: classified.message,
-                })
-              }
+              const classified = classifySessionError(props.error)
+              // Structured session_error is emitted for the primary session only.
+              // The legacy "error" event below remains the raw pass-through for
+              // both primary and child-session failures.
+              report(classified.reason, classified.code, classified.message)
             }
             if (emit("error", { error: props.error, sourceSessionID: props.sessionID })) continue
             UI.error(err)
@@ -864,29 +845,27 @@ export const RunCommand = cmd({
         )
       }
 
-      using control = signals(
-        (signal) => {
-          if (!sessionErrorEmitted) {
-            error = signal.message
-            sessionErrorEmitted = true
-            emit("session_error", {
-              reason: signal.reason,
-              code: String(signal.code),
-              message: signal.message,
-            })
-          }
-          abort()
-        },
-        5_000,
-        async (signal) => {
-          complete(error ?? signal.message)
-          await flush()
-        },
-      )
+      function interrupt(signal: Signals.Info) {
+        if (!sessionErrorEmitted) error = signal.message
+        report(signal.reason, String(signal.code), signal.message)
+        abort()
+      }
 
-      async function flush() {
-        while (output.pending.size) await Promise.allSettled(output.pending)
-        if (output.failed) throw new Error("stdout write failed")
+      async function expire(signal: Signals.Info) {
+        complete(error ?? signal.message)
+        await Shutdown.flush()
+      }
+
+      using control = signals(interrupt, 5_000, expire)
+
+      function fail(cause: unknown) {
+        const classified = classifySessionError(cause)
+        error ??= classified.message
+        report(classified.reason, classified.code, classified.message)
+        complete(error)
+        if (control.current) return
+        console.error(cause)
+        process.exitCode = 1
       }
 
       // Emit the resolved tool catalog (builtin + MCP tools) and available
@@ -917,30 +896,11 @@ export const RunCommand = cmd({
           })
       }
 
-      const loopDone = loop()
-        .then(() => {
-          complete()
-        })
-        .catch((e) => {
-          const classified = classifySessionError(e)
-          if (!sessionErrorEmitted) {
-            sessionErrorEmitted = true
-            emit("session_error", {
-              reason: classified.reason,
-              code: classified.code,
-              message: classified.message,
-            })
-          }
-          complete(error ?? classified.message)
-          if (!control.current) {
-            console.error(e)
-            process.exitCode = 1
-          }
-        })
+      const loopDone = loop().then(() => complete(), fail)
 
       if (control.current) {
         await loopDone
-        await flush()
+        await Shutdown.flush()
         return
       }
 
@@ -963,41 +923,14 @@ export const RunCommand = cmd({
           parts: [...files, { type: "text", text: message }],
         })
       }
-      if (control.current) abort()
 
       // Race loopDone against promptResult to handle early prompt failures.
       // If SessionPrompt.prompt() rejects BEFORE it enters its internal loop()
       // (e.g., Session.get() fails, model not found), no session.status idle event
       // is emitted, so loopDone would hang forever. Racing ensures we surface
       // the error and exit.
-      await Promise.race([
-        loopDone,
-        promptResult.then(
-          // If prompt resolves normally, wait for the event loop to finish
-          () => loopDone,
-          // If prompt rejects, surface the error immediately
-          (e) => {
-            const classified = classifySessionError(e)
-            if (!control.current) {
-              error = error ? error + EOL + classified.message : classified.message
-            }
-            if (!sessionErrorEmitted) {
-              sessionErrorEmitted = true
-              emit("session_error", {
-                reason: classified.reason,
-                code: classified.code,
-                message: classified.message,
-              })
-            }
-            complete(error ?? classified.message)
-            if (!control.current) {
-              console.error(e)
-              process.exitCode = 1
-            }
-          },
-        ),
-      ])
-      await flush()
+      await Promise.race([loopDone, promptResult.then(() => loopDone, fail)])
+      await Shutdown.flush()
     }
 
     if (args.attach) {

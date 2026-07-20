@@ -53,15 +53,8 @@ describe("run.ts v1 schema emissions (#63)", () => {
     const nextHandlerOffset = after.indexOf('if (event.type === "')
     const block = nextHandlerOffset === -1 ? after : after.slice(0, nextHandlerOffset)
     expect(block).toContain("classifySessionError(props.error)")
-    expect(block).toContain('emit("session_error"')
+    expect(block).toContain("report(classified.reason, classified.code, classified.message)")
     expect(block).toContain('emit("error"')
-  })
-
-  test("signal cancellation errors preserve the signal exit code", async () => {
-    const source = await Bun.file(RUN_SRC).text()
-    const caught = source.match(/if \(!control\.current\) \{\s+console\.error\(e\)\s+process\.exitCode = 1\s+\}/g)
-    expect(caught).toHaveLength(2)
-    expect(source).toContain("if (!control.current) process.exitCode = 1")
   })
 
   test("text / reasoning / tool_use include sequenceNum", async () => {
