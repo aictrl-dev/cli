@@ -86,6 +86,24 @@ describe("run --format json invocation lifecycle (#90)", () => {
     )
   })
 
+  test("completes when guarded pre-run I/O rejects", async () => {
+    const source = path.resolve(import.meta.dir, "../../src/cli/cmd/run.invocation.ts")
+    const proc = Bun.spawn([
+      process.execPath,
+      "--conditions=browser",
+      "-e",
+      `import { createRunInvocation } from ${JSON.stringify(source)}
+const invocation = createRunInvocation(true)
+invocation.phase("stdin")
+await invocation.guard(() => Promise.reject(new Error("stdin failed")))`,
+    ], {
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+
+    expectFailure(await output(proc), "stdin")
+  })
+
   test("reports a missing file as a validation error", async () => {
     const missing = "/missing/" + "a".repeat(100_000)
     const result = await output(spawn(["run", "--format", "json", "--file", missing, "prompt"]))
@@ -177,6 +195,7 @@ describe("run --format json invocation lifecycle (#90)", () => {
           .filter((event) => String(event.type).startsWith("session_"))
           .every((event) => event.invocationID === start?.invocationID),
       ).toBe(true)
+      expect(result.events.every((event) => event.schemaVersion === "1")).toBe(true)
     } finally {
       server.stop(true)
     }

@@ -1,4 +1,3 @@
-import { EOL } from "os"
 import { Stdout } from "../stdout"
 import { SCHEMA_VERSION } from "./run.errors"
 
@@ -15,15 +14,15 @@ export function createRunInvocation(enabled: boolean) {
 
   function emit(type: string, data: Record<string, unknown> = {}) {
     if (!id) return
-    const line =
-      JSON.stringify({
+    writes = writes.then(() =>
+      Stdout.json({
         type,
         timestamp: Date.now(),
         schemaVersion: SCHEMA_VERSION,
         invocationID: id,
         ...data,
-      }) + EOL
-    writes = writes.then(() => Stdout.write(line))
+      }),
+    )
   }
 
   emit("invocation_start")
@@ -49,23 +48,33 @@ export function createRunInvocation(enabled: boolean) {
     })
   }
 
+  async function abort(cause: unknown, code?: string) {
+    error(cause, code)
+    complete()
+    await writes
+  }
+
   return {
     id,
     phase(next: RunInvocationPhase) {
       phase = next
     },
-    link(id: string) {
-      sessionID = id
+    link(session: string) {
+      sessionID = session
     },
     error,
-    async abort(cause: unknown, code?: string) {
-      error(cause, code)
-      complete()
-      await writes
-    },
-    async run<T>(execution: Promise<T>) {
+    abort,
+    async guard<T>(task: () => T | Promise<T>) {
       try {
-        return await execution
+        return await task()
+      } catch (cause) {
+        await abort(cause)
+        throw cause
+      }
+    },
+    async run<T>(task: Promise<T> | (() => T | Promise<T>)) {
+      try {
+        return await (typeof task === "function" ? task() : task)
       } catch (cause) {
         error(cause)
         throw cause

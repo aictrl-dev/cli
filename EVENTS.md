@@ -51,7 +51,10 @@ Emitted for a fatal error before session creation, immediately before `invocatio
 ```
 
 - `phase` (string, **required**) — one of `validation`, `stdin`, `bootstrap`, or `session`.
-- `code` (string, **required**) — stable machine-readable error category.
+- `code` (string, **required**) — stable machine-readable error category. Known failures use
+  `INVOCATION_INVALID_DIRECTORY`, `INVOCATION_FILE_NOT_FOUND`, `INVOCATION_EMPTY_INPUT`,
+  `INVOCATION_INVALID_ARGUMENTS`, or `INVOCATION_SESSION_CREATE_FAILED`. Unexpected failures use
+  `INVOCATION_<PHASE>_FAILED`, where `<PHASE>` is `VALIDATION`, `STDIN`, `BOOTSTRAP`, or `SESSION`.
 - `message` (string, **required**) — sanitized human-readable phase summary. Details remain on stderr and in the log.
 
 Errors after a real session has been created use `session_error` instead. They also set

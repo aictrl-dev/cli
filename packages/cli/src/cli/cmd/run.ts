@@ -405,11 +405,13 @@ export const RunCommand = cmd({
 
       for (const filePath of list) {
         const resolvedPath = path.resolve(process.cwd(), filePath)
-        if (!(await Filesystem.exists(resolvedPath))) {
+        if (!(await invocation.guard(() => Filesystem.exists(resolvedPath)))) {
           await fail(`File not found: ${filePath}`, "INVOCATION_FILE_NOT_FOUND")
         }
 
-        const mime = (await Filesystem.isDir(resolvedPath)) ? "application/x-directory" : "text/plain"
+        const mime = (await invocation.guard(() => Filesystem.isDir(resolvedPath)))
+          ? "application/x-directory"
+          : "text/plain"
 
         files.push({
           type: "file",
@@ -422,7 +424,7 @@ export const RunCommand = cmd({
 
     if (!process.stdin.isTTY) {
       invocation.phase("stdin")
-      message += "\n" + (await Bun.stdin.text())
+      message += "\n" + (await invocation.guard(() => Bun.stdin.text()))
       invocation.phase("validation")
     }
 
@@ -517,9 +519,14 @@ export const RunCommand = cmd({
 
       function emit(type: string, data: Record<string, unknown>) {
         if (args.format === "json") {
-          Stdout.write(
-            JSON.stringify({ type, timestamp: Date.now(), invocationID: invocation.id, sessionID, ...data }) + EOL,
-          )
+          Stdout.json({
+            type,
+            timestamp: Date.now(),
+            schemaVersion: SCHEMA_VERSION,
+            invocationID: invocation.id,
+            sessionID,
+            ...data,
+          })
           return true
         }
         return false
@@ -948,7 +955,7 @@ export const RunCommand = cmd({
 
     invocation.phase("bootstrap")
     if (args.attach) {
-      return await invocation.run(execute(createAictrlClient({ baseUrl: args.attach, directory })))
+      return await invocation.run(() => execute(createAictrlClient({ baseUrl: args.attach, directory })))
     }
 
     const execution = bootstrap(process.cwd(), async () => {
