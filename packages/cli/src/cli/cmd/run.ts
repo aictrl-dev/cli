@@ -42,6 +42,7 @@ import { Log } from "../../util/log"
 import { Shutdown } from "../shutdown"
 import { Stdout } from "../stdout"
 import { attempt, signals, type Signals } from "../signals"
+import { createRunInvocation } from "./run.invocation"
 
 type ToolProps<T extends Tool.Info> = {
   input: Tool.InferParameters<T>
@@ -379,19 +380,26 @@ export const RunCommand = cmd({
       })
   },
   handler: async (args) => {
+    const invocation = createRunInvocation(args.format === "json")
+
+    async function fail(message: string, code: string) {
+      UI.error(message)
+      await invocation.abort(message, code)
+      process.exit(1)
+    }
+
     let message = [...args.message, ...(args["--"] || [])]
       .map((arg) => (arg.includes(" ") ? `"${arg.replace(/"/g, '\\"')}"` : arg))
       .join(" ")
 
-    const directory = (() => {
+    const directory = await (async () => {
       if (!args.dir) return undefined
       if (args.attach) return args.dir
       try {
         process.chdir(args.dir)
         return process.cwd()
       } catch {
-        UI.error("Failed to change directory to " + args.dir)
-        process.exit(1)
+        await fail("Failed to change directory to " + args.dir, "INVOCATION_INVALID_DIRECTORY")
       }
     })()
 
@@ -401,12 +409,13 @@ export const RunCommand = cmd({
 
       for (const filePath of list) {
         const resolvedPath = path.resolve(process.cwd(), filePath)
-        if (!(await Filesystem.exists(resolvedPath))) {
-          UI.error(`File not found: ${filePath}`)
-          process.exit(1)
+        if (!(await invocation.guard(() => Filesystem.exists(resolvedPath)))) {
+          await fail(`File not found: ${filePath}`, "INVOCATION_FILE_NOT_FOUND")
         }
 
-        const mime = (await Filesystem.isDir(resolvedPath)) ? "application/x-directory" : "text/plain"
+        const mime = (await invocation.guard(() => Filesystem.isDir(resolvedPath)))
+          ? "application/x-directory"
+          : "text/plain"
 
         files.push({
           type: "file",
@@ -417,16 +426,18 @@ export const RunCommand = cmd({
       }
     }
 
-    if (!process.stdin.isTTY) message += "\n" + (await Bun.stdin.text())
+    if (!process.stdin.isTTY) {
+      invocation.phase("stdin")
+      message += "\n" + (await invocation.guard(() => Bun.stdin.text()))
+      invocation.phase("validation")
+    }
 
     if (message.trim().length === 0 && !args.command) {
-      UI.error("You must provide a message or a command")
-      process.exit(1)
+      await fail("You must provide a message or a command", "INVOCATION_EMPTY_INPUT")
     }
 
     if (args.fork && !args.continue && !args.session) {
-      UI.error("--fork requires --continue or --session")
-      process.exit(1)
+      await fail("--fork requires --continue or --session", "INVOCATION_INVALID_ARGUMENTS")
     }
 
     const rules: PermissionNext.Ruleset = [
@@ -512,7 +523,14 @@ export const RunCommand = cmd({
 
       function emit(type: string, data: Record<string, unknown>) {
         if (args.format === "json") {
-          Stdout.write(JSON.stringify({ type, timestamp: Date.now(), sessionID, ...data }) + EOL)
+          Stdout.json({
+            type,
+            timestamp: Date.now(),
+            schemaVersion: SCHEMA_VERSION,
+            invocationID: invocation.id,
+            sessionID,
+            ...data,
+          })
           return true
         }
         return false
@@ -691,6 +709,7 @@ export const RunCommand = cmd({
               // spuriously-green job. process.exitCode (not process.exit) lets the
               // loop drain to session.status idle and emit session_complete first.
               if (!control.current) process.exitCode = 1
+              invocation.error(props.error)
               const classified = classifySessionError(props.error)
               // Structured session_error is the telemetry/CI channel for the
               // primary session. The legacy "error" event below is the raw
@@ -815,11 +834,12 @@ export const RunCommand = cmd({
       })()
       const agent = agentInfo.name
 
+      invocation.phase("session")
       const sessionID = await session(sdk)
       if (!sessionID) {
-        UI.error("Session not found")
-        process.exit(1)
+        await fail("Session not found", "INVOCATION_SESSION_CREATE_FAILED")
       }
+      invocation.link(sessionID)
       await share(sdk, sessionID)
 
       emit("session_start", {
@@ -841,20 +861,23 @@ export const RunCommand = cmd({
 
       function interrupt(signal: Signals.Info) {
         error ??= signal.message
+        invocation.error(signal.message)
         report(signal.reason, String(signal.code), signal.message)
         abort()
       }
 
       async function expire(signal: Signals.Info) {
         complete(error ?? signal.message)
+        await invocation.abort(signal.message)
         await Shutdown.flush()
       }
 
       using control = signals(interrupt, 5_000, expire)
 
-      function fail(cause: unknown) {
+      function reject(cause: unknown) {
         const classified = classifySessionError(cause)
         error ??= classified.message
+        invocation.error(cause)
         report(classified.reason, classified.code, classified.message)
         complete(error)
         if (control.current) {
@@ -896,7 +919,7 @@ export const RunCommand = cmd({
           })
       }
 
-      const loopDone = loop().then(() => complete(), fail)
+      const loopDone = loop().then(() => complete(), reject)
 
       if (control.current) {
         await loopDone
@@ -929,16 +952,16 @@ export const RunCommand = cmd({
       // (e.g., Session.get() fails, model not found), no session.status idle event
       // is emitted, so loopDone would hang forever. Racing ensures we surface
       // the error and exit.
-      await Promise.race([loopDone, promptResult.then(() => loopDone, fail)])
+      await Promise.race([loopDone, promptResult.then(() => loopDone, reject)])
       await Shutdown.flush()
     }
 
+    invocation.phase("bootstrap")
     if (args.attach) {
-      const sdk = createAictrlClient({ baseUrl: args.attach, directory })
-      return await execute(sdk)
+      return await invocation.run(() => execute(createAictrlClient({ baseUrl: args.attach, directory })))
     }
 
-    await bootstrap(process.cwd(), async () => {
+    const execution = bootstrap(process.cwd(), async () => {
       const sdk = {
         session: {
           async list() {
@@ -1021,5 +1044,6 @@ export const RunCommand = cmd({
       }
       await execute(sdk)
     })
+    await invocation.run(execution)
   },
 })

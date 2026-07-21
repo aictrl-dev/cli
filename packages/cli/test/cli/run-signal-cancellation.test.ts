@@ -4,7 +4,7 @@ import path from "path"
 const entry = path.resolve(import.meta.dir, "../../src/index.ts")
 const sessionID = "ses_signal_test"
 
-async function server(options: { provider?: boolean; hold?: boolean } = {}) {
+async function server(options: { provider?: boolean; hold?: boolean; expire?: boolean } = {}) {
   const state: {
     aborts: number
     message?: ReturnType<typeof Promise.withResolvers<Response>>
@@ -58,17 +58,19 @@ async function server(options: { provider?: boolean; hold?: boolean } = {}) {
       }
       if (request.method === "POST" && url.pathname.endsWith("/abort")) {
         state.aborts++
-        state.stream?.enqueue(
-          encoder.encode(
-            `data: ${JSON.stringify({
-              type: "session.status",
-              properties: {
-                sessionID,
-                status: { type: "idle" },
-              },
-            })}\n\n`,
-          ),
-        )
+        if (!options.expire) {
+          state.stream?.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                type: "session.status",
+                properties: {
+                  sessionID,
+                  status: { type: "idle" },
+                },
+              })}\n\n`,
+            ),
+          )
+        }
         state.message?.resolve(Response.json({}))
         return Response.json(true)
       }
@@ -131,13 +133,21 @@ describe("run --format json graceful signal cancellation", () => {
         const output = events(stdout)
         const error = output.findIndex((event) => event.type === "session_error")
         const complete = output.findIndex((event) => event.type === "session_complete")
+        const invocation = output.findIndex((event) => event.type === "invocation_complete")
         expect(output.filter((event) => event.type === "session_error")).toHaveLength(1)
         expect(output.filter((event) => event.type === "session_complete")).toHaveLength(1)
+        expect(output.filter((event) => event.type === "invocation_complete")).toHaveLength(1)
         expect(error).toBeGreaterThan(-1)
         expect(complete).toBeGreaterThan(error)
+        expect(invocation).toBeGreaterThan(complete)
         expect(output[error]).toMatchObject({
           reason,
           code: String(code),
+        })
+        expect(output[invocation]).toMatchObject({
+          invocationID: output[error].invocationID,
+          sessionID,
+          status: "error",
         })
         expect(output[error].reason).not.toBe("timeout")
       } finally {
@@ -220,6 +230,50 @@ describe("run --format json graceful signal cancellation", () => {
 
       expect(await proc.exited).toBe(143)
       expect(mock.state.aborts).toBe(1)
+    } finally {
+      clearTimeout(timeout)
+      proc.kill("SIGKILL")
+      mock.app.stop(true)
+    }
+  }, 20_000)
+
+  test("grace expiry completes the session and invocation before hard termination", async () => {
+    const mock = await server({ expire: true })
+    const proc = Bun.spawn(
+      ["bun", "run", "--conditions=browser", entry, "run", "--format", "json", "--attach", mock.url, "test"],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          ANTHROPIC_API_KEY: "",
+          OPENAI_API_KEY: "",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    )
+    const timeout = setTimeout(() => proc.kill("SIGKILL"), 15_000)
+
+    try {
+      for (let tries = 0; !mock.state.prompted && tries < 300; tries++) {
+        await Bun.sleep(25)
+      }
+      expect(mock.state.prompted).toBe(true)
+
+      proc.kill("SIGTERM")
+
+      const [stdout, exit] = await Promise.all([new Response(proc.stdout).text(), proc.exited])
+      expect(exit).toBe(143)
+      const output = events(stdout)
+      expect(
+        output
+          .filter((event) => ["session_error", "session_complete", "invocation_complete"].includes(String(event.type)))
+          .map((event) => event.type),
+      ).toEqual(["session_error", "session_complete", "invocation_complete"])
+      expect(output.find((event) => event.type === "invocation_complete")).toMatchObject({
+        sessionID,
+        status: "error",
+      })
     } finally {
       clearTimeout(timeout)
       proc.kill("SIGKILL")

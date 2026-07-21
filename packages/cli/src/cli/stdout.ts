@@ -1,3 +1,5 @@
+import { EOL } from "os"
+
 const state = {
   bound: false,
   closed: false,
@@ -54,6 +56,10 @@ export namespace Stdout {
   export async function flush() {
     while (state.pending.size) await Promise.allSettled(state.pending)
     if (failure !== undefined) throw failure
+  }
+
+  export function json(data: Record<string, unknown>) {
+    return write(JSON.stringify(data) + EOL)
   }
 
   export function isClosed() {
