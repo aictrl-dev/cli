@@ -79,4 +79,27 @@ describe("stdout", () => {
     expect(await Bun.file(status).text()).toBe("1")
     expect(await new Response(child.stderr).text()).toBe("")
   })
+
+  test("flush failure preserves an existing signal exit status", async () => {
+    await using tmp = await tmpdir()
+    const status = path.join(tmp.path, "status")
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        path.join(import.meta.dir, "fixture", "stdout.ts"),
+        "--shutdown-error",
+        "--signal-exit",
+        `--status=${status}`,
+      ],
+      {
+        cwd: path.join(import.meta.dir, "../.."),
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    )
+
+    expect(await child.exited).toBe(143)
+    expect(await Bun.file(status).text()).toBe("143")
+    expect(await new Response(child.stderr).text()).toBe("")
+  })
 })

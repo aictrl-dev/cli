@@ -35,11 +35,10 @@ describe("run.ts v1 schema emissions (#63)", () => {
     expect(block).toContain("permissions:")
   })
 
-  test("session_error is emitted before session_complete on failure", async () => {
+  test("session terminal events use the ordered lifecycle", async () => {
     const source = await Bun.file(RUN_SRC).text()
-    const errIdx = source.indexOf('emit("session_error"')
-    expect(errIdx).toBeGreaterThan(-1)
-    expect(errIdx).toBeLessThan(source.lastIndexOf('emit("session_complete"'))
+    expect(source).toContain("output.error({ reason, code, message })")
+    expect(source).toContain("output.complete({")
   })
 
   test("primary session.error events are surfaced as session_error", async () => {
@@ -52,7 +51,7 @@ describe("run.ts v1 schema emissions (#63)", () => {
     const nextHandlerOffset = after.indexOf('if (event.type === "')
     const block = nextHandlerOffset === -1 ? after : after.slice(0, nextHandlerOffset)
     expect(block).toContain("classifySessionError(props.error)")
-    expect(block).toContain('emit("session_error"')
+    expect(block).toContain("report(classified.reason, classified.code, classified.message)")
     expect(block).toContain('emit("error"')
   })
 

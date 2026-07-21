@@ -4,6 +4,7 @@ import { pathToFileURL } from "bun"
 import { UI } from "../ui"
 import { cmd } from "./cmd"
 import { classifySessionError, SCHEMA_VERSION } from "./run.errors"
+import { terminal } from "./run.terminal"
 import { buildToolCatalogItems } from "./tool-catalog"
 import { withTimeout } from "../../util/timeout"
 import { Flag } from "../../flag/flag"
@@ -37,7 +38,10 @@ import { SkillTool } from "../../tool/skill"
 import { BashTool } from "../../tool/bash"
 import { TodoWriteTool } from "../../tool/todo"
 import { Locale } from "../../util/locale"
+import { Log } from "../../util/log"
+import { Shutdown } from "../shutdown"
 import { Stdout } from "../stdout"
+import { attempt, signals, type Signals } from "../signals"
 import { createRunInvocation } from "./run.invocation"
 
 type ToolProps<T extends Tool.Info> = {
@@ -534,11 +538,6 @@ export const RunCommand = cmd({
 
       const events = await sdk.event.subscribe()
       let error: string | undefined
-      // Guard: at most one session_error is emitted per run regardless of which
-      // failure path fires first (in-loop session.error handler, loopDone.catch,
-      // or promptResult rejection). Without this a mid-run session.error event
-      // can fire site 1 while promptResult/loop() also rejects and fires site 2/3.
-      let sessionErrorEmitted = false
       const startTime = Date.now()
       const childSessions = new Set<string>()
       const emitted = new Set<string>()
@@ -547,6 +546,20 @@ export const RunCommand = cmd({
         const n = (seqBySession.get(sid) ?? 0) + 1
         seqBySession.set(sid, n)
         return n
+      }
+
+      // Keep every failure path on one ordered, idempotent terminal lifecycle.
+      const output = terminal(emit)
+
+      function complete(message = error ?? null) {
+        output.complete({
+          durationMs: Date.now() - startTime,
+          error: message,
+        })
+      }
+
+      function report(reason: string, code: string | undefined, message: string) {
+        output.error({ reason, code, message })
       }
 
       async function loop() {
@@ -695,22 +708,13 @@ export const RunCommand = cmd({
               // to a non-zero exit code so CI wrappers see the failure instead of a
               // spuriously-green job. process.exitCode (not process.exit) lets the
               // loop drain to session.status idle and emit session_complete first.
-              process.exitCode = 1
+              if (!control.current) process.exitCode = 1
               invocation.error(props.error)
-              if (!sessionErrorEmitted) {
-                sessionErrorEmitted = true
-                const classified = classifySessionError(props.error)
-                // Structured session_error (classified reason/code/message) is emitted for the
-                // primary session only. The generic "error" event below fires for both primary
-                // and child-session failures and carries the raw error object — these are
-                // intentionally distinct channels: session_error is for structured telemetry/CI
-                // consumers, "error" is the legacy observable for raw error pass-through.
-                emit("session_error", {
-                  reason: classified.reason,
-                  code: classified.code,
-                  message: classified.message,
-                })
-              }
+              const classified = classifySessionError(props.error)
+              // Structured session_error is the telemetry/CI channel for the
+              // primary session. The legacy "error" event below is the raw
+              // pass-through for both primary and child-session failures.
+              report(classified.reason, classified.code, classified.message)
             }
             if (emit("error", { error: props.error, sourceSessionID: props.sessionID })) continue
             UI.error(err)
@@ -845,6 +849,48 @@ export const RunCommand = cmd({
         permissions: PermissionNext.merge(agentInfo.permission, rules),
       })
 
+      let aborted = false
+      function abort() {
+        if (aborted) return
+        aborted = true
+        attempt(
+          () => sdk.session.abort({ sessionID }),
+          () => Log.Default.error("session abort failed"),
+        )
+      }
+
+      function interrupt(signal: Signals.Info) {
+        error ??= signal.message
+        invocation.error(signal.message)
+        report(signal.reason, String(signal.code), signal.message)
+        abort()
+      }
+
+      async function expire(signal: Signals.Info) {
+        complete(error ?? signal.message)
+        await invocation.abort(signal.message)
+        await Shutdown.flush()
+      }
+
+      using control = signals(interrupt, 5_000, expire)
+
+      function reject(cause: unknown) {
+        const classified = classifySessionError(cause)
+        error ??= classified.message
+        invocation.error(cause)
+        report(classified.reason, classified.code, classified.message)
+        complete(error)
+        if (control.current) {
+          Log.Default.error("run failed after signal", {
+            reason: classified.reason,
+            code: classified.code,
+          })
+          return
+        }
+        console.error(cause)
+        process.exitCode = 1
+      }
+
       // Emit the resolved tool catalog (builtin + MCP tools) and available
       // skills before the first model turn. Enables structural detection of
       // "tool was not exposed" failure modes (issue #85).
@@ -873,31 +919,13 @@ export const RunCommand = cmd({
           })
       }
 
-      const loopDone = loop()
-        .then(() => {
-          emit("session_complete", {
-            durationMs: Date.now() - startTime,
-            error: error ?? null,
-          })
-        })
-        .catch((e) => {
-          const classified = classifySessionError(e)
-          if (!sessionErrorEmitted) {
-            sessionErrorEmitted = true
-            emit("session_error", {
-              reason: classified.reason,
-              code: classified.code,
-              message: classified.message,
-            })
-          }
-          emit("session_complete", {
-            durationMs: Date.now() - startTime,
-            error: classified.message,
-          })
-          console.error(e)
-          process.exitCode = 1
-          invocation.error(e)
-        })
+      const loopDone = loop().then(() => complete(), reject)
+
+      if (control.current) {
+        await loopDone
+        await Shutdown.flush()
+        return
+      }
 
       if (args.command) {
         await sdk.session.command({
@@ -924,33 +952,8 @@ export const RunCommand = cmd({
       // (e.g., Session.get() fails, model not found), no session.status idle event
       // is emitted, so loopDone would hang forever. Racing ensures we surface
       // the error and exit.
-      await Promise.race([
-        loopDone,
-        promptResult.then(
-          // If prompt resolves normally, wait for the event loop to finish
-          () => loopDone,
-          // If prompt rejects, surface the error immediately
-          (e) => {
-            const classified = classifySessionError(e)
-            error = error ? error + EOL + classified.message : classified.message
-            if (!sessionErrorEmitted) {
-              sessionErrorEmitted = true
-              emit("session_error", {
-                reason: classified.reason,
-                code: classified.code,
-                message: classified.message,
-              })
-            }
-            emit("session_complete", {
-              durationMs: Date.now() - startTime,
-              error: classified.message,
-            })
-            console.error(e)
-            process.exitCode = 1
-            invocation.error(e)
-          },
-        ),
-      ])
+      await Promise.race([loopDone, promptResult.then(() => loopDone, reject)])
+      await Shutdown.flush()
     }
 
     invocation.phase("bootstrap")
@@ -982,6 +985,9 @@ export const RunCommand = cmd({
           async share(opts: any) {
             const share = await Session.share(opts.sessionID)
             return { data: { share } }
+          },
+          abort(opts: any) {
+            return SessionPrompt.cancel(opts.sessionID)
           },
           async prompt(opts: any) {
             promptResult = SessionPrompt.prompt({

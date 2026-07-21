@@ -7,7 +7,7 @@ export namespace Shutdown {
       Log.Default.error("stdout flush failed", {
         error: error instanceof Error ? error.message : error,
       })
-      process.exitCode = 1
+      process.exitCode ||= 1
     })
   }
 }
