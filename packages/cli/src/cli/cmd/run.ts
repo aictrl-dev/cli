@@ -38,7 +38,7 @@ import { BashTool } from "../../tool/bash"
 import { TodoWriteTool } from "../../tool/todo"
 import { Locale } from "../../util/locale"
 import { Stdout } from "../stdout"
-import { Invocation } from "../invocation"
+import { createRunInvocation } from "./run.invocation"
 
 type ToolProps<T extends Tool.Info> = {
   input: Tool.InferParameters<T>
@@ -376,12 +376,11 @@ export const RunCommand = cmd({
       })
   },
   handler: async (args) => {
-    Invocation.phase("validation")
+    const invocation = createRunInvocation(args.format === "json")
 
     async function fail(message: string, code: string) {
-      Invocation.abort(message, code)
       UI.error(message)
-      await Invocation.flush()
+      await invocation.abort(message, code)
       process.exit(1)
     }
 
@@ -422,9 +421,9 @@ export const RunCommand = cmd({
     }
 
     if (!process.stdin.isTTY) {
-      Invocation.phase("stdin")
+      invocation.phase("stdin")
       message += "\n" + (await Bun.stdin.text())
-      Invocation.phase("validation")
+      invocation.phase("validation")
     }
 
     if (message.trim().length === 0 && !args.command) {
@@ -519,7 +518,7 @@ export const RunCommand = cmd({
       function emit(type: string, data: Record<string, unknown>) {
         if (args.format === "json") {
           Stdout.write(
-            JSON.stringify({ type, timestamp: Date.now(), invocationID: Invocation.id, sessionID, ...data }) + EOL,
+            JSON.stringify({ type, timestamp: Date.now(), invocationID: invocation.id, sessionID, ...data }) + EOL,
           )
           return true
         }
@@ -690,6 +689,7 @@ export const RunCommand = cmd({
               // spuriously-green job. process.exitCode (not process.exit) lets the
               // loop drain to session.status idle and emit session_complete first.
               process.exitCode = 1
+              invocation.error(props.error)
               if (!sessionErrorEmitted) {
                 sessionErrorEmitted = true
                 const classified = classifySessionError(props.error)
@@ -823,12 +823,12 @@ export const RunCommand = cmd({
       })()
       const agent = agentInfo.name
 
-      Invocation.phase("session")
+      invocation.phase("session")
       const sessionID = await session(sdk)
       if (!sessionID) {
         await fail("Session not found", "INVOCATION_SESSION_CREATE_FAILED")
       }
-      Invocation.link(sessionID)
+      invocation.link(sessionID)
       await share(sdk, sessionID)
 
       emit("session_start", {
@@ -889,6 +889,7 @@ export const RunCommand = cmd({
           })
           console.error(e)
           process.exitCode = 1
+          invocation.error(e)
         })
 
       if (args.command) {
@@ -939,18 +940,18 @@ export const RunCommand = cmd({
             })
             console.error(e)
             process.exitCode = 1
+            invocation.error(e)
           },
         ),
       ])
     }
 
+    invocation.phase("bootstrap")
     if (args.attach) {
-      const sdk = createAictrlClient({ baseUrl: args.attach, directory })
-      return await execute(sdk)
+      return await invocation.run(execute(createAictrlClient({ baseUrl: args.attach, directory })))
     }
 
-    Invocation.phase("bootstrap")
-    await bootstrap(process.cwd(), async () => {
+    const execution = bootstrap(process.cwd(), async () => {
       const sdk = {
         session: {
           async list() {
@@ -1030,5 +1031,6 @@ export const RunCommand = cmd({
       }
       await execute(sdk)
     })
+    await invocation.run(execution)
   },
 })

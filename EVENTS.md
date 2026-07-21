@@ -1,6 +1,6 @@
 # NDJSON Events
 
-When running `aictrl run --format json`, the CLI emits newline-delimited JSON (NDJSON) events to stdout. Each line is a self-contained JSON object with the following base shape:
+When the parsed `aictrl run --format json` handler starts, the CLI emits newline-delimited JSON (NDJSON) events to stdout. Each line is a self-contained JSON object with the following base shape:
 
 ```json
 {
@@ -14,6 +14,8 @@ When running `aictrl run --format json`, the CLI emits newline-delimited JSON (N
 `invocationID` is present on every event from `run --format json`. `sessionID` is present only after a real session has been created; invocation events never fabricate one.
 
 The schema is versioned via `invocation_start.schemaVersion` and `session_start.schemaVersion`. This document describes **schema version `"1"`**. Consumers should pin to this version and treat unknown fields as forward-compatible additions.
+
+The invocation envelope covers accepted `run --format json` executions from the first line of the parsed handler through validation, bootstrap, session creation, and execution. Argument-parser failures, other commands, and process-global uncaught exceptions or unhandled rejections are outside this contract.
 
 ## Lifecycle Events
 
@@ -48,7 +50,7 @@ Emitted for a fatal error before session creation, immediately before `invocatio
 }
 ```
 
-- `phase` (string, **required**) — one of `parse`, `validation`, `stdin`, `bootstrap`, or `session`.
+- `phase` (string, **required**) — one of `validation`, `stdin`, `bootstrap`, or `session`.
 - `code` (string, **required**) — stable machine-readable error category.
 - `message` (string, **required**) — sanitized human-readable phase summary. Details remain on stderr and in the log.
 

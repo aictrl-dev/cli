@@ -20,27 +20,20 @@ import { Global } from "./global"
 import { JsonMigration } from "./storage/json-migration"
 import { Database } from "./storage/db"
 import { Shutdown } from "./cli/shutdown"
-import { Invocation, startInvocation } from "./cli/invocation"
 
-startInvocation()
-
-process.on("unhandledRejection", async (e) => {
-  Invocation.abort(e)
+process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {
     e: e instanceof Error ? e.message : e,
     stack: e instanceof Error ? e.stack : undefined,
   })
-  await Invocation.drain()
   process.exit(1)
 })
 
-process.on("uncaughtException", async (e) => {
-  Invocation.abort(e)
+process.on("uncaughtException", (e) => {
   Log.Default.error("exception", {
     e: e instanceof Error ? e.message : e,
     stack: e instanceof Error ? e.stack : undefined,
   })
-  await Invocation.drain()
   process.exit(1)
 })
 
@@ -126,11 +119,9 @@ cli = cli
       msg?.startsWith("Invalid values:")
     ) {
       if (err) throw err
-      if (!Invocation.id) cli.showHelp("log")
+      cli.showHelp("log")
     }
     if (err) throw err
-    Invocation.abort(msg ?? "Invalid command line arguments", "INVOCATION_PARSE_ERROR")
-    if (Invocation.id) throw new Error(msg ?? "Invalid command line arguments")
     process.exit(1)
   })
   .strict()
@@ -138,7 +129,6 @@ cli = cli
 try {
   await cli.parse()
 } catch (e) {
-  Invocation.error(e)
   let data: Record<string, any> = {}
   if (e instanceof NamedError) {
     const obj = e.toObject()
@@ -165,9 +155,6 @@ try {
   }
   process.exitCode = 1
 } finally {
-  await Invocation.drain()
-  Invocation.complete()
-  await Invocation.drain()
   await Shutdown.flush()
   process.exit()
 }

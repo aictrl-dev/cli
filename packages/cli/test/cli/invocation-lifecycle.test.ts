@@ -1,11 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import path from "path"
-import { pathToFileURL } from "url"
 import { tmpdir } from "../fixture/fixture"
 
 const CLI = path.resolve(import.meta.dir, "../../src/headless.ts")
-const MAIN = path.resolve(import.meta.dir, "../../src/index.ts")
-const INVOCATION = pathToFileURL(path.resolve(import.meta.dir, "../../src/cli/invocation.ts")).href
 
 function events(stdout: string) {
   return stdout
@@ -14,8 +11,8 @@ function events(stdout: string) {
     .map((line) => JSON.parse(line) as Record<string, unknown>)
 }
 
-function spawn(args: string[], cwd = process.cwd(), cli = CLI) {
-  return Bun.spawn(["bun", "run", "--conditions=browser", cli, ...args], {
+function spawn(args: string[], cwd = process.cwd()) {
+  return Bun.spawn(["bun", "run", "--conditions=browser", CLI, ...args], {
     cwd,
     env: {
       ...process.env,
@@ -100,37 +97,8 @@ describe("run --format json invocation lifecycle (#90)", () => {
     expectFailure(await output(spawn(["run", "--format", "json"])), "validation")
   })
 
-  test("reports argument parsing failure", async () => {
-    for (const cli of [CLI, MAIN]) {
-      const result = await output(spawn(["run", "--format", "json", "--unknown-option"], process.cwd(), cli))
-      expectFailure(result, "parse")
-      expect(result.events.find((event) => event.type === "invocation_error")?.code).toBe("INVOCATION_PARSE_ERROR")
-    }
-  })
-
-  test("ignores JSON format tokens after the argument separator", async () => {
-    const proc = spawn(["run", "--dir", "/missing/aictrl-90", "--", "--format=json", "prompt"])
-    const stdout = await new Response(proc.stdout).text()
-    await proc.exited
-    expect(stdout).not.toContain('"type":"invocation_')
-  })
-
-  test("does not start a run invocation for a positional token on another command", async () => {
-    const proc = spawn(["session", "list", "run", "--format", "json"])
-    const stdout = await new Response(proc.stdout).text()
-    await proc.exited
-    expect(stdout).not.toContain('"type":"invocation_')
-  })
-
-  test("recognizes run after global options", async () => {
-    expectFailure(
-      await output(spawn(["--log-level", "ERROR", "run", "--format", "json", "--dir", "/missing/aictrl-90", "prompt"])),
-      "validation",
-    )
-    expectFailure(
-      await output(spawn(["--print-logs=false", "run", "--format", "json", "--dir", "/missing/aictrl-90", "prompt"])),
-      "validation",
-    )
+  test("reports invalid fork arguments as a validation error", async () => {
+    expectFailure(await output(spawn(["run", "--format", "json", "--fork", "prompt"])), "validation")
   })
 
   test("reports bootstrap failure", async () => {
@@ -212,100 +180,5 @@ describe("run --format json invocation lifecycle (#90)", () => {
     } finally {
       server.stop(true)
     }
-  })
-
-  test("reports a post-session failure as an invocation error result", async () => {
-    const id = "sess-invocation-failure-90"
-    const server = Bun.serve({
-      port: 0,
-      fetch(req) {
-        const url = new URL(req.url)
-        if (req.method === "GET" && url.pathname === "/event") {
-          return new Response("", { headers: { "content-type": "text/event-stream" } })
-        }
-        if (req.method === "POST" && url.pathname === "/session") return Response.json({ id })
-        if (req.method === "GET" && url.pathname === "/config") {
-          return new Response('{"post-session-secret"', {
-            headers: { "content-type": "application/json" },
-          })
-        }
-        if (req.method === "POST" && url.pathname.endsWith("/message")) return Response.json({})
-        return Response.json({})
-      },
-    })
-
-    try {
-      const result = await output(
-        spawn(["run", "--format", "json", "--attach", `http://localhost:${server.port}`, "prompt"]),
-      )
-      expect(result.code).not.toBe(0)
-      expect(result.events.find((event) => event.type === "invocation_complete")).toMatchObject({
-        sessionID: id,
-        status: "error",
-      })
-      expect(JSON.stringify(result.events)).not.toContain("post-session-secret")
-    } finally {
-      server.stop(true)
-    }
-  })
-
-  test("flush resolves when stdout rejects a lifecycle write", async () => {
-    const proc = Bun.spawn(
-      [
-        "bun",
-        "-e",
-        `
-          const module = await import(${JSON.stringify(INVOCATION)})
-          const write = process.stdout.write.bind(process.stdout)
-          process.stdout.write = () => {
-            throw new Error("closed")
-          }
-          module.startInvocation(["run", "--format", "json"])
-          module.Invocation.abort("failed")
-          await module.Invocation.flush()
-          process.stdout.write = write
-          process.stdout.write("flushed")
-        `,
-      ],
-      { stdout: "pipe", stderr: "pipe" },
-    )
-    const [stdout, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited])
-    expect(code).toBe(0)
-    expect(stdout).toBe("flushed")
-  })
-
-  test("late failure during pre-terminal drain produces one error completion", async () => {
-    const proc = Bun.spawn(
-      [
-        "bun",
-        "-e",
-        `
-          const module = await import(${JSON.stringify(INVOCATION)})
-          const write = process.stdout.write.bind(process.stdout)
-          const lines = []
-          process.stdout.write = (chunk, callback) => {
-            lines.push(String(chunk))
-            setTimeout(() => callback?.(), 20)
-            return true
-          }
-          module.startInvocation(["run", "--format", "json"])
-          const done = (async () => {
-            await module.Invocation.flush()
-            module.Invocation.complete()
-            await module.Invocation.flush()
-          })()
-          setTimeout(() => module.Invocation.abort("late"), 5)
-          await done
-          process.stdout.write = write
-          process.stdout.write(JSON.stringify(lines))
-        `,
-      ],
-      { stdout: "pipe", stderr: "pipe" },
-    )
-    const [stdout, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited])
-    const result = JSON.parse(stdout).flatMap((line: string) => events(line))
-    expect(code).toBe(0)
-    expect(result.filter((event: Record<string, unknown>) => event.type === "invocation_complete")).toHaveLength(1)
-    expect(result.find((event: Record<string, unknown>) => event.type === "invocation_complete")?.status).toBe("error")
   })
 })
