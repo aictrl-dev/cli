@@ -35,12 +35,10 @@ describe("run.ts v1 schema emissions (#63)", () => {
     expect(block).toContain("permissions:")
   })
 
-  test("session_error is emitted before session_complete on failure", async () => {
+  test("session terminal events use the ordered lifecycle", async () => {
     const source = await Bun.file(RUN_SRC).text()
-    const errIdx = source.indexOf('emit("session_error"')
-    expect(errIdx).toBeGreaterThan(-1)
-    expect(source.slice(errIdx).indexOf("complete(")).toBeGreaterThan(-1)
-    expect(source).toContain("if (sessionCompleteEmitted) return")
+    expect(source).toContain("output.error({ reason, code, message })")
+    expect(source).toContain("output.complete({")
   })
 
   test("primary session.error events are surfaced as session_error", async () => {

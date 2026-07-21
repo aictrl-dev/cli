@@ -4,6 +4,7 @@ import { pathToFileURL } from "bun"
 import { UI } from "../ui"
 import { cmd } from "./cmd"
 import { classifySessionError, SCHEMA_VERSION } from "./run.errors"
+import { terminal } from "./run.terminal"
 import { buildToolCatalogItems } from "./tool-catalog"
 import { withTimeout } from "../../util/timeout"
 import { Flag } from "../../flag/flag"
@@ -519,12 +520,6 @@ export const RunCommand = cmd({
 
       const events = await sdk.event.subscribe()
       let error: string | undefined
-      // Guard: at most one session_error is emitted per run regardless of which
-      // failure path fires first (in-loop session.error handler, loopDone.catch,
-      // or promptResult rejection). Without this a mid-run session.error event
-      // can fire site 1 while promptResult/loop() also rejects and fires site 2/3.
-      let sessionErrorEmitted = false
-      let sessionCompleteEmitted = false
       const startTime = Date.now()
       const childSessions = new Set<string>()
       const emitted = new Set<string>()
@@ -535,19 +530,18 @@ export const RunCommand = cmd({
         return n
       }
 
+      // Keep every failure path on one ordered, idempotent terminal lifecycle.
+      const output = terminal(emit)
+
       function complete(message = error ?? null) {
-        if (sessionCompleteEmitted) return
-        sessionCompleteEmitted = true
-        emit("session_complete", {
+        output.complete({
           durationMs: Date.now() - startTime,
           error: message,
         })
       }
 
       function report(reason: string, code: string | undefined, message: string) {
-        if (sessionErrorEmitted) return
-        sessionErrorEmitted = true
-        emit("session_error", { reason, code, message })
+        output.error({ reason, code, message })
       }
 
       async function loop() {
@@ -698,9 +692,9 @@ export const RunCommand = cmd({
               // loop drain to session.status idle and emit session_complete first.
               if (!control.current) process.exitCode = 1
               const classified = classifySessionError(props.error)
-              // Structured session_error is emitted for the primary session only.
-              // The legacy "error" event below remains the raw pass-through for
-              // both primary and child-session failures.
+              // Structured session_error is the telemetry/CI channel for the
+              // primary session. The legacy "error" event below is the raw
+              // pass-through for both primary and child-session failures.
               report(classified.reason, classified.code, classified.message)
             }
             if (emit("error", { error: props.error, sourceSessionID: props.sessionID })) continue
@@ -846,7 +840,7 @@ export const RunCommand = cmd({
       }
 
       function interrupt(signal: Signals.Info) {
-        if (!sessionErrorEmitted) error = signal.message
+        error ??= signal.message
         report(signal.reason, String(signal.code), signal.message)
         abort()
       }
@@ -863,7 +857,13 @@ export const RunCommand = cmd({
         error ??= classified.message
         report(classified.reason, classified.code, classified.message)
         complete(error)
-        if (control.current) return
+        if (control.current) {
+          Log.Default.error("run failed after signal", {
+            reason: classified.reason,
+            code: classified.code,
+          })
+          return
+        }
         console.error(cause)
         process.exitCode = 1
       }
