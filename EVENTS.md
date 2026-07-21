@@ -1,18 +1,84 @@
 # NDJSON Events
 
-When running `aictrl run --format json`, the CLI emits newline-delimited JSON (NDJSON) events to stdout. Each line is a self-contained JSON object with the following base shape:
+When the parsed `aictrl run --format json` handler starts, the CLI emits newline-delimited JSON (NDJSON) events to stdout. Each line is a self-contained JSON object with the following base shape:
 
 ```json
 {
   "type": "<event_type>",
   "timestamp": 1741500000000,
+  "invocationID": "7d142250-8bdc-43df-99af-efa252db62a7",
   "sessionID": "session_01abc..."
 }
 ```
 
-The schema is versioned via `session_start.schemaVersion`. This document describes **schema version `"1"`**. Consumers should pin to this version and treat unknown fields as forward-compatible additions.
+`invocationID` is present on every event from `run --format json`. `sessionID` is present only after a real session has been created; invocation events never fabricate one.
+
+The schema is versioned via `invocation_start.schemaVersion` and `session_start.schemaVersion`. This document describes **schema version `"1"`**. Consumers should pin to this version and treat unknown fields as forward-compatible additions.
+
+The invocation envelope covers accepted `run --format json` executions from the first line of the parsed handler through validation, bootstrap, session creation, and execution. Argument-parser failures, other commands, and process-global uncaught exceptions or unhandled rejections are outside this contract.
 
 ## Lifecycle Events
+
+### `invocation_start`
+
+Emitted once, before piped stdin is read and before run validation or bootstrap begins.
+
+```json
+{
+  "type": "invocation_start",
+  "timestamp": 1741500000000,
+  "schemaVersion": "1",
+  "invocationID": "7d142250-8bdc-43df-99af-efa252db62a7"
+}
+```
+
+This event intentionally has no `sessionID`, because a session does not exist yet.
+
+### `invocation_error`
+
+Emitted for a fatal error before session creation, immediately before `invocation_complete`.
+
+```json
+{
+  "type": "invocation_error",
+  "timestamp": 1741500000001,
+  "schemaVersion": "1",
+  "invocationID": "7d142250-8bdc-43df-99af-efa252db62a7",
+  "phase": "validation",
+  "code": "INVOCATION_FILE_NOT_FOUND",
+  "message": "Invocation failed during validation"
+}
+```
+
+- `phase` (string, **required**) — one of `validation`, `stdin`, `bootstrap`, or `session`.
+- `code` (string, **required**) — stable machine-readable error category. Known failures use
+  `INVOCATION_INVALID_DIRECTORY`, `INVOCATION_FILE_NOT_FOUND`, `INVOCATION_EMPTY_INPUT`,
+  `INVOCATION_INVALID_ARGUMENTS`, or `INVOCATION_SESSION_CREATE_FAILED`. Unexpected failures use
+  `INVOCATION_<PHASE>_FAILED`, where `<PHASE>` is `VALIDATION`, `STDIN`, `BOOTSTRAP`, or `SESSION`.
+- `message` (string, **required**) — sanitized human-readable phase summary. Details remain on stderr and in the log.
+
+Errors after a real session has been created use `session_error` instead. They also set
+`invocation_complete.status` to `error`, so the invocation result always agrees with the process result.
+
+### `invocation_complete`
+
+Emitted exactly once for every started invocation.
+
+```json
+{
+  "type": "invocation_complete",
+  "timestamp": 1741500000123,
+  "schemaVersion": "1",
+  "invocationID": "7d142250-8bdc-43df-99af-efa252db62a7",
+  "sessionID": "session_01abc...",
+  "status": "completed",
+  "durationMs": 123
+}
+```
+
+- `status` (string, **required**) — `completed` or `error`.
+- `durationMs` (number, **required**) — elapsed invocation time.
+- `sessionID` (string, optional) — included only when a real session was created.
 
 ### `session_start`
 
