@@ -4,6 +4,7 @@ import { Installation } from "../installation"
 import { Auth, OAUTH_DUMMY_KEY } from "../auth"
 import os from "os"
 import { ProviderTransform } from "@/provider/transform"
+import type { Provider } from "@/provider/provider"
 
 const log = Log.create({ service: "plugin.codex" })
 
@@ -357,6 +358,7 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
         if (auth.type !== "oauth") return {}
 
         // Filter models to only allowed Codex models for OAuth
+        const models = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
         const allowedModels = new Set([
           "gpt-5.1-codex-max",
           "gpt-5.1-codex-mini",
@@ -364,6 +366,7 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
           "gpt-5.2-codex",
           "gpt-5.3-codex",
           "gpt-5.1-codex",
+          ...models,
         ])
         for (const modelId of Object.keys(provider.models)) {
           if (modelId.includes("codex")) continue
@@ -401,6 +404,14 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
           }
           model.variants = ProviderTransform.variants(model)
           provider.models["gpt-5.3-codex"] = model
+        }
+
+        for (const id of models) {
+          const model = provider.models[id] as Provider.Model | undefined
+          if (!model) continue
+          model.family = "gpt-codex"
+          model.limit = { context: 400_000, input: 272_000, output: 128_000 }
+          model.variants = ProviderTransform.variants(model)
         }
 
         // Zero out costs for Codex (included with ChatGPT subscription)

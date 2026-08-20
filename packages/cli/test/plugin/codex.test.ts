@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
+  CodexAuthPlugin,
   parseJwtClaims,
   extractAccountIdFromClaims,
   extractAccountId,
@@ -119,5 +120,71 @@ describe("plugin.codex", () => {
         }),
       ).toBe("acc-123")
     })
+  })
+
+  test("exposes GPT-5.6 Codex models with their supported effort levels", async () => {
+    const hooks = await CodexAuthPlugin({} as never)
+    if (!hooks.auth?.loader) throw new Error("Codex auth loader is missing")
+    const provider = {
+      models: Object.fromEntries(
+        ["gpt-4o", "gpt-5.3-codex", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"].map((id) => [
+          id,
+          {
+            id,
+            providerID: "openai",
+            api: { id, url: "https://api.openai.com", npm: "@ai-sdk/openai" },
+            name: id,
+            family: "gpt",
+            capabilities: {
+              temperature: false,
+              reasoning: true,
+              attachment: true,
+              toolcall: true,
+              input: { text: true, audio: false, image: true, video: false, pdf: true },
+              output: { text: true, audio: false, image: false, video: false, pdf: false },
+              interleaved: false,
+            },
+            cost: { input: 1, output: 1, cache: { read: 1, write: 1 } },
+            limit: { context: 1_050_000, input: 922_000, output: 128_000 },
+            status: "active",
+            options: {},
+            headers: {},
+            release_date: "2026-07-09",
+            variants: {} as Record<string, Record<string, unknown>>,
+          },
+        ]),
+      ),
+    }
+
+    await hooks.auth.loader(
+      async () => ({ type: "oauth", refresh: "refresh", access: "access", expires: Date.now() + 60_000 }),
+      provider as never,
+    )
+
+    expect(provider.models["gpt-4o"]).toBeUndefined()
+    expect(provider.models["gpt-5.6-sol"].limit).toEqual({ context: 400_000, input: 272_000, output: 128_000 })
+    expect(Object.keys(provider.models["gpt-5.6-sol"].variants)).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ])
+    expect(Object.keys(provider.models["gpt-5.6-terra"].variants)).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ])
+    expect(Object.keys(provider.models["gpt-5.6-luna"].variants)).toEqual(["low", "medium", "high", "xhigh", "max"])
+    expect(provider.models["gpt-5.6-sol"].variants.ultra).toEqual({
+      reasoningEffort: "max",
+      reasoningSummary: "auto",
+      include: ["reasoning.encrypted_content"],
+    })
+    expect(provider.models["gpt-5.6-luna"].variants.ultra).toBeUndefined()
   })
 })

@@ -2178,6 +2178,55 @@ describe("ProviderTransform.variants", () => {
       const result = ProviderTransform.variants(model)
       expect(Object.keys(result)).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"])
     })
+
+    test.each(["gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"])(
+      "%s exposes every supported API reasoning effort",
+      (id) => {
+        const model = createMockModel({
+          id,
+          providerID: "openai",
+          api: {
+            id,
+            url: "https://api.openai.com",
+            npm: "@ai-sdk/openai",
+          },
+          release_date: "2026-07-09",
+        })
+        const result = ProviderTransform.variants(model)
+        expect(Object.keys(result)).toEqual(["none", "low", "medium", "high", "xhigh", "max"])
+        expect(result.max).toEqual({
+          reasoningEffort: "max",
+          reasoningSummary: "auto",
+          include: ["reasoning.encrypted_content"],
+        })
+      },
+    )
+
+    test.each([
+      { id: "gpt-5.6-sol", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+      { id: "gpt-5.6-terra", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+      { id: "gpt-5.6-luna", efforts: ["low", "medium", "high", "xhigh", "max"] },
+    ])("$id exposes its Codex reasoning efforts", ({ id, efforts }) => {
+      const model = createMockModel({
+        id,
+        providerID: "openai",
+        family: "gpt-codex",
+        api: {
+          id,
+          url: "https://chatgpt.com/backend-api/codex",
+          npm: "@ai-sdk/openai",
+        },
+        release_date: "2026-07-09",
+      })
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual([...efforts])
+      if (id === "gpt-5.6-luna") return
+      expect(result.ultra).toEqual({
+        reasoningEffort: "max",
+        reasoningSummary: "auto",
+        include: ["reasoning.encrypted_content"],
+      })
+    })
   })
 
   describe("@ai-sdk/anthropic", () => {
