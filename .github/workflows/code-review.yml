@@ -141,7 +141,7 @@ jobs:
           cd "$REVIEW_DIR"
 
           aictrl run --format json \
-            --model zai-coding-plan/glm-5.3 \
+            --model zai-coding-plan/glm-5.2 \
             "You are reviewing PR #${PR_NUMBER} on ${GH_REPO} (SHA: ${PR_SHA}, base: ${PR_BASE_REF}).
 
           You have access to the gh CLI, git, and file reading tools. Use them to understand the changes.
