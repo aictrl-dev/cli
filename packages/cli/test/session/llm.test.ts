@@ -323,14 +323,13 @@ describe("session.llm.stream", () => {
     })
   })
 
-  test("sends Coding Plan payload for GLM-5.2", async () => {
+  test.each(["glm-5.2", "glm-5.3"])("sends Coding Plan payload for %s", async (modelID) => {
     const server = state.server
     if (!server) {
       throw new Error("Server not initialized")
     }
 
     const providerID = "zai-coding-plan"
-    const modelID = "glm-5.2"
     const fixture = await loadFixture(providerID, modelID)
     const model = fixture.model
 
@@ -366,7 +365,7 @@ describe("session.llm.stream", () => {
       directory: tmp.path,
       fn: async () => {
         const resolved = await Provider.getModel(providerID, model.id)
-        const sessionID = "session-test-glm-52"
+        const sessionID = `session-test-${modelID}`
         const agent = {
           name: "test",
           mode: "primary",
@@ -375,7 +374,7 @@ describe("session.llm.stream", () => {
         } satisfies Agent.Info
 
         const user = {
-          id: "user-glm-52",
+          id: `user-${modelID}`,
           sessionID,
           role: "user",
           time: { created: Date.now() },
@@ -403,7 +402,7 @@ describe("session.llm.stream", () => {
 
         expect(capture.url.pathname.endsWith("/chat/completions")).toBe(true)
         expect(capture.headers.get("Authorization")).toBe("Bearer test-zai-key")
-        expect(body.model).toBe("glm-5.2")
+        expect(body.model).toBe(modelID)
         expect(body.temperature).toBe(1)
         expect(body.max_tokens).toBe(ProviderTransform.maxOutputTokens(resolved))
         expect(body.thinking).toEqual({

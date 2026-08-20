@@ -343,6 +343,13 @@ export namespace ProviderTransform {
       model.api.id.includes(v),
     )
     const adaptiveEfforts = ["low", "medium", "high", "max"]
+    if (model.providerID === "zai-coding-plan" && model.api.id === "glm-5.3") {
+      return {
+        low: { reasoningEffort: "low" },
+        high: { reasoningEffort: "high" },
+        max: { reasoningEffort: "max" },
+      }
+    }
     if (model.providerID === "zai-coding-plan" && model.api.id === "glm-5.2") {
       return {
         low: { reasoningEffort: "high" },

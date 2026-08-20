@@ -1633,6 +1633,23 @@ describe("ProviderTransform.variants", () => {
     expect(result.max).toEqual({ reasoningEffort: "max" })
   })
 
+  test("zai coding plan glm-5.3 exposes native effort variants", () => {
+    const model = createMockModel({
+      id: "glm-5.3",
+      providerID: "zai-coding-plan",
+      api: {
+        id: "glm-5.3",
+        url: "https://api.z.ai/api/coding/paas/v4",
+        npm: "@ai-sdk/openai-compatible",
+      },
+    })
+    expect(ProviderTransform.variants(model)).toEqual({
+      low: { reasoningEffort: "low" },
+      high: { reasoningEffort: "high" },
+      max: { reasoningEffort: "max" },
+    })
+  })
+
   test("mistral returns empty object", () => {
     const model = createMockModel({
       id: "mistral/mistral-large",

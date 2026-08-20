@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Features
+
+- **GLM-5.3 model support** — Added the latest Z.AI Coding Plan model with its 1M-token context window and native `low`, `high`, and `max` reasoning efforts.
+
 ### Compatibility
 
 - **NDJSON v1 terminal reasons are an open set** — `session_error.reason` now includes `interrupted` for `SIGINT` and `terminated` for `SIGTERM`, and `code` may contain the conventional signal-derived exit code (`130` or `143`). Schema v1 consumers should treat unknown event types, fields, and enum-like string values as forward-compatible additions.
