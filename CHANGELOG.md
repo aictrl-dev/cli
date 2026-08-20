@@ -4,6 +4,7 @@
 
 ### Features
 
+- **GPT-5.6 Codex models** — Added OpenAI's Sol, Terra, and Luna models with API and subscription-backed reasoning effort variants, including the Codex-only `ultra` alias for Sol and Terra.
 - **GLM-5.3 model support** — Added the latest Z.AI Coding Plan model with its 1M-token context window and native `low`, `high`, and `max` reasoning efforts.
 
 ### Compatibility

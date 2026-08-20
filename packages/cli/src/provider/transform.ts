@@ -329,6 +329,8 @@ export namespace ProviderTransform {
 
   const WIDELY_SUPPORTED_EFFORTS = ["low", "medium", "high"]
   const OPENAI_EFFORTS = ["none", "minimal", ...WIDELY_SUPPORTED_EFFORTS, "xhigh"]
+  const OPENAI_GPT_5_6_EFFORTS = ["none", ...WIDELY_SUPPORTED_EFFORTS, "xhigh", "max"]
+  const OPENAI_GPT_5_6_CODEX_EFFORTS = [...WIDELY_SUPPORTED_EFFORTS, "xhigh", "max"]
 
   export function variants(model: Provider.Model): Record<string, Record<string, any>> {
     if (!model.capabilities.reasoning) {
@@ -486,7 +488,7 @@ export namespace ProviderTransform {
       case "@ai-sdk/deepinfra":
       // https://v5.ai-sdk.dev/providers/ai-sdk-providers/deepinfra
       case "venice-ai-sdk-provider":
-      // https://docs.venice.ai/overview/guides/reasoning-models#reasoning-effort
+        // https://docs.venice.ai/overview/guides/reasoning-models#reasoning-effort
         return Object.fromEntries(WIDELY_SUPPORTED_EFFORTS.map((effort) => [effort, { reasoningEffort: effort }]))
 
       case "@ai-sdk/openai-compatible":
@@ -513,6 +515,13 @@ export namespace ProviderTransform {
         // https://v5.ai-sdk.dev/providers/ai-sdk-providers/openai
         if (id === "gpt-5-pro") return {}
         const openaiEfforts = iife(() => {
+          if (["gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"].includes(model.api.id)) {
+            if (model.family === "gpt-codex" && model.api.id !== "gpt-5.6-luna") {
+              return [...OPENAI_GPT_5_6_CODEX_EFFORTS, "ultra"]
+            }
+            if (model.family === "gpt-codex") return OPENAI_GPT_5_6_CODEX_EFFORTS
+            return OPENAI_GPT_5_6_EFFORTS
+          }
           if (id.includes("codex")) {
             if (id.includes("5.2") || id.includes("5.3")) return [...WIDELY_SUPPORTED_EFFORTS, "xhigh"]
             return WIDELY_SUPPORTED_EFFORTS
@@ -530,14 +539,17 @@ export namespace ProviderTransform {
           return arr
         })
         return Object.fromEntries(
-          openaiEfforts.map((effort) => [
-            effort,
-            {
-              reasoningEffort: effort,
-              reasoningSummary: "auto",
-              include: ["reasoning.encrypted_content"],
-            },
-          ]),
+          openaiEfforts.map((effort) => {
+            const value = effort === "ultra" ? "max" : effort
+            return [
+              effort,
+              {
+                reasoningEffort: value,
+                reasoningSummary: "auto",
+                include: ["reasoning.encrypted_content"],
+              },
+            ]
+          }),
         )
 
       case "@ai-sdk/anthropic":
@@ -736,7 +748,10 @@ export namespace ProviderTransform {
       result["chat_template_args"] = { enable_thinking: true }
     }
 
-    if (["zai", "zai-coding-plan", "zhipuai"].includes(input.model.providerID) && input.model.api.npm === "@ai-sdk/openai-compatible") {
+    if (
+      ["zai", "zai-coding-plan", "zhipuai"].includes(input.model.providerID) &&
+      input.model.api.npm === "@ai-sdk/openai-compatible"
+    ) {
       result["thinking"] = {
         type: "enabled",
         clear_thinking: false,
