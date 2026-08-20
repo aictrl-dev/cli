@@ -33,11 +33,11 @@ export namespace Truncate {
     })
   }
 
-  export async function cleanup() {
-    const cutoff = Identifier.timestamp(Identifier.create("tool", false, Date.now() - RETENTION_MS))
+  export async function cleanup(now = Date.now()) {
+    const cutoff = now - RETENTION_MS
     const entries = await Glob.scan("tool_*", { cwd: DIR, include: "file" }).catch(() => [] as string[])
     for (const entry of entries) {
-      if (Identifier.timestamp(entry) >= cutoff) continue
+      if (Identifier.timestamp(entry, now) >= cutoff) continue
       await fs.unlink(path.join(DIR, entry)).catch(() => {})
     }
   }
