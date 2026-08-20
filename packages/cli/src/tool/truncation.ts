@@ -37,7 +37,7 @@ export namespace Truncate {
     const cutoff = now - RETENTION_MS
     const entries = await Glob.scan("tool_*", { cwd: DIR, include: "file" }).catch(() => [] as string[])
     for (const entry of entries) {
-      if (Identifier.timestamp(entry, now) >= cutoff) continue
+      if (Identifier.timestamp(entry, now + HOUR_MS) >= cutoff) continue
       await fs.unlink(path.join(DIR, entry)).catch(() => {})
     }
   }
