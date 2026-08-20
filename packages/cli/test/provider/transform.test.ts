@@ -1633,7 +1633,7 @@ describe("ProviderTransform.variants", () => {
     expect(result.max).toEqual({ reasoningEffort: "max" })
   })
 
-  test("zai coding plan glm-5.3 exposes native effort variants", () => {
+  test("zai coding plan glm-5.3 maps native efforts and compatibility aliases", () => {
     const model = createMockModel({
       id: "glm-5.3",
       providerID: "zai-coding-plan",
@@ -1645,7 +1645,9 @@ describe("ProviderTransform.variants", () => {
     })
     expect(ProviderTransform.variants(model)).toEqual({
       low: { reasoningEffort: "low" },
+      medium: { reasoningEffort: "high" },
       high: { reasoningEffort: "high" },
+      xhigh: { reasoningEffort: "max" },
       max: { reasoningEffort: "max" },
     })
   })

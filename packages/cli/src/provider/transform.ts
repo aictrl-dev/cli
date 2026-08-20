@@ -346,7 +346,9 @@ export namespace ProviderTransform {
     if (model.providerID === "zai-coding-plan" && model.api.id === "glm-5.3") {
       return {
         low: { reasoningEffort: "low" },
+        medium: { reasoningEffort: "high" },
         high: { reasoningEffort: "high" },
+        xhigh: { reasoningEffort: "max" },
         max: { reasoningEffort: "max" },
       }
     }

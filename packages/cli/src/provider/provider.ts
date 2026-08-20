@@ -627,11 +627,6 @@ export namespace Provider {
         options: {},
         headers: {},
         release_date: "2026-08-14",
-        variants: {
-          low: { reasoningEffort: "low" },
-          high: { reasoningEffort: "high" },
-          max: { reasoningEffort: "max" },
-        },
       }
       input.models["glm-5.2"] ??= {
         id: "glm-5.2",
