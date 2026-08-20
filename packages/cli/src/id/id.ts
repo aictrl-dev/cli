@@ -19,6 +19,7 @@ export namespace Identifier {
   }
 
   const LENGTH = 26
+  export const TIMESTAMP_CYCLE = 2 ** 36
 
   // State for monotonic ID generation
   let lastTimestamp = 0
@@ -74,11 +75,14 @@ export namespace Identifier {
     return prefixes[prefix] + "_" + timeBytes.toString("hex") + randomBase62(LENGTH - 12)
   }
 
-  /** Extract timestamp from an ascending ID. Does not work with descending IDs. */
-  export function timestamp(id: string): number {
+  /** Reconstruct the most recent timestamp at or before reference from an ascending ID. */
+  export function timestamp(id: string, reference = Date.now()): number {
     const prefix = id.split("_")[0]
     const hex = id.slice(prefix.length + 1, prefix.length + 13)
     const encoded = BigInt("0x" + hex)
-    return Number(encoded / BigInt(0x1000))
+    const value = Number(encoded / BigInt(0x1000))
+    const base = Math.floor(reference / TIMESTAMP_CYCLE) * TIMESTAMP_CYCLE
+    const result = base + value
+    return result > reference ? result - TIMESTAMP_CYCLE : result
   }
 }

@@ -127,34 +127,48 @@ describe("Truncate", () => {
     const DAY_MS = 24 * 60 * 60 * 1000
     let oldFile: string
     let recentFile: string
+    let futureFile: string
 
     afterAll(async () => {
       await fs.unlink(oldFile).catch(() => {})
       await fs.unlink(recentFile).catch(() => {})
+      await fs.unlink(futureFile).catch(() => {})
     })
 
     test("deletes files older than 7 days and preserves recent files", async () => {
       await fs.mkdir(Truncate.DIR, { recursive: true })
+      const now = 26 * Identifier.TIMESTAMP_CYCLE + 3 * DAY_MS
 
       // Create an old file (10 days ago)
-      const oldTimestamp = Date.now() - 10 * DAY_MS
+      const oldTimestamp = now - 10 * DAY_MS
       const oldId = Identifier.create("tool", false, oldTimestamp)
       oldFile = path.join(Truncate.DIR, oldId)
       await Filesystem.write(oldFile, "old content")
 
       // Create a recent file (3 days ago)
-      const recentTimestamp = Date.now() - 3 * DAY_MS
+      const recentTimestamp = now - 3 * DAY_MS
       const recentId = Identifier.create("tool", false, recentTimestamp)
       recentFile = path.join(Truncate.DIR, recentId)
       await Filesystem.write(recentFile, "recent content")
 
-      await Truncate.cleanup()
+      await Truncate.cleanup(now)
 
       // Old file should be deleted
       expect(await Filesystem.exists(oldFile)).toBe(false)
 
       // Recent file should still exist
       expect(await Filesystem.exists(recentFile)).toBe(true)
+    })
+
+    test("preserves files created shortly after cleanup starts", async () => {
+      await fs.mkdir(Truncate.DIR, { recursive: true })
+      const now = 26 * Identifier.TIMESTAMP_CYCLE + 3 * DAY_MS
+      futureFile = path.join(Truncate.DIR, Identifier.create("tool", false, now + 1))
+      await Filesystem.write(futureFile, "future content")
+
+      await Truncate.cleanup(now)
+
+      expect(await Filesystem.exists(futureFile)).toBe(true)
     })
   })
 })
