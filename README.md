@@ -122,4 +122,4 @@ aictrl acp
 Aictrl is a fork of the [OpenCode](https://opencode.ai) project and is licensed under the MIT License.
 
 ---
-[aictrl.dev](https://aictrl.dev)
+[aictrl.dev](https://aictrl.dev/?utm_medium=referral&utm_source=github&utm_campaign=cli&utm_content=readme)
