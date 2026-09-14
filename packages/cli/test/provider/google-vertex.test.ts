@@ -1,29 +1,9 @@
-import { expect, mock, test } from "bun:test"
+import { expect, spyOn, test } from "bun:test"
+import { GoogleAuth } from "google-auth-library"
 import path from "path"
 
 import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
-
-const options: unknown[] = []
-const methods: string[] = []
-
-mock.module("google-auth-library", () => ({
-  GoogleAuth: class {
-    constructor(input: unknown) {
-      options.push(input)
-    }
-
-    async getClient() {
-      methods.push("getClient")
-      throw new Error("stop after resolving auth client")
-    }
-
-    async getApplicationDefault() {
-      methods.push("getApplicationDefault")
-      throw new Error("stop after resolving application default")
-    }
-  },
-}))
 
 test.each([
   ["global", "aiplatform.googleapis.com"],
@@ -77,9 +57,6 @@ test.each([
 })
 
 test("Google Vertex requests the cloud-platform OAuth scope", async () => {
-  options.length = 0
-  methods.length = 0
-
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Bun.write(
@@ -105,9 +82,21 @@ test("Google Vertex requests the cloud-platform OAuth scope", async () => {
       const { Provider } = await import("../../src/provider/provider")
       const provider = await Provider.getProvider("google-vertex")
 
-      await expect(provider.options.fetch("https://example.test")).rejects.toThrow("stop after resolving auth client")
-      expect(options).toEqual([{ scopes: ["https://www.googleapis.com/auth/cloud-platform"] }])
-      expect(methods).toEqual(["getClient"])
+      const client = spyOn(GoogleAuth.prototype, "getClient").mockImplementation(async function (this: GoogleAuth) {
+        expect(Reflect.get(this, "scopes")).toEqual(["https://www.googleapis.com/auth/cloud-platform"])
+        throw new Error("stop after resolving auth client")
+      })
+      const defaults = spyOn(GoogleAuth.prototype, "getApplicationDefault").mockImplementation(() => {
+        throw new Error("unexpected application default lookup")
+      })
+      try {
+        await expect(provider.options.fetch("https://example.test")).rejects.toThrow("stop after resolving auth client")
+        expect(client).toHaveBeenCalledTimes(1)
+        expect(defaults).not.toHaveBeenCalled()
+      } finally {
+        client.mockRestore()
+        defaults.mockRestore()
+      }
     },
   })
 })
