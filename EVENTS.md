@@ -230,6 +230,26 @@ For compatibility with sessions written before usage provenance was persisted, a
 - `ratio` (number) — `used / limit` (≥0; may exceed 1 if usage exceeds the model's registered limit). A value approaching or exceeding 1 signals context-exhaustion risk.
 - `null` — emitted when the model's context limit is not known (e.g. unregistered custom endpoint), or usage is missing.
 
+**Terminal reason semantics (schema v1)**
+
+A provider can finish an HTTP stream normally while reporting a failed model turn. `error` and `content-filter` finishes persist a nonretryable `APIError` with `data.metadata.finishReason`; they emit `message_complete.status: "error"`, `session_error.reason: "provider"`, a populated `session_complete.error`, and `invocation_complete.status: "error"`. Headless execution exits 1 after flushing output. Partial text, completed tools, and reported usage remain available. No automatic recovery is attempted.
+
+| Finish or termination         | Behavior                                                                                     |
+| ----------------------------- | -------------------------------------------------------------------------------------------- |
+| `error`                       | Failed model turn; session/invocation failure and exit 1.                                    |
+| `content-filter`              | Failed model turn with a visible content-filter message; exit 1.                             |
+| `stop`                        | Completed turn, including empty output.                                                      |
+| `tool-calls`                  | Completed model turn; run tools and continue the session loop.                               |
+| `length`                      | Existing behavior: completed turn; preserve the reason so consumers can identify truncation. |
+| `unknown`                     | Existing behavior: continue the session loop.                                                |
+| Other nonempty finish         | Existing behavior: end the loop without inferring failure from an unfamiliar reason.         |
+| Thrown provider error         | Existing retry/error handling; unrecoverable failures emit the failure lifecycle.            |
+| Cancellation / stream timeout | Existing cancellation and timeout lifecycle; not reclassified as a provider finish error.    |
+
+With pinned Google SDK 2.0.54, `IMAGE_SAFETY`, `RECITATION`, `SAFETY`, `BLOCKLIST`, `PROHIBITED_CONTENT`, and `SPII` map to `content-filter`; `MALFORMED_FUNCTION_CALL` maps to `error`. `OTHER` and `FINISH_REASON_UNSPECIFIED` map to `other`, while `LANGUAGE` maps to `unknown`. These last mappings retain the behavior above; they do not prove successful task completion. Consumers can distinguish `other` from `stop` using `message_complete.finish`.
+
+Errors are attributed to the originating session. A child error alone does not change the primary session's exit status if the primary agent handles it successfully.
+
 ### `text`
 
 Emitted when a text block from the assistant is complete.

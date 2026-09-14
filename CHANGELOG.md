@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixes
+
+- **Provider error finishes fail headless execution** — Normal streams ending in `error` or `content-filter` now persist a structured provider failure, emit consistent failure events, and exit nonzero while retaining partial output and usage. Empty successful responses remain successful. (#108)
+
 ### Features
 
 - **GPT-5.6 Codex models** — Added OpenAI's Sol, Terra, and Luna models with API and subscription-backed reasoning effort variants, including the Codex-only `ultra` alias for Sol and Terra.

@@ -30,8 +30,8 @@ export function classifySessionError(err: unknown): ClassifiedSessionError {
   if (/heap out of memory|ENOMEM/i.test(message)) {
     return { reason: "oom", message }
   }
-  if (status && status >= 500 && status < 600) {
-    return { reason: "provider", code: String(status), message }
+  if ((name === "APIError" && status === undefined) || (status && status >= 500 && status < 600)) {
+    return { reason: "provider", code: status ? String(status) : undefined, message }
   }
   return { reason: "unknown", code: status ? String(status) : undefined, message }
 }
@@ -50,7 +50,8 @@ function extractMessage(err: unknown): string {
 function extractStatus(err: unknown): number | undefined {
   if (err && typeof err === "object") {
     const e = err as { status?: unknown; statusCode?: unknown; response?: { status?: unknown }; data?: unknown }
-    const data = e.data && typeof e.data === "object" ? (e.data as { status?: unknown; statusCode?: unknown }) : undefined
+    const data =
+      e.data && typeof e.data === "object" ? (e.data as { status?: unknown; statusCode?: unknown }) : undefined
     const raw = e.status ?? e.statusCode ?? e.response?.status ?? data?.status ?? data?.statusCode
     if (typeof raw === "number") return raw
     if (typeof raw === "string" && /^\d+$/.test(raw)) return Number(raw)
