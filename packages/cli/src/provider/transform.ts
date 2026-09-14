@@ -938,6 +938,9 @@ export namespace ProviderTransform {
 
     // Convert integer enums to string enums for Google/Gemini
     if (model.providerID === "google" || model.api.id.includes("gemini")) {
+      // Native Google adapters already convert type arrays and preserve nullability.
+      // Pre-converting them here causes the pinned adapters to drop `nullable`.
+      const native = model.api.npm === "@ai-sdk/google" || model.api.npm === "@ai-sdk/google-vertex"
       const isPlainObject = (node: unknown): node is Record<string, any> =>
         typeof node === "object" && node !== null && !Array.isArray(node)
       const hasCombiner = (node: unknown) =>
@@ -992,7 +995,7 @@ export namespace ProviderTransform {
         // Split non-null types into anyOf and express nullability separately.
         // Keep composed schemas intact: replacing or layering their combiner can
         // discard constraints or change how sibling keywords are evaluated.
-        if (Array.isArray(result.type) && !hasCombiner(result)) {
+        if (Array.isArray(result.type) && !hasCombiner(result) && !native) {
           const nullable = result.type.includes("null")
           const types = result.type.filter((entry: unknown) => entry !== "null")
           if (types.length === 0) {

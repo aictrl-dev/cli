@@ -512,10 +512,10 @@ describe("ProviderTransform.schema - gemini nested array items", () => {
 
 describe("ProviderTransform.schema - gemini type arrays", () => {
   const geminiModel = {
-    providerID: "google",
+    providerID: "github-copilot",
     api: {
       id: "gemini-3-pro",
-      npm: "@ai-sdk/google",
+      npm: "@ai-sdk/github-copilot",
     },
   } as any
 
@@ -535,12 +535,15 @@ describe("ProviderTransform.schema - gemini type arrays", () => {
     })
   })
 
-  test("lifts null into nullable for Vertex Gemini", () => {
-    const vertexModel = {
-      providerID: "google-vertex",
+  test.each([
+    ["Google", "google", "@ai-sdk/google"],
+    ["Vertex", "google-vertex", "@ai-sdk/google-vertex"],
+  ])("defers nullable type arrays to the native %s adapter", (_, providerID, npm) => {
+    const model = {
+      providerID,
       api: {
         id: "gemini-2.5-flash",
-        npm: "@ai-sdk/google-vertex",
+        npm,
       },
     } as any
     const schema = {
@@ -550,12 +553,9 @@ describe("ProviderTransform.schema - gemini type arrays", () => {
       },
     } as any
 
-    const result = ProviderTransform.schema(vertexModel, schema) as any
+    const result = ProviderTransform.schema(model, schema) as any
 
-    expect(result.properties.query).toEqual({
-      anyOf: [{ type: "string" }],
-      nullable: true,
-    })
+    expect(result).toEqual(schema)
   })
 
   test("collapses a null-only type array", () => {
@@ -633,13 +633,13 @@ describe("ProviderTransform.schema - gemini type arrays", () => {
     expect(ProviderTransform.schema(geminiModel, schema)).toEqual(schema)
   })
 
-  test("preserves a pre-existing anyOf on a type-array node", () => {
+  test.each(["anyOf", "oneOf", "allOf"] as const)("preserves a pre-existing %s on a type-array node", (key) => {
     const schema = {
       type: "object",
       properties: {
         score: {
           type: ["number", "integer"],
-          anyOf: [{ minimum: 0 }, { maximum: -10 }],
+          [key]: [{ minimum: 0 }, { maximum: -10 }],
           description: "score outside the excluded range",
         },
       },
