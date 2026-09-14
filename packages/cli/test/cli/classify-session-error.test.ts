@@ -64,7 +64,11 @@ describe("classifySessionError (#63)", () => {
   test.each([
     [undefined, "The provider ended the response with an error finish reason.", "provider"],
     [429, "Rate limit exceeded", "rate_limit"],
+    [429, "Resource has been exhausted", "rate_limit"],
+    [429, "rate_limit_error", "rate_limit"],
     [401, "Invalid API key", "auth"],
+    [401, "Unauthenticated", "auth"],
+    [403, "Permission denied", "auth"],
     [undefined, "Stream timeout", "timeout"],
   ] as const)("APIError preserves specific classifications (%s, %s)", (statusCode, message, reason) => {
     const res = classifySessionError({ name: "APIError", data: { statusCode, message, isRetryable: false } })

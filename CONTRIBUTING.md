@@ -39,6 +39,16 @@ https://github.com/anomalyco/models.dev
   bun dev
   ```
 
+### Headless release regression checks
+
+From `packages/cli`, run:
+
+```bash
+bun test test/cli/run-provider-finish.test.ts test/cli/run-signal-cancellation.test.ts test/cli/classify-session-error.test.ts
+```
+
+The provider fixture uses real Gemini SSE responses and the pinned SDK in a headless subprocess. It checks failed finishes, content filtering, empty success, tool calls, partial output, and output limits. The cancellation tests verify that signals keep their distinct failure classification and flush terminal events before exit.
+
 ### Running against a different directory
 
 By default, `bun dev` runs Aictrl in the `packages/aictrl` directory. To run it against a different directory or repository:
