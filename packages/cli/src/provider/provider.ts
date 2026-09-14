@@ -38,17 +38,22 @@ export namespace Provider {
     return isGpt5OrLater(modelID) && !modelID.startsWith("gpt-5-mini")
   }
 
+  function googleVertexEndpoint(location: string) {
+    if (location === "global") return "aiplatform.googleapis.com"
+    if (location === "eu" || location === "us") return `aiplatform.${location}.rep.googleapis.com`
+    return `${location}-aiplatform.googleapis.com`
+  }
+
   function googleVertexVars(options: Record<string, any>) {
     const project =
       options["project"] ?? Env.get("GOOGLE_CLOUD_PROJECT") ?? Env.get("GCP_PROJECT") ?? Env.get("GCLOUD_PROJECT")
     const location =
       options["location"] ?? Env.get("GOOGLE_CLOUD_LOCATION") ?? Env.get("VERTEX_LOCATION") ?? "us-central1"
-    const endpoint = location === "global" ? "aiplatform.googleapis.com" : `${location}-aiplatform.googleapis.com`
 
     return {
       GOOGLE_VERTEX_PROJECT: project,
       GOOGLE_VERTEX_LOCATION: location,
-      GOOGLE_VERTEX_ENDPOINT: endpoint,
+      GOOGLE_VERTEX_ENDPOINT: googleVertexEndpoint(location),
     }
   }
 
@@ -377,9 +382,9 @@ export namespace Provider {
           location,
           fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
             const { GoogleAuth } = await import("google-auth-library")
-            const auth = new GoogleAuth()
-            const client = await auth.getApplicationDefault()
-            const token = await client.credential.getAccessToken()
+            const auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform"] })
+            const client = await auth.getClient()
+            const token = await client.getAccessToken()
 
             const headers = new Headers(init?.headers)
             headers.set("Authorization", `Bearer ${token.token}`)
