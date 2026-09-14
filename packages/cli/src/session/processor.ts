@@ -145,7 +145,10 @@ export namespace SessionProcessor {
                           start: Date.now(),
                         },
                       },
-                      metadata: value.providerMetadata,
+                      metadata: {
+                        ...value.providerMetadata,
+                        ...(value.providerExecuted ? { providerExecuted: true } : {}),
+                      },
                     })
                     toolcalls[value.toolCallId] = part as MessageV2.ToolPart
 

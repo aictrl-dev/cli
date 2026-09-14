@@ -63,12 +63,7 @@ export namespace SessionPrompt {
   const log = Log.create({ service: "session.prompt" })
 
   export function hasToolCalls(parts: MessageV2.Part[]) {
-    return parts.some(
-      (part) =>
-        part.type === "tool" &&
-        !part.metadata?.providerExecuted &&
-        !(part.state.status === "error" && part.state.metadata?.interrupted === true),
-    )
+    return parts.some((part) => part.type === "tool" && !part.metadata?.providerExecuted)
   }
 
   const state = Instance.state(
@@ -720,8 +715,9 @@ export namespace SessionPrompt {
 
       // Check if model finished (finish reason is not "tool-calls" or "unknown")
       const modelFinished = processor.message.finish && !["tool-calls", "unknown"].includes(processor.message.finish)
+      const hasCurrentToolCalls = hasToolCalls(await MessageV2.parts(processor.message.id))
 
-      if (modelFinished && !processor.message.error) {
+      if (modelFinished && !hasCurrentToolCalls && !processor.message.error) {
         if (format.type === "json_schema") {
           // Model stopped without calling StructuredOutput tool
           processor.message.error = new MessageV2.StructuredOutputError({
