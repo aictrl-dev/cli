@@ -62,10 +62,9 @@ export namespace ProviderTermination {
         let rawReason = field(undefined, () => false)
         let diagnostic = field(undefined, () => false)
         const headers = result.response?.headers
-        const requestID = field(
-          headers?.["x-request-id"] ?? headers?.["x-goog-request-id"],
-          (value) => /^[a-zA-Z0-9_-]+$/.test(value) && !/^(sk-|gh[pousr]_|github_pat_|AIza|AKIA|ASIA)/.test(value),
-        )
+        // A provider/proxy can echo arbitrary credentials into an ID header.
+        // Format allowlists cannot distinguish an opaque ID from an opaque key.
+        const requestID = field(headers?.["x-request-id"] ?? headers?.["x-goog-request-id"], () => false)
         return {
           ...result,
           stream: result.stream.pipeThrough(

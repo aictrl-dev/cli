@@ -64,7 +64,7 @@ describe("provider termination diagnostics", () => {
         modelID: "gemini-2.5-flash",
         normalizedReason: "error",
         rawReason: { status: "available", value: "MALFORMED_FUNCTION_CALL", truncated: false },
-        requestID: { status: "available", value: "req_123", truncated: false },
+        requestID: { status: "redacted", truncated: false },
         diagnostic: { status: "redacted", truncated: false },
       })
       expect(JSON.stringify(chunks)).not.toContain("secret-value")
@@ -89,6 +89,21 @@ describe("provider termination diagnostics", () => {
     expect(termination.rawReason).toEqual({ status: "redacted", truncated: false })
     expect(termination.requestID).toEqual({ status: "unavailable", truncated: false })
     expect(termination.diagnostic).toEqual({ status: "unavailable", truncated: false })
+  })
+
+  test.each([
+    "xoxb-slack-token",
+    "xoxp-slack-token",
+    "glpat-gitlab-token",
+    "npm_registry_token",
+    "0123456789abcdef0123456789abcdef",
+    "cHJlZml4bGVzcy1zZWNyZXQ",
+    "req_ordinary_request_id",
+    "x".repeat(129),
+  ])("does not persist arbitrary request ID values (%s)", async (request) => {
+    const { termination } = await capture({ request })
+    expect(termination.requestID).toEqual({ status: "redacted", truncated: request.length > 128 })
+    expect(JSON.stringify(termination)).not.toContain(request)
   })
 
   test("ignores malformed metadata rather than replacing execution errors", () => {
