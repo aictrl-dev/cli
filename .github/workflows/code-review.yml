@@ -1,5 +1,8 @@
 name: Aictrl Review
 
+# Policy: AI review is opt-in and advisory. Maintainers dispatch this workflow for
+# PRs that need it; maintainer review plus the standard CI and CodeQL checks remain
+# the merge-quality controls.
 on:
   workflow_dispatch:
 
@@ -41,6 +44,13 @@ jobs:
             fi
             echo "Found PR #$PR_NUMBER for branch $BRANCH"
             echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
+
+            PR_BASE_REF=$(gh pr view "$PR_NUMBER" --json baseRefName --jq '.baseRefName')
+            if [ -z "$PR_BASE_REF" ]; then
+              echo "Could not determine the base branch for PR #$PR_NUMBER."
+              exit 1
+            fi
+            echo "PR_BASE_REF=$PR_BASE_REF" >> $GITHUB_ENV
           fi
 
           echo "Checking if SHA $PR_SHA was already reviewed..."
