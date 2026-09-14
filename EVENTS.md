@@ -6,12 +6,14 @@ When the parsed `aictrl run --format json` handler starts, the CLI emits newline
 {
   "type": "<event_type>",
   "timestamp": 1741500000000,
+  "schemaVersion": "1",
+  "cliVersion": "0.4.3",
   "invocationID": "7d142250-8bdc-43df-99af-efa252db62a7",
   "sessionID": "session_01abc..."
 }
 ```
 
-`invocationID` is present on every event from `run --format json`. `sessionID` is present only after a real session has been created; invocation events never fabricate one.
+`schemaVersion`, `cliVersion`, and `invocationID` are present on every event from `run --format json`. `cliVersion` identifies the emitting CLI release and is independent of the event schema version. `sessionID` is present only after a real session has been created; invocation events never fabricate one.
 
 The schema is versioned via `invocation_start.schemaVersion` and `session_start.schemaVersion`. This document describes **schema version `"1"`**. Consumers should pin to this version and treat unknown fields as forward-compatible additions.
 
@@ -28,6 +30,7 @@ Emitted once, before piped stdin is read and before run validation or bootstrap 
   "type": "invocation_start",
   "timestamp": 1741500000000,
   "schemaVersion": "1",
+  "cliVersion": "0.4.3",
   "invocationID": "7d142250-8bdc-43df-99af-efa252db62a7"
 }
 ```
@@ -173,6 +176,66 @@ Emitted immediately before `session_complete` when the session terminates abnorm
 - `reason` (string, **required**) — one of `rate_limit`, `auth`, `timeout`, `oom`, `provider`, `interrupted`, `terminated`, `unknown`. `SIGINT` produces `interrupted`; `SIGTERM` produces `terminated`. Signals are not inferred to be timeouts.
 - `code` (string, optional) — provider HTTP status code, error code, or conventional signal-derived exit code (`130` for `SIGINT`, `143` for `SIGTERM`) when available.
 - `message` (string, **required**) — human-readable error message.
+
+### `retry_scheduled`
+
+Emitted when the primary session schedules an existing automatic retry. This event observes the retry policy; it does not add or change retry behavior.
+
+```json
+{
+  "type": "retry_scheduled",
+  "retryID": "96766fef-4f5c-47bb-a292-8fd43761ac3a",
+  "messageID": "msg_01abc...",
+  "providerID": "google",
+  "modelID": "gemini-2.5-flash",
+  "attempt": 1,
+  "reason": "rate_limit",
+  "delayMs": 2000
+}
+```
+
+- `retryID` (string, **required**) — opaque identity shared with the matching `retry_complete` event.
+- `messageID` (string or null, **required**) — assistant message that owns the retry. It is null only when attached to an older server that did not supply the additive correlation fields.
+- `providerID` / `modelID` (string or null, **required**) — resolved provider and model when the retry source supplied them.
+- `attempt` (number, **required**) — one-based retry ordinal for the assistant message.
+- `reason` (string, **required**) — bounded category: `rate_limit`, `timeout`, `network`, `provider`, or `unknown`. Treat this as an open set. Free-text provider errors are not emitted as metric dimensions.
+- `delayMs` (number, **required**) — scheduled backoff. For an older attached server this is the non-negative time remaining when the event is observed.
+
+### `retry_complete`
+
+Emitted when the scheduled retry is resolved by a terminal assistant message, another scheduled retry, a session error, cancellation, or an idle session boundary.
+
+```json
+{
+  "type": "retry_complete",
+  "retryID": "96766fef-4f5c-47bb-a292-8fd43761ac3a",
+  "messageID": "msg_01abc...",
+  "providerID": "google",
+  "modelID": "gemini-2.5-flash",
+  "attempt": 1,
+  "reason": "rate_limit",
+  "delayMs": 2000,
+  "outcome": "recovered"
+}
+```
+
+Identity and dimension fields match `retry_scheduled`. `outcome` is `recovered`, `failed`, `aborted`, or `unknown`. A retry superseded by another retry is `failed`; a successful terminal assistant message is `recovered`; cancellation is `aborted`; an idle boundary without an observable terminal message is `unknown`. If the event stream ends before `retry_complete`, the attempt is censored and must remain unknown.
+
+## Measurement contract
+
+The NDJSON stream supplies measurement inputs; it does not calculate product-specific results. Aggregate top-level invocations by `invocationID`, and use `sessionID` and `messageID` only for correlation. Do not count child sessions as new invocations.
+
+| Metric | Numerator | Denominator | Unknown / censored handling |
+|---|---|---|---|
+| Invocation outcome rate | `invocation_complete` grouped by `status` | distinct `invocation_start.invocationID` | A start without a complete event is unknown, never success |
+| Provider-turn error rate | primary `message_complete.status = error` | all primary `message_complete` events | A started invocation without a terminal primary message is unknown |
+| Contradiction count | completed invocation whose primary message or session is terminally erroneous | completed invocations | Keep as a data-quality count; the terminal error fix is tracked separately |
+| Diagnostic coverage | error turns with the separately defined provider diagnostic | provider-error turns | Raw provider reason availability and redaction are defined separately; do not infer them from `reason` |
+| Retry recovery rate | `retry_complete.outcome = recovered` | `retry_complete` with outcome `recovered` or `failed` | Exclude `aborted`, `unknown`, and scheduled retries without a completion event |
+
+Sum `retry_scheduled.delayMs` once per distinct `retryID` for additional scheduled backoff. Join usage and cost from the owning `message_complete.messageID`; `retry_complete` is a lifecycle correlation event and carries no duplicate usage or cost. Missing usage or cost remains unknown rather than zero.
+
+Safe metric dimensions are `cliVersion`, `providerID`, `modelID`, and bounded `reason`. `invocationID`, `sessionID`, `messageID`, and `retryID` are high-cardinality correlation attributes. Never use free-text errors as metric labels.
 
 ## Message Events
 

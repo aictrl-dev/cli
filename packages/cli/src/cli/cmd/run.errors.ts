@@ -24,6 +24,9 @@ export function classifySessionError(err: unknown): ClassifiedSessionError {
   if (status === 429) return { reason: "rate_limit", code: "429", message }
   if (status === 401 || status === 403) return { reason: "auth", code: String(status), message }
   if (name === "ProviderAuthError") return { reason: "auth", code: status ? String(status) : undefined, message }
+  if (name === "MessageAbortedError") {
+    return { reason: "interrupted", code: status ? String(status) : undefined, message }
+  }
   if (name === "AbortError" || /timeout/i.test(message)) {
     return { reason: "timeout", code: status ? String(status) : undefined, message }
   }
@@ -50,7 +53,8 @@ function extractMessage(err: unknown): string {
 function extractStatus(err: unknown): number | undefined {
   if (err && typeof err === "object") {
     const e = err as { status?: unknown; statusCode?: unknown; response?: { status?: unknown }; data?: unknown }
-    const data = e.data && typeof e.data === "object" ? (e.data as { status?: unknown; statusCode?: unknown }) : undefined
+    const data =
+      e.data && typeof e.data === "object" ? (e.data as { status?: unknown; statusCode?: unknown }) : undefined
     const raw = e.status ?? e.statusCode ?? e.response?.status ?? data?.status ?? data?.statusCode
     if (typeof raw === "number") return raw
     if (typeof raw === "string" && /^\d+$/.test(raw)) return Number(raw)

@@ -14,6 +14,12 @@ export namespace SessionStatus {
         attempt: z.number(),
         message: z.string(),
         next: z.number(),
+        retryID: z.string().optional(),
+        messageID: z.string().optional(),
+        providerID: z.string().optional(),
+        modelID: z.string().optional(),
+        reason: z.enum(["rate_limit", "timeout", "network", "provider", "unknown"]).optional(),
+        delayMs: z.number().optional(),
       }),
       z.object({
         type: z.literal("busy"),

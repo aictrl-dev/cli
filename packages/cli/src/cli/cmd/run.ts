@@ -43,6 +43,7 @@ import { Shutdown } from "../shutdown"
 import { Stdout } from "../stdout"
 import { attempt, signals, type Signals } from "../signals"
 import { createRunInvocation } from "./run.invocation"
+import { Installation } from "../../installation"
 
 type ToolProps<T extends Tool.Info> = {
   input: Tool.InferParameters<T>
@@ -527,6 +528,7 @@ export const RunCommand = cmd({
             type,
             timestamp: Date.now(),
             schemaVersion: SCHEMA_VERSION,
+            cliVersion: Installation.VERSION,
             invocationID: invocation.id,
             sessionID,
             ...data,
@@ -542,6 +544,70 @@ export const RunCommand = cmd({
       const childSessions = new Set<string>()
       const emitted = new Set<string>()
       const seqBySession = new Map<string, number>()
+      type Retry = {
+        retryID: string
+        messageID: string | null
+        providerID: string | null
+        modelID: string | null
+        attempt: number
+        reason: string
+        delayMs: number
+      }
+      const retries = new Map<string, Retry>()
+      const outcomes = new Map<string, { status: "completed" | "error" | "aborted"; finish: string | undefined }>()
+
+      function retryOutcome(retry: Retry) {
+        if (!retry.messageID) return "unknown" as const
+        const outcome = outcomes.get(retry.messageID)
+        if (!outcome) return "unknown" as const
+        if (outcome.status === "aborted") return "aborted" as const
+        if (outcome.status === "error" || outcome.finish === "error" || outcome.finish === "content-filter") {
+          return "failed" as const
+        }
+        return "recovered" as const
+      }
+
+      function resolveRetry(sid: string, outcome: "recovered" | "failed" | "aborted" | "unknown") {
+        const retry = retries.get(sid)
+        if (!retry) return
+        retries.delete(sid)
+        emit("retry_complete", { ...retry, outcome })
+      }
+
+      function scheduleRetry(
+        sid: string,
+        status: {
+          attempt: number
+          next: number
+          retryID?: string
+          messageID?: string
+          providerID?: string
+          modelID?: string
+          reason?: string
+          delayMs?: number
+        },
+      ) {
+        const current = retries.get(sid)
+        if (current && current.retryID === status.retryID) return
+        if (current) {
+          resolveRetry(
+            sid,
+            current.messageID && status.messageID === current.messageID ? "failed" : retryOutcome(current),
+          )
+        }
+        const retry = {
+          retryID: status.retryID ?? crypto.randomUUID(),
+          messageID: status.messageID ?? null,
+          providerID: status.providerID ?? null,
+          modelID: status.modelID ?? null,
+          attempt: status.attempt,
+          reason: status.reason ?? "unknown",
+          delayMs: status.delayMs ?? Math.max(0, status.next - Date.now()),
+        }
+        retries.set(sid, retry)
+        emit("retry_scheduled", retry)
+      }
+
       function nextSeq(sid: string): number {
         const n = (seqBySession.get(sid) ?? 0) + 1
         seqBySession.set(sid, n)
@@ -569,7 +635,17 @@ export const RunCommand = cmd({
           if (event.type === "message.updated" && event.properties.info.role === "assistant") {
             const info = event.properties.info
             if (args.format === "json") {
-              if (info.sessionID === sessionID && info.time.completed !== undefined && !emitted.has(info.id)) {
+              if (info.sessionID === sessionID) {
+                const retry = retries.get(info.sessionID)
+                if (retry?.messageID && retry.messageID !== info.id) {
+                  resolveRetry(info.sessionID, retryOutcome(retry))
+                }
+              }
+              if (info.sessionID === sessionID && info.time.completed !== undefined) {
+                const status =
+                  info.error?.name === "MessageAbortedError" ? "aborted" : info.error ? "error" : "completed"
+                outcomes.set(info.id, { status, finish: info.finish })
+                if (emitted.has(info.id)) continue
                 emitted.add(info.id)
                 const usage = terminalUsage(info)
 
@@ -606,7 +682,7 @@ export const RunCommand = cmd({
                   cost: info.cost,
                   tokens: usage.tokens,
                   usageStatus: usage.usageStatus,
-                  status: info.error?.name === "MessageAbortedError" ? "aborted" : info.error ? "error" : "completed",
+                  status,
                   finish: info.finish,
                 })
               }
@@ -711,6 +787,10 @@ export const RunCommand = cmd({
               if (!control.current) process.exitCode = 1
               invocation.error(props.error)
               const classified = classifySessionError(props.error)
+              resolveRetry(
+                props.sessionID,
+                classified.reason === "interrupted" || classified.reason === "terminated" ? "aborted" : "failed",
+              )
               // Structured session_error is the telemetry/CI channel for the
               // primary session. The legacy "error" event below is the raw
               // pass-through for both primary and child-session failures.
@@ -760,15 +840,23 @@ export const RunCommand = cmd({
             }
           }
 
-          if (event.type === "session.status" && event.properties.status.type === "idle") {
-            if (event.properties.sessionID === sessionID) {
-              break
+          if (event.type === "session.status") {
+            const status = event.properties.status
+            if (status.type === "retry" && event.properties.sessionID === sessionID) {
+              scheduleRetry(event.properties.sessionID, status)
             }
-            if (childSessions.has(event.properties.sessionID)) {
-              emit("subagent_complete", {
-                subagentSessionID: event.properties.sessionID,
-                parentSessionID: sessionID,
-              })
+            if (status.type === "idle") {
+              if (event.properties.sessionID === sessionID) {
+                const retry = retries.get(event.properties.sessionID)
+                if (retry) resolveRetry(event.properties.sessionID, retryOutcome(retry))
+                break
+              }
+              if (childSessions.has(event.properties.sessionID)) {
+                emit("subagent_complete", {
+                  subagentSessionID: event.properties.sessionID,
+                  parentSessionID: sessionID,
+                })
+              }
             }
           }
 
@@ -862,6 +950,7 @@ export const RunCommand = cmd({
       function interrupt(signal: Signals.Info) {
         error ??= signal.message
         invocation.error(signal.message)
+        resolveRetry(sessionID, "aborted")
         report(signal.reason, String(signal.code), signal.message)
         abort()
       }
@@ -878,6 +967,7 @@ export const RunCommand = cmd({
         const classified = classifySessionError(cause)
         error ??= classified.message
         invocation.error(cause)
+        resolveRetry(sessionID, "failed")
         report(classified.reason, classified.code, classified.message)
         complete(error)
         if (control.current) {

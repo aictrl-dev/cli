@@ -33,6 +33,14 @@ describe("classifySessionError (#63)", () => {
     expect(classifySessionError(err).reason).toBe("timeout")
   })
 
+  test("stored MessageAbortedError → interrupted", () => {
+    const res = classifySessionError({
+      name: "MessageAbortedError",
+      data: { message: "Session cancelled" },
+    })
+    expect(res.reason).toBe("interrupted")
+  })
+
   test("heap OOM → oom", () => {
     const err = new Error("JavaScript heap out of memory")
     expect(classifySessionError(err).reason).toBe("oom")

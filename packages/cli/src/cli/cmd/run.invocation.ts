@@ -1,5 +1,6 @@
 import { Stdout } from "../stdout"
 import { SCHEMA_VERSION } from "./run.errors"
+import { Installation } from "../../installation"
 
 export type RunInvocationPhase = "validation" | "stdin" | "bootstrap" | "session"
 
@@ -19,6 +20,7 @@ export function createRunInvocation(enabled: boolean) {
         type,
         timestamp: Date.now(),
         schemaVersion: SCHEMA_VERSION,
+        cliVersion: Installation.VERSION,
         invocationID: id,
         ...data,
       }),
