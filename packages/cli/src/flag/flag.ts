@@ -4,6 +4,8 @@ function truthy(key: string) {
 }
 
 export namespace Flag {
+  export const AICTRL_MODEL_STREAM_IDLE_TIMEOUT_DEFAULT = 5 * 60 * 1000
+  export const AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MAX = 2_147_483_647
   export const AICTRL_GIT_BASH_PATH = process.env["AICTRL_GIT_BASH_PATH"]
   export const AICTRL_CONFIG = process.env["AICTRL_CONFIG"]
   export declare const AICTRL_CONFIG_DIR: string | undefined
@@ -20,6 +22,7 @@ export namespace Flag {
   export const AICTRL_FAKE_VCS = process.env["AICTRL_FAKE_VCS"]
   export declare const AICTRL_CLIENT: string
   export const AICTRL_ENABLE_QUESTION_TOOL = truthy("AICTRL_ENABLE_QUESTION_TOOL")
+  export declare const AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS: number
 
   // Experimental
   export const AICTRL_EXPERIMENTAL = truthy("AICTRL_EXPERIMENTAL")
@@ -42,6 +45,21 @@ export namespace Flag {
     return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
   }
 }
+
+// Dynamic getter for AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS.
+// Evaluated at access time so environment overrides take effect for each model stream.
+Object.defineProperty(Flag, "AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS", {
+  get() {
+    const value = process.env["AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS"]
+    if (value === undefined || value.trim() === "") return Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_DEFAULT
+    const parsed = /^\d+$/.test(value.trim()) ? Number(value) : Number.NaN
+    return Number.isSafeInteger(parsed) && parsed <= Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MAX
+      ? parsed
+      : Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_DEFAULT
+  },
+  enumerable: true,
+  configurable: false,
+})
 
 // Dynamic getter for AICTRL_DISABLE_PROJECT_CONFIG
 // This must be evaluated at access time, not module load time,

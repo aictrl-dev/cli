@@ -13,12 +13,15 @@ import type { Provider } from "@/provider/provider"
 import { LLM } from "./llm"
 import { Config } from "@/config/config"
 import { SessionCompaction } from "./compaction"
+import { StreamIdle } from "./idle"
 import { PermissionNext } from "@/permission/next"
 import { Question } from "@/question"
+import { Flag } from "@/flag/flag"
 import { NamedError } from "@aictrl/util/error"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
+  const LOCAL_TOOL_TIMEOUT_MULTIPLIER = 12
   const log = Log.create({ service: "session.processor" })
 
   export type Info = Awaited<ReturnType<typeof create>>
@@ -51,9 +54,32 @@ export namespace SessionProcessor {
           try {
             let currentText: MessageV2.TextPart | undefined
             let reasoningMap: Record<string, MessageV2.ReasoningPart> = {}
-            const stream = await LLM.stream(streamInput)
+            const idle = StreamIdle.signal(streamInput.abort)
+            const stream = await LLM.stream({
+              ...streamInput,
+              abort: idle.signal,
+            })
+            const runningTools = new Set<string>()
+            const idleMs = Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS
 
-            for await (const value of stream.fullStream) {
+            for await (const value of StreamIdle.timeout(
+              stream.fullStream,
+              idleMs,
+              () => idle.controller.abort(),
+              (value) => {
+                if (
+                  value.type === "tool-call" &&
+                  (value.providerExecuted || typeof streamInput.tools?.[value.toolName]?.execute === "function")
+                ) {
+                  runningTools.add(value.toolCallId)
+                }
+                if (value.type === "tool-result" || value.type === "tool-error") {
+                  runningTools.delete(value.toolCallId)
+                }
+                return runningTools.size > 0
+              },
+              Math.min(idleMs * LOCAL_TOOL_TIMEOUT_MULTIPLIER, Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MAX),
+            )) {
               input.abort.throwIfAborted()
               switch (value.type) {
                 case "start":
