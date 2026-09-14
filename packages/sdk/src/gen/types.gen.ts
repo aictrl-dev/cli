@@ -96,6 +96,14 @@ export type MessageAbortedError = {
   }
 }
 
+export type StreamIdleTimeoutError = {
+  name: "StreamIdleTimeoutError"
+  data: {
+    message: string
+    timeout: number
+  }
+}
+
 export type ApiError = {
   name: "APIError"
   data: {
@@ -117,7 +125,13 @@ export type AssistantMessage = {
     created: number
     completed?: number
   }
-  error?: ProviderAuthError | UnknownError | MessageOutputLengthError | MessageAbortedError | ApiError
+  error?:
+    | ProviderAuthError
+    | UnknownError
+    | MessageOutputLengthError
+    | MessageAbortedError
+    | StreamIdleTimeoutError
+    | ApiError
   parentID: string
   modelID: string
   providerID: string
@@ -576,7 +590,13 @@ export type EventSessionError = {
   type: "session.error"
   properties: {
     sessionID?: string
-    error?: ProviderAuthError | UnknownError | MessageOutputLengthError | MessageAbortedError | ApiError
+    error?:
+      | ProviderAuthError
+      | UnknownError
+      | MessageOutputLengthError
+      | MessageAbortedError
+      | StreamIdleTimeoutError
+      | ApiError
   }
 }
 
