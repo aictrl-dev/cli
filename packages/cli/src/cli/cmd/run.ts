@@ -556,8 +556,9 @@ export const RunCommand = cmd({
       const retries = new Map<string, Retry>()
       const outcomes = new Map<string, { status: "completed" | "error" | "aborted"; finish: string | undefined }>()
 
-      function retryOutcome(sid: string) {
-        const outcome = outcomes.get(sid)
+      function retryOutcome(retry: Retry) {
+        if (!retry.messageID) return "unknown" as const
+        const outcome = outcomes.get(retry.messageID)
         if (!outcome) return "unknown" as const
         if (outcome.status === "aborted") return "aborted" as const
         if (outcome.status === "error" || outcome.finish === "error" || outcome.finish === "content-filter") {
@@ -588,7 +589,12 @@ export const RunCommand = cmd({
       ) {
         const current = retries.get(sid)
         if (current && current.retryID === status.retryID) return
-        resolveRetry(sid, "failed")
+        if (current) {
+          resolveRetry(
+            sid,
+            current.messageID && status.messageID === current.messageID ? "failed" : retryOutcome(current),
+          )
+        }
         const retry = {
           retryID: status.retryID ?? crypto.randomUUID(),
           messageID: status.messageID ?? null,
@@ -632,7 +638,7 @@ export const RunCommand = cmd({
               if (info.sessionID === sessionID && info.time.completed !== undefined) {
                 const status =
                   info.error?.name === "MessageAbortedError" ? "aborted" : info.error ? "error" : "completed"
-                outcomes.set(info.sessionID, { status, finish: info.finish })
+                outcomes.set(info.id, { status, finish: info.finish })
                 if (emitted.has(info.id)) continue
                 emitted.add(info.id)
                 const usage = terminalUsage(info)
@@ -835,7 +841,8 @@ export const RunCommand = cmd({
             }
             if (status.type === "idle") {
               if (event.properties.sessionID === sessionID) {
-                resolveRetry(event.properties.sessionID, retryOutcome(event.properties.sessionID))
+                const retry = retries.get(event.properties.sessionID)
+                if (retry) resolveRetry(event.properties.sessionID, retryOutcome(retry))
                 break
               }
               if (childSessions.has(event.properties.sessionID)) {

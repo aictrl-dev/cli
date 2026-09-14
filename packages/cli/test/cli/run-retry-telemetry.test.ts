@@ -34,12 +34,12 @@ function status(value: Record<string, unknown>) {
   }
 }
 
-function completed(finish = "stop") {
+function completed(finish = "stop", id = messageID) {
   return {
     type: "message.updated",
     properties: {
       info: {
-        id: messageID,
+        id,
         sessionID,
         role: "assistant",
         time: { created: 1, completed: 2 },
@@ -331,5 +331,61 @@ describe("run --format json retry telemetry (#110)", () => {
 
     expect(output.find((event) => event.type === "retry_complete")).toMatchObject({ retryID, outcome: "aborted" })
     expect(output.find((event) => event.type === "session_error")).toMatchObject({ reason: "interrupted" })
+  }, 20_000)
+
+  test("keeps retry outcomes scoped to their owning message across tool turns", async () => {
+    const first = "6c0f1b08-87a0-48ac-8c33-cccf68d591f0"
+    const second = "6907e224-9112-44f5-810d-2cf4f491646c"
+    const firstMessage = "msg_tool_turn"
+    const secondMessage = "msg_followup_turn"
+    const retry = (retryID: string, owner: string) =>
+      status({
+        type: "retry",
+        retryID,
+        messageID: owner,
+        providerID: "zai",
+        modelID: "glm-4.7",
+        attempt: 1,
+        reason: "network",
+        delayMs: 2_000,
+        message: "network error",
+        next: Date.now() + 2_000,
+      })
+    const proc = Bun.spawn(
+      [
+        "bun",
+        "run",
+        cli,
+        "run",
+        "--format",
+        "json",
+        "--attach",
+        server([
+          retry(first, firstMessage),
+          completed("tool-calls", firstMessage),
+          retry(second, secondMessage),
+          status({ type: "idle" }),
+        ]),
+        "prompt",
+      ],
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, AICTRL_MODELS_PATH: models },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    )
+    const stdout = await new Response(proc.stdout).text()
+    await proc.exited
+    const output = stdout
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .filter((event) => event.type === "retry_complete")
+
+    expect(output.map((event) => [event.retryID, event.messageID, event.outcome])).toEqual([
+      [first, firstMessage, "recovered"],
+      [second, secondMessage, "unknown"],
+    ])
   }, 20_000)
 })
