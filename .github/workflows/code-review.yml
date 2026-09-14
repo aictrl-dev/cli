@@ -1,12 +1,19 @@
 name: Aictrl Review
 
+# Policy: AI review is opt-in and advisory. Maintainers dispatch this workflow for
+# PRs that need it; maintainer review plus the standard CI checks remain the
+# merge-quality controls. Set pr_number to review a fork PR or a PR other than the
+# one associated with the selected base-repository ref.
 on:
-  pull_request:
-    branches: [main, master]
   workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to review (required for fork PRs)
+        required: false
+        type: string
 
 concurrency:
-  group: aictrl-review-${{ github.event.pull_request.number || github.ref }}
+  group: aictrl-review-${{ inputs.pr_number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -18,10 +25,7 @@ jobs:
       pull-requests: write
       issues: write
     env:
-      PR_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      PR_NUMBER: ${{ github.event.pull_request.number }}
-      PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
-      IS_MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
+      PR_NUMBER: ${{ inputs.pr_number }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -33,6 +37,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          if [ -n "$PR_NUMBER" ] && ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "PR number must contain digits only."
+            exit 1
+          fi
+
           if [ -z "$PR_NUMBER" ]; then
             BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
             PR_NUMBER=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null || true)
@@ -42,8 +51,31 @@ jobs:
               exit 0
             fi
             echo "Found PR #$PR_NUMBER for branch $BRANCH"
-            echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
           fi
+
+          PR_DATA=$(gh pr view "$PR_NUMBER" --json baseRefName,headRefOid --jq '[.baseRefName, .headRefOid] | @tsv' 2>/dev/null || true)
+          IFS=$'\t' read -r PR_BASE_REF PR_SHA <<< "$PR_DATA"
+
+          if [ -z "$PR_BASE_REF" ] || [ -z "$PR_SHA" ]; then
+            echo "Could not determine the base branch and head SHA for PR #$PR_NUMBER."
+            exit 1
+          fi
+          if ! [[ "$PR_BASE_REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+            echo "PR #$PR_NUMBER has an unsafe base branch name."
+            exit 1
+          fi
+          if ! git rev-parse --verify "refs/remotes/origin/$PR_BASE_REF^{commit}" >/dev/null; then
+            echo "Base branch '$PR_BASE_REF' does not resolve to an origin commit."
+            exit 1
+          fi
+          if ! [[ "$PR_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "PR #$PR_NUMBER has an invalid head SHA."
+            exit 1
+          fi
+
+          echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
+          echo "PR_BASE_REF=$PR_BASE_REF" >> "$GITHUB_ENV"
+          echo "PR_SHA=$PR_SHA" >> "$GITHUB_ENV"
 
           echo "Checking if SHA $PR_SHA was already reviewed..."
           REVIEW_COMMENTS=$(gh pr view "$PR_NUMBER" --json comments --jq '.comments[].body' | grep -c "Reviewed SHA:" || true)
@@ -55,14 +87,18 @@ jobs:
             exit 0
           fi
 
-          if [ "$REVIEW_COMMENTS" -ge 2 ] && [ "$IS_MANUAL" != "true" ]; then
-            echo "PR already has $REVIEW_COMMENTS AI reviews. Skipping (use workflow_dispatch to force)."
+          if [ "$REVIEW_COMMENTS" -ge 2 ]; then
+            echo "PR already has $REVIEW_COMMENTS AI reviews. Skipping because the review cap is 2."
             echo "skip=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
           echo "Checking changed files..."
-          CODE_CHANGES=$(git diff --name-only "origin/$PR_BASE_REF...$PR_SHA" | grep -E '\.(ts|js|json|sh|yml|yaml)$' | grep -vE '^docs/|.*\.md$' || true)
+          if ! CHANGED_FILES=$(gh pr diff "$PR_NUMBER" --name-only); then
+            echo "Could not load changed files for PR #$PR_NUMBER."
+            exit 1
+          fi
+          CODE_CHANGES=$(printf '%s\n' "$CHANGED_FILES" | grep -E '\.(ts|js|json|sh|yml|yaml)$' | grep -vE '^docs/|.*\.md$' || true)
 
           if [ -z "$CODE_CHANGES" ]; then
             echo "No actual code changes detected. Skipping review."
