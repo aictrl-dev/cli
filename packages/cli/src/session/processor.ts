@@ -21,6 +21,7 @@ import { NamedError } from "@aictrl/util/error"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
+  const LOCAL_TOOL_TIMEOUT_MULTIPLIER = 12
   const log = Log.create({ service: "session.processor" })
 
   export type Info = Awaited<ReturnType<typeof create>>
@@ -68,7 +69,7 @@ export namespace SessionProcessor {
                 if (
                   value.type === "tool-call" &&
                   !value.providerExecuted &&
-                  typeof streamInput.tools[value.toolName]?.execute === "function"
+                  typeof streamInput.tools?.[value.toolName]?.execute === "function"
                 ) {
                   runningTools.add(value.toolCallId)
                 }
@@ -77,6 +78,10 @@ export namespace SessionProcessor {
                 }
                 return runningTools.size > 0
               },
+              Math.min(
+                Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS * LOCAL_TOOL_TIMEOUT_MULTIPLIER,
+                Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MAX,
+              ),
             )) {
               input.abort.throwIfAborted()
               switch (value.type) {

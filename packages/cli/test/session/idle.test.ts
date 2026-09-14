@@ -105,6 +105,32 @@ describe("model stream idle timeout", () => {
     expect(values).toEqual([1, 2, 3])
   })
 
+  test("bounds a suspended local tool wait", async () => {
+    async function* stream() {
+      yield "tool-call"
+      await new Promise(() => {})
+    }
+    let aborted = false
+    const result = StreamIdle.timeout(
+      stream(),
+      10,
+      () => {
+        aborted = true
+      },
+      (value) => value === "tool-call",
+      30,
+    )
+
+    expect(await result.next()).toEqual({ done: false, value: "tool-call" })
+    const error = await result.next().catch((value) => value)
+    expect(aborted).toBe(true)
+    expect(MessageV2.StreamIdleTimeoutError.isInstance(error)).toBe(true)
+    expect(error.data).toEqual({
+      message: "Local tool execution produced no result for 30ms",
+      timeout: 30,
+    })
+  })
+
   test("zero disables the timeout", async () => {
     async function* stream() {
       await Bun.sleep(15)
