@@ -58,11 +58,25 @@ export namespace SessionProcessor {
               ...streamInput,
               abort: idle.signal,
             })
+            const runningTools = new Set<string>()
 
             for await (const value of StreamIdle.timeout(
               stream.fullStream,
               Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS,
               () => idle.controller.abort(),
+              (value) => {
+                if (
+                  value.type === "tool-call" &&
+                  !value.providerExecuted &&
+                  typeof streamInput.tools[value.toolName]?.execute === "function"
+                ) {
+                  runningTools.add(value.toolCallId)
+                }
+                if (value.type === "tool-result" || value.type === "tool-error") {
+                  runningTools.delete(value.toolCallId)
+                }
+                return runningTools.size > 0
+              },
             )) {
               input.abort.throwIfAborted()
               switch (value.type) {
