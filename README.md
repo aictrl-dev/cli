@@ -53,8 +53,11 @@ In headless mode, Aictrl automatically rejects all interactive permission reques
 ### CI/CD Integration
 Set `AICTRL_HEADLESS=true` in your environment to force headless behavior even in pseudo-TTYs.
 
+### Model Stream Idle Timeout
+
 Model streams have a five-minute idle timeout by default. Every stream event resets
-the timer, so long-running responses that continue making progress are unaffected.
+the timer, so long-running responses that continue making progress are unaffected. Local
+tool execution uses a ceiling twelve times the configured model timeout (one hour by default).
 Set `AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS` to a decimal integer of milliseconds through
 2147483647 to override the timeout, or `0` to disable it. Missing, empty, negative,
 fractional, non-decimal, non-numeric, or unsupported values use the 300000 ms default.
