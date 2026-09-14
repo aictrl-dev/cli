@@ -57,6 +57,20 @@ function completed(finish = "stop", id = messageID) {
   }
 }
 
+function started(id: string) {
+  const event = completed("stop", id)
+  return {
+    ...event,
+    properties: {
+      ...event.properties,
+      info: {
+        ...event.properties.info,
+        time: { created: 3 },
+      },
+    },
+  }
+}
+
 afterEach(() => servers.splice(0).map((item) => item.stop(true)))
 
 describe("run --format json retry telemetry (#110)", () => {
@@ -388,4 +402,68 @@ describe("run --format json retry telemetry (#110)", () => {
       [second, secondMessage, "unknown"],
     ])
   }, 20_000)
+
+  test.each([
+    ["ProviderAuthError", "nonretryable failure"],
+    ["MessageAbortedError", "cancellation"],
+  ])(
+    "does not attribute a later message %s to the prior recovered retry",
+    async (name, label) => {
+      const retryID = "a03f99e1-a49f-4dd9-a0fd-777eec13d8f7"
+      const firstMessage = "msg_retried_turn"
+      const secondMessage = "msg_later_failure"
+      const proc = Bun.spawn(
+        [
+          "bun",
+          "run",
+          cli,
+          "run",
+          "--format",
+          "json",
+          "--attach",
+          server([
+            status({
+              type: "retry",
+              retryID,
+              messageID: firstMessage,
+              providerID: "zai",
+              modelID: "glm-4.7",
+              attempt: 1,
+              reason: "network",
+              delayMs: 2_000,
+              message: "network error",
+              next: Date.now() + 2_000,
+            }),
+            completed("tool-calls", firstMessage),
+            started(secondMessage),
+            {
+              type: "session.error",
+              properties: {
+                sessionID,
+                error: { name, data: { message: label } },
+              },
+            },
+            status({ type: "idle" }),
+          ]),
+          "prompt",
+        ],
+        {
+          cwd: process.cwd(),
+          env: { ...process.env, AICTRL_MODELS_PATH: models },
+          stdout: "pipe",
+          stderr: "pipe",
+        },
+      )
+      const stdout = await new Response(proc.stdout).text()
+      await proc.exited
+      const output = stdout
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+        .filter((event) => event.type === "retry_complete")
+
+      expect(output).toEqual([expect.objectContaining({ retryID, messageID: firstMessage, outcome: "recovered" })])
+    },
+    20_000,
+  )
 })

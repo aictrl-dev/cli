@@ -635,6 +635,12 @@ export const RunCommand = cmd({
           if (event.type === "message.updated" && event.properties.info.role === "assistant") {
             const info = event.properties.info
             if (args.format === "json") {
+              if (info.sessionID === sessionID) {
+                const retry = retries.get(info.sessionID)
+                if (retry?.messageID && retry.messageID !== info.id) {
+                  resolveRetry(info.sessionID, retryOutcome(retry))
+                }
+              }
               if (info.sessionID === sessionID && info.time.completed !== undefined) {
                 const status =
                   info.error?.name === "MessageAbortedError" ? "aborted" : info.error ? "error" : "completed"
