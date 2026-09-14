@@ -244,6 +244,7 @@ export namespace MessageV2 {
   export const StepFinishPart = PartBase.extend({
     type: z.literal("step-finish"),
     reason: z.string(),
+    termination: ProviderTermination.Info.optional(),
     snapshot: z.string().optional(),
     cost: z.number(),
     tokens: z.object({
@@ -904,3 +905,4 @@ export namespace MessageV2 {
     }
   }
 }
+import { ProviderTermination } from "@/provider/termination"
