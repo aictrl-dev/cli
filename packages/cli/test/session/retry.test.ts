@@ -124,6 +124,26 @@ describe("session.retry.retryable", () => {
   })
 })
 
+describe("session.retry.reason", () => {
+  test.each([
+    [new MessageV2.APIError({ message: "rate limited", statusCode: 429, isRetryable: true }).toObject(), "rate_limit"],
+    [new MessageV2.APIError({ message: "request timed out", isRetryable: true }).toObject(), "timeout"],
+    [new MessageV2.APIError({ message: "ECONNRESET socket closed", isRetryable: true }).toObject(), "network"],
+    [
+      new MessageV2.APIError({ message: "provider overloaded", statusCode: 503, isRetryable: true }).toObject(),
+      "provider",
+    ],
+    [new MessageV2.APIError({ message: "transient failure", isRetryable: true }).toObject(), "unknown"],
+  ] as const)("uses the bounded %s category", (error, expected) => {
+    expect(SessionRetry.reason(error)).toBe(expected)
+  })
+
+  test("classifies existing JSON retry messages without exposing them as dimensions", () => {
+    expect(SessionRetry.reason(wrap('{"error":{"type":"too_many_requests"}}'))).toBe("rate_limit")
+    expect(SessionRetry.reason(wrap('{"code":"resource_exhausted"}'))).toBe("provider")
+  })
+})
+
 describe("session.message-v2.fromError", () => {
   test.concurrent(
     "converts ECONNRESET socket errors to retryable APIError",
@@ -195,9 +215,7 @@ describe("session.retry.max_attempts", () => {
   })
 
   test("processor checks max retry attempts", async () => {
-    const source = await Bun.file(
-      path.join(import.meta.dir, "../../src/session/processor.ts"),
-    ).text()
+    const source = await Bun.file(path.join(import.meta.dir, "../../src/session/processor.ts")).text()
     expect(source).toMatch(/attempt\s*>\s*SessionRetry\.MAX_RETRY_ATTEMPTS/)
   })
 })

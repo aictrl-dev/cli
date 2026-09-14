@@ -3,6 +3,8 @@ import { MessageV2 } from "./message-v2"
 import { iife } from "@/util/iife"
 
 export namespace SessionRetry {
+  export type Reason = "rate_limit" | "timeout" | "network" | "provider" | "unknown"
+
   export const RETRY_INITIAL_DELAY = 2000
   export const RETRY_BACKOFF_FACTOR = 2
   export const RETRY_MAX_DELAY_NO_HEADERS = 30_000 // 30 seconds
@@ -98,5 +100,33 @@ export namespace SessionRetry {
     } catch {
       return undefined
     }
+  }
+
+  /** A bounded category for telemetry dimensions. This does not affect retry policy. */
+  export function reason(error: ReturnType<NamedError["toObject"]>): Reason {
+    const data = error.data && typeof error.data === "object" ? error.data : undefined
+    const status =
+      data && "statusCode" in data && typeof data.statusCode === "number"
+        ? data.statusCode
+        : data && "status" in data && typeof data.status === "number"
+          ? data.status
+          : undefined
+    const detail = (() => {
+      if (!data) return ""
+      const values = ["message", "responseBody"].flatMap((key) => {
+        if (!(key in data)) return []
+        const value = data[key as keyof typeof data]
+        return typeof value === "string" ? [value] : []
+      })
+      return values.join(" ")
+    })()
+
+    if (status === 429 || /rate[-_\s]?limit|too[-_\s]many[-_\s]requests/i.test(detail)) return "rate_limit"
+    if (status === 408 || /\btimeout\b|timed out|time out/i.test(detail)) return "timeout"
+    if (/network[-_\s]?error|fetch failed|connection|socket|ECONN|ENOTFOUND|EAI_AGAIN/i.test(detail)) return "network"
+    if ((status !== undefined && status >= 500) || /overloaded|unavailable|resource[-_\s]exhausted/i.test(detail)) {
+      return "provider"
+    }
+    return "unknown"
   }
 }

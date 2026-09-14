@@ -380,6 +380,12 @@ export namespace SessionProcessor {
                 attempt,
                 message: retry,
                 next: Date.now() + delay,
+                retryID: crypto.randomUUID(),
+                messageID: input.assistantMessage.id,
+                providerID: input.model.providerID,
+                modelID: input.model.id,
+                reason: SessionRetry.reason(error),
+                delayMs: delay,
               })
               await SessionRetry.sleep(delay, input.abort).catch(() => {})
               continue

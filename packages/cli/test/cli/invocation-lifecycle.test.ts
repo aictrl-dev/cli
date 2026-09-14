@@ -44,6 +44,7 @@ function expectFailure(result: Awaited<ReturnType<typeof output>>, phase: string
 
   const [start, error, complete] = result.events
   expect(start.schemaVersion).toBe("1")
+  expect(typeof start.cliVersion).toBe("string")
   expect(typeof start.invocationID).toBe("string")
   expect(start).not.toHaveProperty("sessionID")
   expect(error.invocationID).toBe(start.invocationID)
@@ -77,6 +78,7 @@ describe("run --format json invocation lifecycle (#90)", () => {
       type: "invocation_start",
       schemaVersion: "1",
     })
+    expect(typeof events(new TextDecoder().decode(first.value))[0].cliVersion).toBe("string")
   }, 15_000)
 
   test("reports an invalid directory as a validation error", async () => {
@@ -88,18 +90,21 @@ describe("run --format json invocation lifecycle (#90)", () => {
 
   test("completes when guarded pre-run I/O rejects", async () => {
     const source = path.resolve(import.meta.dir, "../../src/cli/cmd/run.invocation.ts")
-    const proc = Bun.spawn([
-      process.execPath,
-      "--conditions=browser",
-      "-e",
-      `import { createRunInvocation } from ${JSON.stringify(source)}
+    const proc = Bun.spawn(
+      [
+        process.execPath,
+        "--conditions=browser",
+        "-e",
+        `import { createRunInvocation } from ${JSON.stringify(source)}
 const invocation = createRunInvocation(true)
 invocation.phase("stdin")
 await invocation.guard(() => Promise.reject(new Error("stdin failed")))`,
-    ], {
-      stdout: "pipe",
-      stderr: "pipe",
-    })
+      ],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    )
 
     expectFailure(await output(proc), "stdin")
   })
@@ -196,6 +201,7 @@ await invocation.guard(() => Promise.reject(new Error("stdin failed")))`,
           .every((event) => event.invocationID === start?.invocationID),
       ).toBe(true)
       expect(result.events.every((event) => event.schemaVersion === "1")).toBe(true)
+      expect(result.events.every((event) => typeof event.cliVersion === "string")).toBe(true)
     } finally {
       server.stop(true)
     }
