@@ -5,6 +5,7 @@ function truthy(key: string) {
 
 export namespace Flag {
   export const AICTRL_MODEL_STREAM_IDLE_TIMEOUT_DEFAULT = 5 * 60 * 1000
+  export const AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MAX = 2_147_483_647
   export const AICTRL_GIT_BASH_PATH = process.env["AICTRL_GIT_BASH_PATH"]
   export const AICTRL_CONFIG = process.env["AICTRL_CONFIG"]
   export declare const AICTRL_CONFIG_DIR: string | undefined
@@ -52,7 +53,9 @@ Object.defineProperty(Flag, "AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS", {
     const value = process.env["AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS"]
     if (value === undefined || value.trim() === "") return Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_DEFAULT
     const parsed = /^\d+$/.test(value.trim()) ? Number(value) : Number.NaN
-    return Number.isSafeInteger(parsed) ? parsed : Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_DEFAULT
+    return Number.isSafeInteger(parsed) && parsed <= Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MAX
+      ? parsed
+      : Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_DEFAULT
   },
   enumerable: true,
   configurable: false,
