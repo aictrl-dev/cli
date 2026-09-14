@@ -632,6 +632,21 @@ describe("ProviderTransform.schema - gemini type arrays", () => {
 
     expect(ProviderTransform.schema(geminiModel, schema)).toEqual(schema)
   })
+
+  test("preserves a pre-existing anyOf on a type-array node", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        score: {
+          type: ["number", "integer"],
+          anyOf: [{ minimum: 0 }, { maximum: -10 }],
+          description: "score outside the excluded range",
+        },
+      },
+    } as any
+
+    expect(ProviderTransform.schema(geminiModel, schema)).toEqual(schema)
+  })
 })
 
 describe("ProviderTransform.schema - gemini non-object properties removal", () => {

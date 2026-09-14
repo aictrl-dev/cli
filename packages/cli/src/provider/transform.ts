@@ -990,7 +990,9 @@ export namespace ProviderTransform {
 
         // Gemini requires a single type rather than a JSON Schema type array.
         // Split non-null types into anyOf and express nullability separately.
-        if (Array.isArray(result.type)) {
+        // Keep composed schemas intact: replacing or layering their combiner can
+        // discard constraints or change how sibling keywords are evaluated.
+        if (Array.isArray(result.type) && !hasCombiner(result)) {
           const nullable = result.type.includes("null")
           const types = result.type.filter((entry: unknown) => entry !== "null")
           if (types.length === 0) {
