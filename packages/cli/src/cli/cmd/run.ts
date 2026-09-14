@@ -554,6 +554,17 @@ export const RunCommand = cmd({
         delayMs: number
       }
       const retries = new Map<string, Retry>()
+      const outcomes = new Map<string, { status: "completed" | "error" | "aborted"; finish: string | undefined }>()
+
+      function retryOutcome(sid: string) {
+        const outcome = outcomes.get(sid)
+        if (!outcome) return "unknown" as const
+        if (outcome.status === "aborted") return "aborted" as const
+        if (outcome.status === "error" || outcome.finish === "error" || outcome.finish === "content-filter") {
+          return "failed" as const
+        }
+        return "recovered" as const
+      }
 
       function resolveRetry(sid: string, outcome: "recovered" | "failed" | "aborted" | "unknown") {
         const retry = retries.get(sid)
@@ -618,19 +629,13 @@ export const RunCommand = cmd({
           if (event.type === "message.updated" && event.properties.info.role === "assistant") {
             const info = event.properties.info
             if (args.format === "json") {
-              if (info.sessionID === sessionID && info.time.completed !== undefined && !emitted.has(info.id)) {
-                emitted.add(info.id)
-                const usage = terminalUsage(info)
+              if (info.sessionID === sessionID && info.time.completed !== undefined) {
                 const status =
                   info.error?.name === "MessageAbortedError" ? "aborted" : info.error ? "error" : "completed"
-                resolveRetry(
-                  info.sessionID,
-                  status === "completed" && info.finish !== "error" && info.finish !== "content-filter"
-                    ? "recovered"
-                    : status === "aborted"
-                      ? "aborted"
-                      : "failed",
-                )
+                outcomes.set(info.sessionID, { status, finish: info.finish })
+                if (emitted.has(info.id)) continue
+                emitted.add(info.id)
+                const usage = terminalUsage(info)
 
                 // Context-window utilization: used = input + cache.read + cache.write
                 // (all prompt tokens that occupy the model's context window this turn).
@@ -830,7 +835,7 @@ export const RunCommand = cmd({
             }
             if (status.type === "idle") {
               if (event.properties.sessionID === sessionID) {
-                resolveRetry(event.properties.sessionID, "unknown")
+                resolveRetry(event.properties.sessionID, retryOutcome(event.properties.sessionID))
                 break
               }
               if (childSessions.has(event.properties.sessionID)) {

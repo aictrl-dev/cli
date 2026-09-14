@@ -217,4 +217,119 @@ describe("run --format json retry telemetry (#110)", () => {
 
     expect(result).toMatchObject({ retryID, outcome: "failed" })
   }, 20_000)
+
+  test("waits for structured-output validation before resolving recovery", async () => {
+    const retryID = "e62be190-51b4-4564-8bd6-7401ccf60476"
+    const initial = completed()
+    const corrected = {
+      ...initial,
+      properties: {
+        ...initial.properties,
+        info: {
+          ...initial.properties.info,
+          error: {
+            name: "StructuredOutputError",
+            data: { message: "Model did not produce structured output" },
+          },
+        },
+      },
+    }
+    const proc = Bun.spawn(
+      [
+        "bun",
+        "run",
+        cli,
+        "run",
+        "--format",
+        "json",
+        "--attach",
+        server([
+          status({
+            type: "retry",
+            retryID,
+            messageID,
+            providerID: "zai",
+            modelID: "glm-4.7",
+            attempt: 1,
+            reason: "provider",
+            delayMs: 2_000,
+            message: "provider error",
+            next: Date.now() + 2_000,
+          }),
+          completed(),
+          corrected,
+          status({ type: "idle" }),
+        ]),
+        "prompt",
+      ],
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, AICTRL_MODELS_PATH: models },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    )
+    const stdout = await new Response(proc.stdout).text()
+    await proc.exited
+    const result = stdout
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .find((event) => event.type === "retry_complete")
+
+    expect(result).toMatchObject({ retryID, outcome: "failed" })
+  }, 20_000)
+
+  test("treats server-side message cancellation as aborted", async () => {
+    const retryID = "01fffcfe-4381-47dd-83f9-257175014779"
+    const proc = Bun.spawn(
+      [
+        "bun",
+        "run",
+        cli,
+        "run",
+        "--format",
+        "json",
+        "--attach",
+        server([
+          status({
+            type: "retry",
+            retryID,
+            messageID,
+            providerID: "zai",
+            modelID: "glm-4.7",
+            attempt: 1,
+            reason: "network",
+            delayMs: 2_000,
+            message: "network error",
+            next: Date.now() + 2_000,
+          }),
+          {
+            type: "session.error",
+            properties: {
+              sessionID,
+              error: { name: "MessageAbortedError", data: { message: "Session cancelled" } },
+            },
+          },
+          status({ type: "idle" }),
+        ]),
+        "prompt",
+      ],
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, AICTRL_MODELS_PATH: models },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    )
+    const stdout = await new Response(proc.stdout).text()
+    await proc.exited
+    const output = stdout
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+
+    expect(output.find((event) => event.type === "retry_complete")).toMatchObject({ retryID, outcome: "aborted" })
+    expect(output.find((event) => event.type === "session_error")).toMatchObject({ reason: "interrupted" })
+  }, 20_000)
 })
