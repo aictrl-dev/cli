@@ -69,8 +69,11 @@ describe("classifySessionError (#63)", () => {
     [401, "Invalid API key", "auth"],
     [401, "Unauthenticated", "auth"],
     [403, "Permission denied", "auth"],
+    [400, "Invalid request", "unknown"],
+    [402, "Payment required", "unknown"],
+    [404, "Not found", "unknown"],
     [undefined, "Stream timeout", "timeout"],
-  ] as const)("APIError preserves specific classifications (%s, %s)", (statusCode, message, reason) => {
+  ] as const)("APIError preserves specific classifications (%s, %s) → %s", (statusCode, message, reason) => {
     const res = classifySessionError({ name: "APIError", data: { statusCode, message, isRetryable: false } })
     expect(res.reason).toBe(reason)
     expect(res.code).toBe(statusCode ? String(statusCode) : undefined)

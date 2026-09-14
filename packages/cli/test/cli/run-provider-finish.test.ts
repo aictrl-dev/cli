@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import path from "path"
+import { createGoogleGenerativeAI } from "@ai-sdk/google"
 import { tmpdir } from "../fixture/fixture"
 
 const entry = path.resolve(import.meta.dir, "../../src/index.ts")
@@ -12,6 +13,8 @@ describe("headless provider finish reasons (#108)", () => {
     ["RECITATION", "content-filter", 1, false, false],
     ["BLOCKLIST", "content-filter", 1, false, false],
     ["SPII", "content-filter", 1, false, false],
+    ["PROHIBITED_CONTENT", "content-filter", 1, false, false],
+    ["FINISH_REASON_UNSPECIFIED", "other", 0, false, false],
     ["OTHER", "other", 0, false, false],
     ["STOP", "stop", 0, false, false],
     ["STOP", "stop", 0, true, false],
@@ -19,6 +22,7 @@ describe("headless provider finish reasons (#108)", () => {
   ] as const)(
     "normal Gemini stream ending %s",
     async (reason, finish, code, tool, partial) => {
+      await using tmp = await tmpdir()
       let calls = 0
       const server = Bun.serve({
         port: 0,
@@ -68,8 +72,9 @@ describe("headless provider finish reasons (#108)", () => {
           })
         },
       })
-      await using tmp = await tmpdir({
-        config: {
+      await Bun.write(
+        path.join(tmp.path, "aictrl.json"),
+        JSON.stringify({
           provider: {
             fixture: {
               npm: "@ai-sdk/google",
@@ -78,8 +83,8 @@ describe("headless provider finish reasons (#108)", () => {
             },
           },
           agent: { title: { disable: true } },
-        },
-      })
+        }),
+      )
       const proc = Bun.spawn(
         [
           "bun",
@@ -165,4 +170,47 @@ describe("headless provider finish reasons (#108)", () => {
     },
     20000,
   )
+})
+
+describe("pinned Google adapter finish mappings", () => {
+  test.each([
+    ["STOP", "stop"],
+    ["MAX_TOKENS", "length"],
+    ["IMAGE_SAFETY", "content-filter"],
+    ["RECITATION", "content-filter"],
+    ["SAFETY", "content-filter"],
+    ["BLOCKLIST", "content-filter"],
+    ["PROHIBITED_CONTENT", "content-filter"],
+    ["SPII", "content-filter"],
+    ["MALFORMED_FUNCTION_CALL", "error"],
+    ["OTHER", "other"],
+    ["FINISH_REASON_UNSPECIFIED", "other"],
+    ["LANGUAGE", "unknown"],
+  ])("%s → %s", async (raw, normalized) => {
+    const provider = createGoogleGenerativeAI({
+      apiKey: "fixture",
+      fetch: Object.assign(
+        async () =>
+          new Response(
+            `data: ${JSON.stringify({
+              candidates: [{ index: 0, content: { role: "model", parts: [] }, finishReason: raw }],
+              usageMetadata: { promptTokenCount: 7, candidatesTokenCount: 3, totalTokenCount: 10 },
+            })}\n\n`,
+            { headers: { "content-type": "text/event-stream" } },
+          ),
+        { preconnect: globalThis.fetch.preconnect },
+      ),
+    })
+    const response = await provider("gemini-fixture").doStream({
+      prompt: [{ role: "user", content: [{ type: "text", text: "Hello" }] }],
+    })
+    const reader = response.stream.getReader()
+    let finish: string | undefined
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (value.type === "finish") finish = value.finishReason
+    }
+    expect(finish).toBe(normalized)
+  })
 })

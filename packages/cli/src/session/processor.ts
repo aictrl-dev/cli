@@ -393,7 +393,7 @@ export namespace SessionProcessor {
                 input.assistantMessage.error = new NamedError.Unknown({
                   message: `Max retry attempts (${SessionRetry.MAX_RETRY_ATTEMPTS}) reached: ${retry}`,
                 }).toObject()
-                Bus.publish(Session.Event.Error, {
+                await Bus.publish(Session.Event.Error, {
                   sessionID: input.assistantMessage.sessionID,
                   error: input.assistantMessage.error,
                 })
@@ -410,7 +410,7 @@ export namespace SessionProcessor {
               continue
             }
             input.assistantMessage.error = error
-            Bus.publish(Session.Event.Error, {
+            await Bus.publish(Session.Event.Error, {
               sessionID: input.assistantMessage.sessionID,
               error: input.assistantMessage.error,
             })

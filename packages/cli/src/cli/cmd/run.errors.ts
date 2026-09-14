@@ -30,7 +30,7 @@ export function classifySessionError(err: unknown): ClassifiedSessionError {
   if (/heap out of memory|ENOMEM/i.test(message)) {
     return { reason: "oom", message }
   }
-  if (name === "APIError" || (status && status >= 500 && status < 600)) {
+  if ((name === "APIError" && status === undefined) || (status && status >= 500 && status < 600)) {
     return { reason: "provider", code: status ? String(status) : undefined, message }
   }
   return { reason: "unknown", code: status ? String(status) : undefined, message }

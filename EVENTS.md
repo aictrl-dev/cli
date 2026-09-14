@@ -246,6 +246,8 @@ A provider can finish an HTTP stream normally while reporting a failed model tur
 | Thrown provider error         | Existing retry/error handling; unrecoverable failures emit the failure lifecycle.            |
 | Cancellation / stream timeout | Existing cancellation and timeout lifecycle; not reclassified as a provider finish error.    |
 
+With pinned Google SDK 2.0.54, `IMAGE_SAFETY`, `RECITATION`, `SAFETY`, `BLOCKLIST`, `PROHIBITED_CONTENT`, and `SPII` map to `content-filter`; `MALFORMED_FUNCTION_CALL` maps to `error`. `OTHER` and `FINISH_REASON_UNSPECIFIED` map to `other`, while `LANGUAGE` maps to `unknown`. These last mappings retain the behavior above; they do not prove successful task completion. Consumers can distinguish `other` from `stop` using `message_complete.finish`.
+
 Errors are attributed to the originating session. A child error alone does not change the primary session's exit status if the primary agent handles it successfully.
 
 ### `text`
