@@ -16,6 +16,7 @@ import { SessionCompaction } from "./compaction"
 import { PermissionNext } from "@/permission/next"
 import { Question } from "@/question"
 import { NamedError } from "@aictrl/util/error"
+import { ProviderTermination } from "@/provider/termination"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
@@ -255,6 +256,7 @@ export namespace SessionProcessor {
                   await Session.updatePart({
                     id: Identifier.ascending("part"),
                     reason: value.finishReason,
+                    termination: ProviderTermination.from(value.providerMetadata),
                     snapshot: await Snapshot.track(),
                     messageID: input.assistantMessage.id,
                     sessionID: input.assistantMessage.sessionID,

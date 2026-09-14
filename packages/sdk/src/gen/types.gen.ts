@@ -318,6 +318,14 @@ export type StepFinishPart = {
   messageID: string
   type: "step-finish"
   reason: string
+  termination?: {
+    providerID: string
+    modelID: string
+    normalizedReason: string
+    rawReason: { status: "available" | "unavailable" | "redacted"; value?: string; truncated: boolean }
+    requestID: { status: "available" | "unavailable" | "redacted"; value?: string; truncated: boolean }
+    diagnostic: { status: "available" | "unavailable" | "redacted"; value?: string; truncated: boolean }
+  }
   snapshot?: string
   cost: number
   tokens: {
