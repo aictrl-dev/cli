@@ -2,20 +2,25 @@ import type { LanguageModelV2Middleware } from "@ai-sdk/provider"
 import z from "zod"
 
 export namespace ProviderTermination {
-  const Field = z.object({
-    status: z.enum(["available", "unavailable", "redacted"]),
-    value: z.string().max(128).optional(),
-    truncated: z.boolean(),
-  })
+  const VALUE_LIMIT = 128
+  const DIAGNOSTIC_LIMIT = 2048
+  function Field(limit: number) {
+    return z.object({
+      status: z.enum(["available", "unavailable", "redacted"]),
+      value: z.string().max(limit).optional(),
+      truncated: z.boolean(),
+    })
+  }
+  type Field = z.infer<ReturnType<typeof Field>>
 
   export const Info = z
     .object({
       providerID: z.string(),
       modelID: z.string(),
       normalizedReason: z.string(),
-      rawReason: Field,
-      requestID: Field,
-      diagnostic: Field,
+      rawReason: Field(VALUE_LIMIT),
+      requestID: Field(VALUE_LIMIT),
+      diagnostic: Field(DIAGNOSTIC_LIMIT),
     })
     .meta({ ref: "ProviderTermination" })
   export type Info = z.infer<typeof Info>
@@ -40,7 +45,7 @@ export namespace ProviderTermination {
     "IMAGE_RECITATION",
   ])
 
-  function field(value: unknown, allowed: (value: string) => boolean, limit = 128): z.infer<typeof Field> {
+  function field(value: unknown, allowed: (value: string) => boolean, limit = VALUE_LIMIT): Field {
     if (typeof value !== "string" || !value) return { status: "unavailable", truncated: false }
     if (value.length > limit || !allowed(value)) return { status: "redacted", truncated: value.length > limit }
     return { status: "available", value, truncated: false }
@@ -64,7 +69,7 @@ export namespace ProviderTermination {
         const headers = result.response?.headers
         // A provider/proxy can echo arbitrary credentials into an ID header.
         // Format allowlists cannot distinguish an opaque ID from an opaque key.
-        const requestID = field(headers?.["x-request-id"] ?? headers?.["x-goog-request-id"], () => false)
+        const requestID = field(headers?.["x-request-id"] || headers?.["x-goog-request-id"], () => false)
         return {
           ...result,
           stream: result.stream.pipeThrough(
@@ -78,7 +83,7 @@ export namespace ProviderTermination {
                       rawReason = field(candidate.finishReason, (value) => reasons.has(value))
                       // Provider messages can contain prompts or tool arguments. Retain only
                       // presence/size information; do not collect their free-form contents.
-                      diagnostic = field(candidate.finishMessage, () => false, 2048)
+                      diagnostic = field(candidate.finishMessage, () => false, DIAGNOSTIC_LIMIT)
                     }
                   }
                   // Raw payloads must never escape this boundary to stream consumers.
