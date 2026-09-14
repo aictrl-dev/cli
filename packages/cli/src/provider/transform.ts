@@ -938,6 +938,31 @@ export namespace ProviderTransform {
 
     // Convert integer enums to string enums for Google/Gemini
     if (model.providerID === "google" || model.api.id.includes("gemini")) {
+      const isPlainObject = (node: unknown): node is Record<string, any> =>
+        typeof node === "object" && node !== null && !Array.isArray(node)
+      const hasCombiner = (node: unknown) =>
+        isPlainObject(node) && (Array.isArray(node.anyOf) || Array.isArray(node.oneOf) || Array.isArray(node.allOf))
+      const hasSchemaIntent = (node: unknown) => {
+        if (!isPlainObject(node)) return false
+        if (hasCombiner(node)) return true
+        return [
+          "type",
+          "properties",
+          "items",
+          "prefixItems",
+          "enum",
+          "const",
+          "$ref",
+          "additionalProperties",
+          "patternProperties",
+          "required",
+          "not",
+          "if",
+          "then",
+          "else",
+        ].some((key) => key in node)
+      }
+
       const sanitizeGemini = (obj: any): any => {
         if (obj === null || typeof obj !== "object") {
           return obj
@@ -963,24 +988,38 @@ export namespace ProviderTransform {
           }
         }
 
+        // Gemini requires a single type rather than a JSON Schema type array.
+        // Split non-null types into anyOf and express nullability separately.
+        if (Array.isArray(result.type)) {
+          const nullable = result.type.includes("null")
+          const types = result.type.filter((entry: unknown) => entry !== "null")
+          if (types.length === 0) {
+            result.type = "null"
+          } else {
+            delete result.type
+            result.anyOf = types.map((entry: unknown) => ({ type: entry }))
+            if (nullable) result.nullable = true
+          }
+        }
+
         // Filter required array to only include fields that exist in properties
         if (result.type === "object" && result.properties && Array.isArray(result.required)) {
           result.required = result.required.filter((field: any) => field in result.properties)
         }
 
-        if (result.type === "array") {
+        if (result.type === "array" && !hasCombiner(result)) {
           if (result.items == null) {
             result.items = {}
           }
-          // Ensure items has at least a type if it's an empty object
+          // Ensure items has at least a type if it has no schema keywords
           // This handles nested arrays like { type: "array", items: { type: "array", items: {} } }
-          if (typeof result.items === "object" && !Array.isArray(result.items) && !result.items.type) {
+          if (isPlainObject(result.items) && !hasSchemaIntent(result.items)) {
             result.items.type = "string"
           }
         }
 
         // Remove properties/required from non-object types (Gemini rejects these)
-        if (result.type && result.type !== "object") {
+        if (result.type && result.type !== "object" && !hasCombiner(result)) {
           delete result.properties
           delete result.required
         }

@@ -510,6 +510,130 @@ describe("ProviderTransform.schema - gemini nested array items", () => {
   })
 })
 
+describe("ProviderTransform.schema - gemini type arrays", () => {
+  const geminiModel = {
+    providerID: "google",
+    api: {
+      id: "gemini-3-pro",
+      npm: "@ai-sdk/google",
+    },
+  } as any
+
+  test("splits mixed types into single-type anyOf schemas", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        status: { type: ["number", "string"], description: "status filter" },
+      },
+    } as any
+
+    const result = ProviderTransform.schema(geminiModel, schema) as any
+
+    expect(result.properties.status).toEqual({
+      anyOf: [{ type: "number" }, { type: "string" }],
+      description: "status filter",
+    })
+  })
+
+  test("lifts null into nullable for Vertex Gemini", () => {
+    const vertexModel = {
+      providerID: "google-vertex",
+      api: {
+        id: "gemini-2.5-flash",
+        npm: "@ai-sdk/google-vertex",
+      },
+    } as any
+    const schema = {
+      type: "object",
+      properties: {
+        query: { type: ["string", "null"] },
+      },
+    } as any
+
+    const result = ProviderTransform.schema(vertexModel, schema) as any
+
+    expect(result.properties.query).toEqual({
+      anyOf: [{ type: "string" }],
+      nullable: true,
+    })
+  })
+
+  test("collapses a null-only type array", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        empty: { type: ["null"] },
+      },
+    } as any
+
+    const result = ProviderTransform.schema(geminiModel, schema) as any
+
+    expect(result.properties.empty).toEqual({ type: "null" })
+  })
+
+  test("preserves generated unions in nested tool parameters", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        filters: {
+          type: "array",
+          items: { type: ["string", "number", "null"] },
+        },
+      },
+      required: ["filters"],
+    } as any
+
+    const result = ProviderTransform.schema(geminiModel, schema) as any
+
+    expect(result.properties.filters.items).toEqual({
+      anyOf: [{ type: "string" }, { type: "number" }],
+      nullable: true,
+    })
+  })
+
+  test("leaves ordinary schemas unchanged", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "display name" },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    } as any
+
+    expect(ProviderTransform.schema(geminiModel, schema)).toEqual(schema)
+  })
+
+  test("leaves type arrays unchanged for non-Gemini models", () => {
+    const model = {
+      providerID: "openai",
+      api: {
+        id: "gpt-5",
+        npm: "@ai-sdk/openai",
+      },
+    } as any
+    const schema = {
+      type: "object",
+      properties: {
+        status: { type: ["number", "string", "null"] },
+      },
+    } as any
+
+    expect(ProviderTransform.schema(model, schema)).toEqual(schema)
+  })
+
+  test("does not add an item type beside an existing combiner", () => {
+    const schema = {
+      type: "array",
+      items: {
+        anyOf: [{ type: "string" }, { type: "number" }],
+      },
+    } as any
+
+    expect(ProviderTransform.schema(geminiModel, schema)).toEqual(schema)
+  })
+})
+
 describe("ProviderTransform.schema - gemini non-object properties removal", () => {
   const geminiModel = {
     providerID: "google",
