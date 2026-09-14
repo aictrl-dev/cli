@@ -312,32 +312,7 @@ export type StepStartPart = {
   snapshot?: string
 }
 
-export type StepFinishPart = {
-  id: string
-  sessionID: string
-  messageID: string
-  type: "step-finish"
-  reason: string
-  termination?: {
-    providerID: string
-    modelID: string
-    normalizedReason: string
-    rawReason: { status: "available" | "unavailable" | "redacted"; value?: string; truncated: boolean }
-    requestID: { status: "available" | "unavailable" | "redacted"; value?: string; truncated: boolean }
-    diagnostic: { status: "available" | "unavailable" | "redacted"; value?: string; truncated: boolean }
-  }
-  snapshot?: string
-  cost: number
-  tokens: {
-    input: number
-    output: number
-    reasoning: number
-    cache: {
-      read: number
-      write: number
-    }
-  }
-}
+export type StepFinishPart = import("../v2/gen/types.gen.js").StepFinishPart
 
 export type SnapshotPart = {
   id: string

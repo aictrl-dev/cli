@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test"
 import path from "path"
 import { tmpdir } from "../fixture/fixture"
+import { MessageV2 } from "../../src/session/message-v2"
+import type { StepFinishPart } from "../../../sdk/src/v2/gen/types.gen"
+import type { StepFinishPart as LegacyStepFinishPart } from "../../../sdk/src/gen/types.gen"
 
 test("provider termination survives adapter, storage, and headless NDJSON without raw payloads", async () => {
   const server = Bun.serve({
@@ -17,7 +20,7 @@ test("provider termination survives adapter, storage, and headless NDJSON withou
           ],
           usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 },
         })}\n\n`,
-        { headers: { "content-type": "text/event-stream", "x-request-id": "req_fixture" } },
+        { headers: { "content-type": "text/event-stream", "x-request-id": "xoxb-private-fixture-value" } },
       )
     },
   })
@@ -71,12 +74,14 @@ test("provider termination survives adapter, storage, and headless NDJSON withou
       .map((line) => JSON.parse(line))
     const finish = events.find((event) => event.type === "step_finish")
     expect(finish, stderr + stdout).toBeDefined()
-    expect(finish.part.termination).toEqual({
+    const part: StepFinishPart = MessageV2.StepFinishPart.parse(finish.part)
+    const legacy: LegacyStepFinishPart = part
+    expect(legacy.termination).toEqual({
       providerID: "fixture",
       modelID: "gemini-fixture",
       normalizedReason: "error",
       rawReason: { status: "available", value: "MALFORMED_FUNCTION_CALL", truncated: false },
-      requestID: { status: "available", value: "req_fixture", truncated: false },
+      requestID: { status: "redacted", truncated: false },
       diagnostic: { status: "redacted", truncated: true },
     })
     expect(finish.part.sessionID).toBe(finish.sessionID)
