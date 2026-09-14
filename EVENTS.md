@@ -208,6 +208,26 @@ excluded; use the child-session lifecycle events when tracking subagents.
 - `usageStatus` (string, **required**) — `"reported"` when the provider supplied usage, `"missing"` when it did not, or `"estimated"` for an explicitly estimated future source. The CLI does not currently estimate usage.
 - `finish` (string, optional) — provider finish reason, such as `"tool-calls"`, `"end_turn"`, or `"max_tokens"`. It can be absent on failed or aborted turns.
 
+**Terminal reason semantics (schema v1)**
+
+A provider can finish an HTTP stream normally while reporting a failed model turn. `error` and `content-filter` finishes persist a nonretryable `APIError` with `data.metadata.finishReason`; they emit `message_complete.status: "error"`, `session_error.reason: "provider"`, a populated `session_complete.error`, and `invocation_complete.status: "error"`. Headless execution exits 1 after flushing output. Partial text, completed tools, and reported usage remain available. No automatic recovery is attempted.
+
+| Finish or termination         | Behavior                                                                                     |
+| ----------------------------- | -------------------------------------------------------------------------------------------- |
+| `error`                       | Failed model turn; session/invocation failure and exit 1.                                    |
+| `content-filter`              | Failed model turn with a visible content-filter message; exit 1.                             |
+| `stop`                        | Completed turn, including empty output.                                                      |
+| `tool-calls`                  | Completed model turn; run tools and continue the session loop.                               |
+| `length`                      | Existing behavior: completed turn; preserve the reason so consumers can identify truncation. |
+| `unknown`                     | Existing behavior: continue the session loop.                                                |
+| Other nonempty finish         | Existing behavior: end the loop without inferring failure from an unfamiliar reason.         |
+| Thrown provider error         | Existing retry/error handling; unrecoverable failures emit the failure lifecycle.            |
+| Cancellation / stream timeout | Existing cancellation and timeout lifecycle; not reclassified as a provider finish error.    |
+
+Errors are attributed to the originating session. A child error alone does not change the primary session's exit status if the primary agent handles it successfully.
+
+Release regression coverage: from `packages/cli`, run `bun test test/cli/run-provider-finish.test.ts test/cli/run-signal-cancellation.test.ts test/cli/classify-session-error.test.ts`. The provider fixture uses real Gemini SSE responses and the pinned SDK in a headless subprocess, including malformed function calls, content filtering, empty success, tool calls, partial output, and output limits.
+
 **`tokens`** (5-way breakdown, mirrors upstream `LLM.Usage`):
 
 - `total` (number) — provider-reported total, or a finite total computed from sufficient reported components.

@@ -60,4 +60,15 @@ describe("classifySessionError (#63)", () => {
     expect(res.code).toBe("500")
     expect(res.message).toBe("internal")
   })
+
+  test.each([
+    [undefined, "The provider ended the response with an error finish reason.", "provider"],
+    [429, "Rate limit exceeded", "rate_limit"],
+    [401, "Invalid API key", "auth"],
+    [undefined, "Stream timeout", "timeout"],
+  ] as const)("APIError preserves specific classifications (%s, %s)", (statusCode, message, reason) => {
+    const res = classifySessionError({ name: "APIError", data: { statusCode, message, isRetryable: false } })
+    expect(res.reason).toBe(reason)
+    expect(res.code).toBe(statusCode ? String(statusCode) : undefined)
+  })
 })

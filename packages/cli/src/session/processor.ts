@@ -252,6 +252,24 @@ export namespace SessionProcessor {
                   input.assistantMessage.cost += usage.cost
                   input.assistantMessage.tokens = usage.tokens
                   input.assistantMessage.usageStatus = usage.usageStatus
+                  // Providers can end a successful HTTP stream with a failed
+                  // model turn. Preserve its parts and usage, but use the same
+                  // failure lifecycle as a thrown, nonretryable provider error.
+                  if (value.finishReason === "error" || value.finishReason === "content-filter") {
+                    log.error("provider finish", {
+                      sessionID: input.sessionID,
+                      messageID: input.assistantMessage.id,
+                      finishReason: value.finishReason,
+                    })
+                    input.assistantMessage.error = new MessageV2.APIError({
+                      message:
+                        value.finishReason === "content-filter"
+                          ? "The provider blocked the response with a content filter."
+                          : "The provider ended the response with an error finish reason.",
+                      isRetryable: false,
+                      metadata: { finishReason: value.finishReason },
+                    }).toObject()
+                  }
                   await Session.updatePart({
                     id: Identifier.ascending("part"),
                     reason: value.finishReason,
@@ -263,6 +281,13 @@ export namespace SessionProcessor {
                     cost: usage.cost,
                   })
                   await Session.updateMessage(input.assistantMessage)
+                  if (input.assistantMessage.error) {
+                    await Bus.publish(Session.Event.Error, {
+                      sessionID: input.sessionID,
+                      error: input.assistantMessage.error,
+                    })
+                    break
+                  }
                   if (snapshot) {
                     const patch = await Snapshot.patch(snapshot)
                     if (patch.files.length) {
@@ -349,7 +374,7 @@ export namespace SessionProcessor {
                   })
                   continue
               }
-              if (needsCompaction) break
+              if (needsCompaction || input.assistantMessage.error) break
             }
           } catch (e: any) {
             log.error("process", {
