@@ -62,6 +62,10 @@ const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested struc
 export namespace SessionPrompt {
   const log = Log.create({ service: "session.prompt" })
 
+  export function hasToolCalls(parts: MessageV2.Part[]) {
+    return parts.some((part) => part.type === "tool" && !part.metadata?.providerExecuted)
+  }
+
   const state = Instance.state(
     () => {
       const data: Record<
@@ -332,9 +336,11 @@ export namespace SessionPrompt {
       }
 
       if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+      const lastAssistantMsg = msgs.findLast((msg) => msg.info.id === lastAssistant?.id)
       if (
         lastAssistant?.finish &&
         !["tool-calls", "unknown"].includes(lastAssistant.finish) &&
+        !hasToolCalls(lastAssistantMsg?.parts ?? []) &&
         lastUser.id < lastAssistant.id
       ) {
         log.info("exiting loop", { sessionID })
@@ -709,8 +715,9 @@ export namespace SessionPrompt {
 
       // Check if model finished (finish reason is not "tool-calls" or "unknown")
       const modelFinished = processor.message.finish && !["tool-calls", "unknown"].includes(processor.message.finish)
+      const hasCurrentToolCalls = hasToolCalls(await MessageV2.parts(processor.message.id))
 
-      if (modelFinished && !processor.message.error) {
+      if (modelFinished && !hasCurrentToolCalls && !processor.message.error) {
         if (format.type === "json_schema") {
           // Model stopped without calling StructuredOutput tool
           processor.message.error = new MessageV2.StructuredOutputError({
