@@ -9,6 +9,7 @@ import { fn } from "@/util/fn"
 import { Database, eq, desc, inArray } from "@/storage/db"
 import { MessageTable, PartTable } from "./session.sql"
 import { ProviderTransform } from "@/provider/transform"
+import { ProviderTermination } from "@/provider/termination"
 import { STATUS_CODES } from "http"
 import { Storage } from "@/storage/storage"
 import { ProviderError } from "@/provider/error"
@@ -899,4 +900,3 @@ export namespace MessageV2 {
     }
   }
 }
-import { ProviderTermination } from "@/provider/termination"

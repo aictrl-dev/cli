@@ -295,6 +295,15 @@ For tools executed inside a subagent, `part.sessionID` will differ from the top-
 
 ### `step_start` / `step_finish`
 
+Emitted at step boundaries during multi-step tool use.
+
+```json
+{ "type": "step_start", "part": { "type": "step-start" } }
+{ "type": "step_finish", "part": { "type": "step-finish" } }
+```
+
+#### Provider termination details
+
 `step_finish.part.termination` is an optional additive diagnostic object. Its
 `normalizedReason` mirrors `part.reason`; `providerID` and `modelID` identify the
 configured provider/model. Correlate it with the enclosing `invocationID` and
@@ -339,10 +348,12 @@ AI SDK stream consumers. Unknown raw reason strings are redacted. Other adapters
 still provide their normalized reason and explicitly report raw details as
 unavailable. No raw reason is inferred from the normalized reason.
 
-Request identity uses only `x-request-id` or `x-goog-request-id` response headers,
-when present and composed of bounded alphanumeric, underscore, or hyphen
-characters. Common credential prefixes are suppressed. The SDK's generated
-response ID is never presented as a provider request ID. No new prompts,
+Request-ID availability uses only `x-request-id` or `x-goog-request-id` response
+headers. All nonempty values are reported as `redacted` without retaining the
+value, including ordinary IDs: arbitrary IDs cannot be reliably distinguished
+from credential material by format. Values over 128 characters also set
+`truncated: true`. The SDK's generated response ID is never presented as a
+provider request ID. No new prompts,
 reasoning, tool arguments, full responses, or response-header maps are collected
 by this diagnostic path. Existing exception diagnostics are unchanged.
 
@@ -351,13 +362,6 @@ diagnostic availability. Richer diagnostic text remains a separate policy and
 adapter-coverage decision; a redacted diagnostic cannot identify the exact
 offending tool call. Deliver after #108 so a provider error reason is paired
 with truthful process/session failure status.
-
-Emitted at step boundaries during multi-step tool use.
-
-```json
-{ "type": "step_start", "part": { "type": "step-start" } }
-{ "type": "step_finish", "part": { "type": "step-finish" } }
-```
 
 ## Skill Events
 
