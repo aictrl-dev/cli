@@ -746,6 +746,12 @@ describe("session.llm.stream", () => {
                   type: "object",
                   properties: {
                     query: { type: ["string", "null"] },
+                    options: {
+                      type: ["object", "null"],
+                      properties: { enabled: { type: "boolean" } },
+                      required: ["enabled"],
+                    },
+                    choices: { type: ["array", "null"], items: { enum: ["first", "second"] } },
                   },
                   required: ["query"],
                 } as any),
@@ -771,13 +777,24 @@ describe("session.llm.stream", () => {
         const tools = body.tools as Array<{
           functionDeclarations: Array<{
             name: string
-            parameters: { properties: { query: Record<string, unknown> } }
+            parameters: { properties: Record<string, Record<string, unknown>> }
           }>
         }>
         expect(tools[0].functionDeclarations[0].name).toBe("search")
         expect(tools[0].functionDeclarations[0].parameters.properties.query).toEqual({
           anyOf: [{ type: "string" }],
           nullable: true,
+        })
+        expect(tools[0].functionDeclarations[0].parameters.properties.options).toEqual({
+          anyOf: [{ type: "object" }],
+          nullable: true,
+          properties: { enabled: { type: "boolean" } },
+          required: ["enabled"],
+        })
+        expect(tools[0].functionDeclarations[0].parameters.properties.choices).toEqual({
+          anyOf: [{ type: "array" }],
+          nullable: true,
+          items: { type: "string", enum: ["first", "second"] },
         })
       },
     })

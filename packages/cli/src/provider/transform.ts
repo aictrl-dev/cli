@@ -945,26 +945,22 @@ export namespace ProviderTransform {
         typeof node === "object" && node !== null && !Array.isArray(node)
       const hasCombiner = (node: unknown) =>
         isPlainObject(node) && (Array.isArray(node.anyOf) || Array.isArray(node.oneOf) || Array.isArray(node.allOf))
-      const hasSchemaIntent = (node: unknown) => {
-        if (!isPlainObject(node)) return false
-        if (hasCombiner(node)) return true
-        return [
-          "type",
-          "properties",
-          "items",
-          "prefixItems",
-          "enum",
-          "const",
-          "$ref",
-          "additionalProperties",
-          "patternProperties",
-          "required",
-          "not",
-          "if",
-          "then",
-          "else",
-        ].some((key) => key in node)
-      }
+      // Default only unconstrained/annotation-only items. An allowlist of
+      // constraint keywords would miss extensions and silently change intent.
+      const annotations = new Set([
+        "$schema",
+        "$id",
+        "$anchor",
+        "$comment",
+        "title",
+        "description",
+        "default",
+        "examples",
+        "example",
+        "deprecated",
+        "readOnly",
+        "writeOnly",
+      ])
 
       const sanitizeGemini = (obj: any): any => {
         if (obj === null || typeof obj !== "object") {
@@ -991,42 +987,63 @@ export namespace ProviderTransform {
           }
         }
 
-        // Gemini requires a single type rather than a JSON Schema type array.
-        // Split non-null types into anyOf and express nullability separately.
-        // Keep composed schemas intact: replacing or layering their combiner can
-        // discard constraints or change how sibling keywords are evaluated.
-        if (Array.isArray(result.type) && !hasCombiner(result) && !native) {
-          const nullable = result.type.includes("null")
-          const types = result.type.filter((entry: unknown) => entry !== "null")
-          if (types.length === 0) {
-            result.type = "null"
-          } else {
-            delete result.type
-            result.anyOf = types.map((entry: unknown) => ({ type: entry }))
-            if (nullable) result.nullable = true
-          }
+        if (Array.isArray(result.type) && result.type.length === 0) {
+          throw new Error("Gemini tool schema contains an empty type array")
         }
+        const types = Array.isArray(result.type) ? result.type : result.type ? [result.type] : []
+        const composed = hasCombiner(result)
 
         // Filter required array to only include fields that exist in properties
-        if (result.type === "object" && result.properties && Array.isArray(result.required)) {
+        if (types.includes("object") && !composed && result.properties && Array.isArray(result.required)) {
           result.required = result.required.filter((field: any) => field in result.properties)
         }
 
-        if (result.type === "array" && !hasCombiner(result)) {
+        if (types.includes("array") && !composed) {
           if (result.items == null) {
             result.items = {}
           }
-          // Ensure items has at least a type if it has no schema keywords
-          // This handles nested arrays like { type: "array", items: { type: "array", items: {} } }
-          if (isPlainObject(result.items) && !hasSchemaIntent(result.items)) {
+          if (
+            isPlainObject(result.items) &&
+            Object.keys(result.items).every(
+              (key) => annotations.has(key) || (key === "enum" && Array.isArray(result.items.enum)),
+            )
+          ) {
+            // Empty/annotation-only items retain the existing string default;
+            // enum-only items have already had their values converted to strings.
             result.items.type = "string"
           }
         }
 
         // Remove properties/required from non-object types (Gemini rejects these)
-        if (result.type && result.type !== "object" && !hasCombiner(result)) {
+        if (types.length > 0 && !types.includes("object") && !composed) {
           delete result.properties
           delete result.required
+        }
+
+        // Apply type-specific cleanup before splitting; afterwards type no longer
+        // identifies whether the union contains object or array members.
+        // Native adapters own this conversion to preserve their nullability rules.
+        if (Array.isArray(result.type) && !composed && !native) {
+          const nullable = types.includes("null")
+          const nonNull = types.filter((entry: unknown) => entry !== "null")
+          if (nonNull.length === 0) {
+            result.type = "null"
+          } else if (nonNull.length === 1 && !nullable) {
+            result.type = nonNull[0]
+          } else {
+            delete result.type
+            result.anyOf = nonNull.map((entry: unknown) => ({
+              type: entry,
+              ...(entry === "object" && result.properties !== undefined ? { properties: result.properties } : {}),
+              ...(entry === "object" && result.required !== undefined ? { required: result.required } : {}),
+              ...(entry === "array" && result.items !== undefined ? { items: result.items } : {}),
+            }))
+            // Member schemas belong to their typed branch, not beside anyOf.
+            delete result.properties
+            delete result.required
+            delete result.items
+            if (nullable) result.nullable = true
+          }
         }
 
         return result

@@ -571,6 +571,98 @@ describe("ProviderTransform.schema - gemini type arrays", () => {
     expect(result.properties.empty).toEqual({ type: "null" })
   })
 
+  test.each(["@ai-sdk/google", "@ai-sdk/google-vertex"])("preserves nullable object members for native %s", (npm) => {
+    const schema = {
+      type: "object",
+      properties: {
+        options: { type: ["object", "null"], properties: { name: { type: "string" } }, required: ["name"] },
+      },
+    } as any
+    expect(ProviderTransform.schema({ ...geminiModel, api: { ...geminiModel.api, npm } }, schema)).toEqual(schema)
+  })
+
+  test("strips object-only fields before splitting primitive nullable types", () => {
+    const schema = { type: ["string", "null"], properties: { unused: { type: "string" } }, required: ["unused"] } as any
+    expect(ProviderTransform.schema(geminiModel, schema) as unknown).toEqual({
+      anyOf: [{ type: "string" }],
+      nullable: true,
+    })
+  })
+
+  test("keeps object constraints and filters missing required members before splitting", () => {
+    const schema = {
+      type: ["object", "null"],
+      properties: { name: { type: "string" } },
+      required: ["name", "missing"],
+    } as any
+    expect(ProviderTransform.schema(geminiModel, schema) as unknown).toEqual({
+      anyOf: [{ type: "object", properties: { name: { type: "string" } }, required: ["name"] }],
+      nullable: true,
+    })
+  })
+
+  test("places object and array members on their matching non-native union branch", () => {
+    const schema = {
+      type: ["object", "array", "string", "null"],
+      properties: { name: { type: "string" } },
+      required: ["name"],
+      items: { enum: ["first", "second"] },
+    } as any
+    expect(ProviderTransform.schema(geminiModel, schema) as unknown).toEqual({
+      anyOf: [
+        { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+        { type: "array", items: { type: "string", enum: ["first", "second"] } },
+        { type: "string" },
+      ],
+      nullable: true,
+    })
+  })
+
+  test.each([
+    [
+      { type: ["object"], properties: { name: { type: "string" } }, required: ["name"] },
+      { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+    ],
+    [
+      { type: ["array"], items: { enum: ["first", "second"] } },
+      { type: "array", items: { type: "string", enum: ["first", "second"] } },
+    ],
+    [{ type: ["string"] }, { type: "string" }],
+  ])("collapses a non-null single-type array without a redundant union", (schema, expected) => {
+    expect(ProviderTransform.schema(geminiModel, schema as any) as unknown).toEqual(expected)
+  })
+
+  test("retains explicit string typing for enum-only array items", () => {
+    const schema = { type: "array", items: { enum: ["a", "b"], description: "allowed values" } } as any
+    expect(ProviderTransform.schema(geminiModel, schema)).toEqual({
+      type: "array",
+      items: { type: "string", enum: ["a", "b"], description: "allowed values" },
+    })
+  })
+
+  test.each([
+    { minimum: 0 },
+    { maximum: 10 },
+    { multipleOf: 2 },
+    { minItems: 1 },
+    { pattern: "^a" },
+    { format: "date-time" },
+    { customConstraint: true },
+  ])("does not replace constraint-only item intent with a string type", (items) => {
+    const schema = { type: "array", items } as any
+    expect(ProviderTransform.schema(geminiModel, schema)).toEqual(schema)
+  })
+
+  test.each(["@ai-sdk/github-copilot", "@ai-sdk/google", "@ai-sdk/google-vertex"])(
+    "rejects an empty type array before %s converts it",
+    (npm) => {
+      const schema = { type: "object", properties: { value: { type: [] } } } as any
+      expect(() => ProviderTransform.schema({ ...geminiModel, api: { ...geminiModel.api, npm } }, schema)).toThrow(
+        "empty type array",
+      )
+    },
+  )
+
   test("preserves generated unions in nested tool parameters", () => {
     const schema = {
       type: "object",
