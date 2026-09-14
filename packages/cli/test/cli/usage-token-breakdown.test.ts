@@ -163,7 +163,7 @@ describe("message_complete emit block shape (source-verified, #86)", () => {
 describe("EVENTS.md documents token breakdown and context (#86)", () => {
   test("EVENTS.md message_complete section includes reasoning token field", async () => {
     const doc = await Bun.file(EVENTS_MD).text()
-    const idx = doc.indexOf("message_complete")
+    const idx = doc.indexOf("### `message_complete`")
     expect(idx).toBeGreaterThan(-1)
     const section = doc.slice(idx, idx + 1500)
     expect(section).toContain("reasoning")
@@ -171,7 +171,7 @@ describe("EVENTS.md documents token breakdown and context (#86)", () => {
 
   test("EVENTS.md message_complete section documents context field", async () => {
     const doc = await Bun.file(EVENTS_MD).text()
-    const idx = doc.indexOf("message_complete")
+    const idx = doc.indexOf("### `message_complete`")
     expect(idx).toBeGreaterThan(-1)
     const section = doc.slice(idx, idx + 1500)
     expect(section).toContain("context")

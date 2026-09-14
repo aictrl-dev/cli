@@ -459,6 +459,12 @@ export type SessionStatus =
       attempt: number
       message: string
       next: number
+      retryID?: string
+      messageID?: string
+      providerID?: string
+      modelID?: string
+      reason?: "rate_limit" | "timeout" | "network" | "provider" | "unknown"
+      delayMs?: number
     }
   | {
       type: "busy"
