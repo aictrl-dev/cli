@@ -25,6 +25,19 @@ const parameters = z.object({
   command: z.string().describe("The command that triggered this task").optional(),
 })
 
+export function taskResultText(result: MessageV2.WithParts, sessionID: string) {
+  if (result.info.role === "assistant" && result.info.error) {
+    const data = result.info.error.data
+    const message = "message" in data && typeof data.message === "string" ? data.message : result.info.error.name
+    throw new Error(`Subagent failed (task_id: ${sessionID}): ${message}`)
+  }
+  const failed = result.parts.findLast((part) => part.type === "tool" && part.state.status === "error")
+  if (failed?.type === "tool" && failed.state.status === "error") {
+    throw new Error(`Subagent failed (task_id: ${sessionID}): ${failed.state.error}`)
+  }
+  return result.parts.findLast((part) => part.type === "text")?.text ?? ""
+}
+
 export const TaskTool = Tool.define("task", async (ctx) => {
   const agents = await Agent.list().then((x) => x.filter((a) => a.mode !== "primary"))
 
@@ -150,7 +163,7 @@ export const TaskTool = Tool.define("task", async (ctx) => {
         parts: promptParts,
       })
 
-      const text = result.parts.findLast((x) => x.type === "text")?.text ?? ""
+      const text = taskResultText(result, session.id)
 
       await Plugin.trigger(
         "agent.subtask.complete",
