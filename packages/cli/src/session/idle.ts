@@ -1,7 +1,7 @@
 import { MessageV2 } from "./message-v2"
 
 export namespace StreamIdle {
-  function error(ms: number, message = `Model stream produced no events for ${ms}ms`) {
+  function error(ms: number, message: string) {
     return new MessageV2.StreamIdleTimeoutError({
       message,
       timeout: ms,
@@ -33,18 +33,18 @@ export namespace StreamIdle {
     try {
       while (true) {
         const timer = Promise.withResolvers<never>()
-        const timeout = suspended ? suspendedTimeout : ms
+        const appliedTimeout = suspended ? suspendedTimeout : ms
         const id = setTimeout(() => {
           timer.reject(
             error(
-              timeout,
+              appliedTimeout,
               suspended
-                ? `Local tool execution produced no result for ${timeout}ms`
-                : `Model stream produced no events for ${timeout}ms`,
+                ? `Tool execution produced no result for ${appliedTimeout}ms`
+                : `Model stream produced no events for ${appliedTimeout}ms`,
             ),
           )
           abort()
-        }, timeout)
+        }, appliedTimeout)
         const next = await Promise.race([iterator.next(), timer.promise]).finally(() => clearTimeout(id))
         if (next.done) return
         suspended = updateSuspended(next.value)

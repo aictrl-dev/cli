@@ -60,16 +60,16 @@ export namespace SessionProcessor {
               abort: idle.signal,
             })
             const runningTools = new Set<string>()
+            const idleMs = Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS
 
             for await (const value of StreamIdle.timeout(
               stream.fullStream,
-              Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS,
+              idleMs,
               () => idle.controller.abort(),
               (value) => {
                 if (
                   value.type === "tool-call" &&
-                  !value.providerExecuted &&
-                  typeof streamInput.tools?.[value.toolName]?.execute === "function"
+                  (value.providerExecuted || typeof streamInput.tools?.[value.toolName]?.execute === "function")
                 ) {
                   runningTools.add(value.toolCallId)
                 }
@@ -78,10 +78,7 @@ export namespace SessionProcessor {
                 }
                 return runningTools.size > 0
               },
-              Math.min(
-                Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS * LOCAL_TOOL_TIMEOUT_MULTIPLIER,
-                Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MAX,
-              ),
+              Math.min(idleMs * LOCAL_TOOL_TIMEOUT_MULTIPLIER, Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MAX),
             )) {
               input.abort.throwIfAborted()
               switch (value.type) {
