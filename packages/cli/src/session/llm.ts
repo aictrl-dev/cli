@@ -22,6 +22,7 @@ import { SystemPrompt } from "./system"
 import { Flag } from "@/flag/flag"
 import { PermissionNext } from "@/permission/next"
 import { Auth } from "@/auth"
+import { ProviderTermination } from "@/provider/termination"
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
@@ -234,6 +235,11 @@ export namespace LLM {
       model: wrapLanguageModel({
         model: language,
         middleware: [
+          ProviderTermination.middleware({
+            providerID: input.model.providerID,
+            modelID: input.model.id,
+            npm: input.model.api.npm,
+          }),
           {
             async transformParams(args) {
               if (args.type === "stream") {

@@ -312,24 +312,7 @@ export type StepStartPart = {
   snapshot?: string
 }
 
-export type StepFinishPart = {
-  id: string
-  sessionID: string
-  messageID: string
-  type: "step-finish"
-  reason: string
-  snapshot?: string
-  cost: number
-  tokens: {
-    input: number
-    output: number
-    reasoning: number
-    cache: {
-      read: number
-      write: number
-    }
-  }
-}
+export type StepFinishPart = import("../v2/gen/types.gen.js").StepFinishPart
 
 export type SnapshotPart = {
   id: string

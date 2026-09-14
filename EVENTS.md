@@ -322,6 +322,67 @@ Emitted at step boundaries during multi-step tool use.
 { "type": "step_finish", "part": { "type": "step-finish" } }
 ```
 
+#### Provider termination details
+
+`step_finish.part.termination` is an optional additive diagnostic object. Its
+`normalizedReason` mirrors `part.reason`; `providerID` and `modelID` identify the
+configured provider/model. Correlate it with the enclosing `invocationID` and
+`sessionID`, and `part.messageID`. Older stored parts may omit `termination`.
+This diagnostic does not decide whether an invocation succeeded (see #108).
+
+```json
+{
+  "type": "step_finish",
+  "invocationID": "inv_fixture",
+  "sessionID": "ses_fixture",
+  "part": {
+    "type": "step-finish",
+    "messageID": "msg_fixture",
+    "reason": "error",
+    "termination": {
+      "providerID": "google-vertex",
+      "modelID": "gemini-2.5-flash",
+      "normalizedReason": "error",
+      "rawReason": { "status": "available", "value": "MALFORMED_FUNCTION_CALL", "truncated": false },
+      "requestID": { "status": "unavailable", "truncated": false },
+      "diagnostic": { "status": "redacted", "truncated": false }
+    }
+  }
+}
+```
+
+The example omits unrelated step fields. Each diagnostic field reports
+`available` (a permitted observed value), `unavailable` (missing or unsupported),
+or `redacted` (present but suppressed). Values are absent when unavailable or
+redacted. `truncated: true` means an oversized value was entirely suppressed;
+no prefix is retained. Raw reasons and request IDs are limited to 128 characters.
+Free-form provider diagnostics are always suppressed, with a 2,048-character
+threshold for the oversize flag: they can contain credentials, prompt text, or
+tool arguments that pattern-based redaction cannot reliably remove.
+
+Raw reasons are currently captured only for native `@ai-sdk/google` and
+`@ai-sdk/google-vertex` streams. Their pinned adapters support internal raw
+chunks; middleware selects the first candidate's allowlisted `finishReason`,
+records `finishMessage` presence/size, and drops every raw chunk before it reaches
+AI SDK stream consumers. Unknown raw reason strings are redacted. Other adapters
+still provide their normalized reason and explicitly report raw details as
+unavailable. No raw reason is inferred from the normalized reason.
+
+Request-ID availability uses only `x-request-id` or `x-goog-request-id` response
+headers. All nonempty values are reported as `redacted` without retaining the
+value, including ordinary IDs: arbitrary IDs cannot be reliably distinguished
+from credential material by format. Values over 128 characters also set
+`truncated: true`. The SDK's generated response ID is never presented as a
+provider request ID. No new prompts,
+reasoning, tool arguments, full responses, or response-header maps are collected
+by this diagnostic path. Existing exception diagnostics are unchanged.
+
+For #109, this delivers observed raw finish reasons and privacy-preserving
+diagnostic availability. Richer diagnostic text remains a separate policy and
+adapter-coverage decision; a redacted diagnostic cannot identify the exact
+offending tool call. Deliver after #108 so a provider error reason is paired
+with truthful process/session failure status.
+
 ## Skill Events
 
 Skills are loaded progressively. The model first sees skill names and descriptions in the tool schema. Full skill content only enters context when the model explicitly invokes the skill tool.
