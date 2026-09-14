@@ -38,6 +38,15 @@ export namespace Provider {
     return isGpt5OrLater(modelID) && !modelID.startsWith("gpt-5-mini")
   }
 
+  function googleVertexLocation(options: Record<string, any>) {
+    const raw = options["location"] ?? Env.get("GOOGLE_CLOUD_LOCATION") ?? Env.get("VERTEX_LOCATION") ?? "us-central1"
+    const location = typeof raw === "string" ? raw.trim().toLowerCase() : ""
+    if (location.length > 52 || !/^(?:global|us|eu|[a-z]+(?:-[a-z]+)+[0-9]+)$/.test(location)) {
+      throw new Error("Invalid Google Vertex location. Use global, us, eu, or a region such as us-central1.")
+    }
+    return location
+  }
+
   function googleVertexEndpoint(location: string) {
     if (location === "global") return "aiplatform.googleapis.com"
     if (location === "eu" || location === "us") return `aiplatform.${location}.rep.googleapis.com`
@@ -47,8 +56,7 @@ export namespace Provider {
   function googleVertexVars(options: Record<string, any>) {
     const project =
       options["project"] ?? Env.get("GOOGLE_CLOUD_PROJECT") ?? Env.get("GCP_PROJECT") ?? Env.get("GCLOUD_PROJECT")
-    const location =
-      options["location"] ?? Env.get("GOOGLE_CLOUD_LOCATION") ?? Env.get("VERTEX_LOCATION") ?? "us-central1"
+    const location = googleVertexLocation(options)
 
     return {
       GOOGLE_VERTEX_PROJECT: project,
@@ -370,19 +378,19 @@ export namespace Provider {
         Env.get("GCP_PROJECT") ??
         Env.get("GCLOUD_PROJECT")
 
-      const location =
-        provider.options?.location ?? Env.get("GOOGLE_CLOUD_LOCATION") ?? Env.get("VERTEX_LOCATION") ?? "us-central1"
-
       const autoload = Boolean(project)
       if (!autoload) return { autoload: false }
+      const location = googleVertexLocation(provider.options ?? {})
+      const { GoogleAuth } = await import("google-auth-library")
+      // GoogleAuth shares ADC resolution and token-refresh state for this provider.
+      // Credential discovery remains lazy until the first custom fetch.
+      const auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform"] })
       return {
         autoload: true,
         options: {
           project,
           location,
           fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-            const { GoogleAuth } = await import("google-auth-library")
-            const auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform"] })
             const client = await auth.getClient()
             const token = await client.getAccessToken()
 
@@ -1097,6 +1105,10 @@ export namespace Provider {
         delete providers[providerID]
         continue
       }
+
+      // Config options are merged after custom loaders; normalize the final value
+      // for native SDKs as well as templated OpenAI-compatible endpoints.
+      if (providerID === "google-vertex") provider.options.location = googleVertexLocation(provider.options)
 
       const configProvider = config.provider?.[providerID]
 
