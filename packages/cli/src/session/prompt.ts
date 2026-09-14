@@ -62,6 +62,15 @@ const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested struc
 export namespace SessionPrompt {
   const log = Log.create({ service: "session.prompt" })
 
+  export function hasToolCalls(parts: MessageV2.Part[]) {
+    return parts.some(
+      (part) =>
+        part.type === "tool" &&
+        !part.metadata?.providerExecuted &&
+        !(part.state.status === "error" && part.state.metadata?.interrupted === true),
+    )
+  }
+
   const state = Instance.state(
     () => {
       const data: Record<
@@ -332,9 +341,11 @@ export namespace SessionPrompt {
       }
 
       if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+      const lastAssistantMsg = msgs.findLast((msg) => msg.info.id === lastAssistant?.id)
       if (
         lastAssistant?.finish &&
         !["tool-calls", "unknown"].includes(lastAssistant.finish) &&
+        !hasToolCalls(lastAssistantMsg?.parts ?? []) &&
         lastUser.id < lastAssistant.id
       ) {
         log.info("exiting loop", { sessionID })
