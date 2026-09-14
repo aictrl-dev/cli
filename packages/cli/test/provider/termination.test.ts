@@ -9,24 +9,35 @@ function response(
   reason = "MALFORMED_FUNCTION_CALL",
   message: unknown = "Invalid call: token=secret-value",
   request = "req_123",
+  googleRequest = "",
 ) {
   return new Response(
     `data: ${JSON.stringify({
       candidates: [{ index: 0, finishReason: reason, finishMessage: message }],
       usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 },
     })}\n\n`,
-    { headers: { "content-type": "text/event-stream", "x-request-id": request } },
+    { headers: { "content-type": "text/event-stream", "x-request-id": request, "x-goog-request-id": googleRequest } },
   )
 }
 
 async function capture(
-  options: { vertex?: boolean; reason?: string; message?: unknown; request?: string; npm?: string } = {},
+  options: {
+    vertex?: boolean
+    reason?: string
+    message?: unknown
+    request?: string
+    googleRequest?: string
+    npm?: string
+  } = {},
 ) {
   const auth = new OAuth2Client()
   auth.setCredentials({ access_token: "synthetic-test-token", expiry_date: Date.now() + 3600000 })
-  const fetcher = Object.assign(async () => response(options.reason, options.message, options.request), {
-    preconnect: fetch.preconnect,
-  })
+  const fetcher = Object.assign(
+    async () => response(options.reason, options.message, options.request, options.googleRequest),
+    {
+      preconnect: fetch.preconnect,
+    },
+  )
   const model = options.vertex
     ? createVertex({
         project: "fixture",
@@ -89,6 +100,29 @@ describe("provider termination diagnostics", () => {
     expect(termination.rawReason).toEqual({ status: "redacted", truncated: false })
     expect(termination.requestID).toEqual({ status: "unavailable", truncated: false })
     expect(termination.diagnostic).toEqual({ status: "unavailable", truncated: false })
+  })
+
+  test.each(["google-request", "g".repeat(129)])(
+    "falls back from an empty primary ID to a nonempty Google ID",
+    async (googleRequest) => {
+      const { termination } = await capture({ request: "", googleRequest })
+      expect(termination.requestID).toEqual({ status: "redacted", truncated: googleRequest.length > 128 })
+      expect(JSON.stringify(termination)).not.toContain(googleRequest)
+    },
+  )
+
+  test("diagnostic schema accepts its declared bound while runtime text remains suppressed", async () => {
+    const { termination } = await capture({ message: "x".repeat(2048) })
+    expect(termination.diagnostic).toEqual({ status: "redacted", truncated: false })
+    const allowed = { ...termination, diagnostic: { status: "available", value: "x".repeat(2048), truncated: false } }
+    expect(ProviderTermination.from({ aictrl: { termination: allowed } })?.diagnostic.value).toHaveLength(2048)
+    const excessive = { ...allowed, diagnostic: { ...allowed.diagnostic, value: "x".repeat(2049) } }
+    expect(ProviderTermination.from({ aictrl: { termination: excessive } })).toBeUndefined()
+    const oversize = await capture({ message: "x".repeat(2049) })
+    expect(oversize.termination.diagnostic).toEqual({ status: "redacted", truncated: true })
+    expect(
+      ProviderTermination.from({ aictrl: { termination: { ...allowed, rawReason: allowed.diagnostic } } }),
+    ).toBeUndefined()
   })
 
   test.each([
