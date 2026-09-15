@@ -653,15 +653,15 @@ describe("ProviderTransform.schema - gemini type arrays", () => {
     expect(ProviderTransform.schema(geminiModel, schema)).toEqual(schema)
   })
 
-  test.each(["@ai-sdk/github-copilot", "@ai-sdk/google", "@ai-sdk/google-vertex"])(
-    "rejects an empty type array before %s converts it",
-    (npm) => {
-      const schema = { type: "object", properties: { value: { type: [] } } } as any
-      expect(() => ProviderTransform.schema({ ...geminiModel, api: { ...geminiModel.api, npm } }, schema)).toThrow(
-        "empty type array",
-      )
-    },
-  )
+  test("rejects an empty type array on a non-native transport", () => {
+    const schema = { type: "object", properties: { value: { type: [] } } } as any
+    expect(() => ProviderTransform.schema(geminiModel, schema)).toThrow("empty type array")
+  })
+
+  test.each(["@ai-sdk/google", "@ai-sdk/google-vertex"])("delegates an empty type array to native %s", (npm) => {
+    const schema = { type: "object", properties: { value: { type: [] } } } as any
+    expect(ProviderTransform.schema({ ...geminiModel, api: { ...geminiModel.api, npm } }, schema)).toEqual(schema)
+  })
 
   test("preserves generated unions in nested tool parameters", () => {
     const schema = {
@@ -725,7 +725,111 @@ describe("ProviderTransform.schema - gemini type arrays", () => {
     expect(ProviderTransform.schema(geminiModel, schema)).toEqual(schema)
   })
 
-  test.each(["anyOf", "oneOf", "allOf"] as const)("preserves a pre-existing %s on a type-array node", (key) => {
+  test("keeps type-specific constraints on their matching branches", () => {
+    const schema = {
+      type: ["object", "array", "string", "number", "null"],
+      description: "constrained value",
+      additionalProperties: false,
+      patternProperties: { "^name": { type: "string" } },
+      propertyNames: { pattern: "^name" },
+      minProperties: 1,
+      items: { type: "string" },
+      minItems: 1,
+      maxItems: 3,
+      uniqueItems: true,
+      minLength: 1,
+      pattern: "^name",
+      minimum: 0,
+      multipleOf: 2,
+    } as any
+    expect(ProviderTransform.schema(geminiModel, schema) as unknown).toEqual({
+      description: "constrained value",
+      anyOf: [
+        {
+          type: "object",
+          additionalProperties: false,
+          patternProperties: { "^name": { type: "string" } },
+          propertyNames: { pattern: "^name" },
+          minProperties: 1,
+        },
+        { type: "array", items: { type: "string" }, minItems: 1, maxItems: 3, uniqueItems: true },
+        { type: "string", minLength: 1, pattern: "^name" },
+        { type: "number", minimum: 0, multipleOf: 2 },
+      ],
+      nullable: true,
+    })
+  })
+
+  test("preserves enum restrictions on null as well as non-null branches", () => {
+    const schema = { type: ["string", "null"], enum: ["allowed"] } as any
+    expect(ProviderTransform.schema(geminiModel, schema)).toEqual({
+      anyOf: [
+        { type: "string", enum: ["allowed"] },
+        { type: "null", enum: ["allowed"] },
+      ],
+    })
+  })
+
+  test("preserves a combiner's restriction that excludes null", () => {
+    const constraint = [{ type: "object", properties: { name: { type: "string" } }, required: ["name"] }]
+    const schema = { type: ["object", "null"], anyOf: constraint } as any
+    expect(ProviderTransform.schema(geminiModel, schema) as unknown).toEqual({
+      anyOf: [
+        { type: "object", anyOf: constraint },
+        { type: "null", anyOf: constraint },
+      ],
+    })
+  })
+
+  test("keeps definitions at their reference location when splitting", () => {
+    const schema = {
+      type: ["number", "string"],
+      definitions: { value: { minimum: 0 } },
+      allOf: [{ $ref: "#/definitions/value" }],
+    } as any
+    expect(ProviderTransform.schema(geminiModel, schema)).toEqual({
+      definitions: { value: { minimum: 0 } },
+      anyOf: [
+        { type: "number", allOf: [{ $ref: "#/definitions/value" }] },
+        { type: "string", allOf: [{ $ref: "#/definitions/value" }] },
+      ],
+    })
+  })
+
+  test("leaves invalid non-array enum input for validation", () => {
+    const schema = { type: "array", items: { enum: "invalid" } } as any
+    expect(ProviderTransform.schema(geminiModel, schema)).toEqual(schema)
+  })
+
+  test("does not mutate frozen schemas reused across models or calls", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        options: { type: ["object", "null"], properties: { name: { type: "string" } }, required: ["name"] },
+        choices: { type: ["array", "null"], items: { enum: ["first", "second"] } },
+      },
+    } as any
+    const snapshot = structuredClone(schema)
+    function freeze(value: unknown): void {
+      if (value === null || typeof value !== "object") return
+      Object.values(value).forEach(freeze)
+      Object.freeze(value)
+    }
+    freeze(schema)
+    const result = ProviderTransform.schema(geminiModel, schema) as any
+    expect(ProviderTransform.schema(geminiModel, schema)).toEqual(result)
+    const native = { ...geminiModel, api: { ...geminiModel.api, npm: "@ai-sdk/google" } }
+    const reused = ProviderTransform.schema(native, schema) as any
+    expect(reused.properties.options.type).toEqual(["object", "null"])
+    expect(reused.properties.choices.items).toEqual({ enum: ["first", "second"], type: "string" })
+    result.properties.options.anyOf[0].properties.name.type = "number"
+    result.properties.choices.anyOf[0].items.enum.push("third")
+    expect(schema).toEqual(snapshot)
+    expect(reused.properties.options.properties.name.type).toBe("string")
+    expect(reused.properties.choices.items.enum).toEqual(["first", "second"])
+  })
+
+  test.each(["anyOf", "oneOf", "allOf"] as const)("preserves a pre-existing %s on each typed branch", (key) => {
     const schema = {
       type: "object",
       properties: {
@@ -737,7 +841,14 @@ describe("ProviderTransform.schema - gemini type arrays", () => {
       },
     } as any
 
-    expect(ProviderTransform.schema(geminiModel, schema)).toEqual(schema)
+    const result = ProviderTransform.schema(geminiModel, schema) as any
+    expect(result.properties.score).toEqual({
+      description: "score outside the excluded range",
+      anyOf: [
+        { type: "number", [key]: [{ minimum: 0 }, { maximum: -10 }] },
+        { type: "integer", [key]: [{ minimum: 0 }, { maximum: -10 }] },
+      ],
+    })
   })
 })
 

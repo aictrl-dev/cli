@@ -9,6 +9,65 @@ import { Flag } from "@/flag/flag"
 
 type Modality = NonNullable<ModelsDev.Model["modalities"]>["input"][number]
 
+const GEMINI_ANNOTATIONS = new Set([
+  "$schema",
+  "$id",
+  "$anchor",
+  "$comment",
+  "title",
+  "description",
+  "default",
+  "examples",
+  "example",
+  "deprecated",
+  "readOnly",
+  "writeOnly",
+])
+const GEMINI_ROOT_KEYS = new Set([...GEMINI_ANNOTATIONS, "$defs", "definitions", "defs"])
+const GEMINI_KEYWORD_TYPES = new Map<string, readonly string[]>([
+  ...[
+    "properties",
+    "required",
+    "additionalProperties",
+    "patternProperties",
+    "propertyNames",
+    "minProperties",
+    "maxProperties",
+    "dependencies",
+    "dependentRequired",
+    "dependentSchemas",
+    "unevaluatedProperties",
+    "propertyOrdering",
+  ].map((key) => [key, ["object"]] as const),
+  ...[
+    "items",
+    "prefixItems",
+    "additionalItems",
+    "contains",
+    "minContains",
+    "maxContains",
+    "minItems",
+    "maxItems",
+    "uniqueItems",
+    "unevaluatedItems",
+  ].map((key) => [key, ["array"]] as const),
+  ...["minLength", "maxLength", "pattern", "contentEncoding", "contentMediaType", "contentSchema"].map(
+    (key) => [key, ["string"]] as const,
+  ),
+  ...["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf"].map(
+    (key) => [key, ["number", "integer"]] as const,
+  ),
+  ["format", ["string", "number", "integer"]],
+])
+
+function isPlainObject(node: unknown): node is Record<string, any> {
+  return typeof node === "object" && node !== null && !Array.isArray(node)
+}
+
+function hasCombiner(node: unknown) {
+  return isPlainObject(node) && (Array.isArray(node.anyOf) || Array.isArray(node.oneOf) || Array.isArray(node.allOf))
+}
+
 function mimeToModality(mime: string): Modality | undefined {
   if (mime.startsWith("image/")) return "image"
   if (mime.startsWith("audio/")) return "audio"
@@ -941,26 +1000,6 @@ export namespace ProviderTransform {
       // Native Google adapters already convert type arrays and preserve nullability.
       // Pre-converting them here causes the pinned adapters to drop `nullable`.
       const native = model.api.npm === "@ai-sdk/google" || model.api.npm === "@ai-sdk/google-vertex"
-      const isPlainObject = (node: unknown): node is Record<string, any> =>
-        typeof node === "object" && node !== null && !Array.isArray(node)
-      const hasCombiner = (node: unknown) =>
-        isPlainObject(node) && (Array.isArray(node.anyOf) || Array.isArray(node.oneOf) || Array.isArray(node.allOf))
-      // Default only unconstrained/annotation-only items. An allowlist of
-      // constraint keywords would miss extensions and silently change intent.
-      const annotations = new Set([
-        "$schema",
-        "$id",
-        "$anchor",
-        "$comment",
-        "title",
-        "description",
-        "default",
-        "examples",
-        "example",
-        "deprecated",
-        "readOnly",
-        "writeOnly",
-      ])
 
       const sanitizeGemini = (obj: any): any => {
         if (obj === null || typeof obj !== "object") {
@@ -987,7 +1026,7 @@ export namespace ProviderTransform {
           }
         }
 
-        if (Array.isArray(result.type) && result.type.length === 0) {
+        if (!native && Array.isArray(result.type) && result.type.length === 0) {
           throw new Error("Gemini tool schema contains an empty type array")
         }
         const types = Array.isArray(result.type) ? result.type : result.type ? [result.type] : []
@@ -1005,7 +1044,7 @@ export namespace ProviderTransform {
           if (
             isPlainObject(result.items) &&
             Object.keys(result.items).every(
-              (key) => annotations.has(key) || (key === "enum" && Array.isArray(result.items.enum)),
+              (key) => GEMINI_ANNOTATIONS.has(key) || (key === "enum" && Array.isArray(result.items.enum)),
             )
           ) {
             // Empty/annotation-only items retain the existing string default;
@@ -1023,7 +1062,7 @@ export namespace ProviderTransform {
         // Apply type-specific cleanup before splitting; afterwards type no longer
         // identifies whether the union contains object or array members.
         // Native adapters own this conversion to preserve their nullability rules.
-        if (Array.isArray(result.type) && !composed && !native) {
+        if (Array.isArray(result.type) && !native) {
           const nullable = types.includes("null")
           const nonNull = types.filter((entry: unknown) => entry !== "null")
           if (nonNull.length === 0) {
@@ -1031,18 +1070,21 @@ export namespace ProviderTransform {
           } else if (nonNull.length === 1 && !nullable) {
             result.type = nonNull[0]
           } else {
-            delete result.type
-            result.anyOf = nonNull.map((entry: unknown) => ({
-              type: entry,
-              ...(entry === "object" && result.properties !== undefined ? { properties: result.properties } : {}),
-              ...(entry === "object" && result.required !== undefined ? { required: result.required } : {}),
-              ...(entry === "array" && result.items !== undefined ? { items: result.items } : {}),
-            }))
-            // Member schemas belong to their typed branch, not beside anyOf.
-            delete result.properties
-            delete result.required
-            delete result.items
-            if (nullable) result.nullable = true
+            const entries = Object.entries(result).filter(([key]) => key !== "type")
+            const constraints = entries.filter(([key]) => !GEMINI_ROOT_KEYS.has(key))
+            // Universal constraints (including existing combiners and enum) can
+            // exclude null. Keep an explicit constrained null branch in that case.
+            const constrained = constraints.some(([key]) => !GEMINI_KEYWORD_TYPES.has(key))
+            return {
+              ...Object.fromEntries(entries.filter(([key]) => GEMINI_ROOT_KEYS.has(key))),
+              anyOf: (constrained ? types : nonNull).map((entry: string) => ({
+                type: entry,
+                ...Object.fromEntries(
+                  constraints.filter(([key]) => GEMINI_KEYWORD_TYPES.get(key)?.includes(entry) ?? true),
+                ),
+              })),
+              ...(!constrained && nullable ? { nullable: true } : {}),
+            }
           }
         }
 

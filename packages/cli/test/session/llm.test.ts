@@ -746,6 +746,7 @@ describe("session.llm.stream", () => {
                   type: "object",
                   properties: {
                     query: { type: ["string", "null"] },
+                    empty: { type: ["null"] },
                     options: {
                       type: ["object", "null"],
                       properties: { enabled: { type: "boolean" } },
@@ -781,6 +782,7 @@ describe("session.llm.stream", () => {
           }>
         }>
         expect(tools[0].functionDeclarations[0].name).toBe("search")
+        expect(tools[0].functionDeclarations[0].parameters.properties.empty).toEqual({ type: "null" })
         expect(tools[0].functionDeclarations[0].parameters.properties.query).toEqual({
           anyOf: [{ type: "string" }],
           nullable: true,
