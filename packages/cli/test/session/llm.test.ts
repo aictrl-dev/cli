@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test"
 import path from "path"
-import type { ModelMessage } from "ai"
+import { jsonSchema, tool, type ModelMessage } from "ai"
 import { LLM } from "../../src/session/llm"
 import { Global } from "../../src/global"
 import { Instance } from "../../src/project/instance"
@@ -738,7 +738,28 @@ describe("session.llm.stream", () => {
           system: ["You are a helpful assistant."],
           abort: new AbortController().signal,
           messages: [{ role: "user", content: "Hello" }],
-          tools: {},
+          tools: {
+            search: tool({
+              description: "Search with an optional query",
+              inputSchema: jsonSchema(
+                ProviderTransform.schema(resolved, {
+                  type: "object",
+                  properties: {
+                    query: { type: ["string", "null"] },
+                    empty: { type: ["null"] },
+                    options: {
+                      type: ["object", "null"],
+                      properties: { enabled: { type: "boolean" } },
+                      required: ["enabled"],
+                    },
+                    choices: { type: ["array", "null"], items: { enum: ["first", "second"] } },
+                  },
+                  required: ["query"],
+                } as any),
+              ),
+              execute: async () => "ok",
+            }),
+          },
         })
 
         for await (const _ of stream.fullStream) {
@@ -754,6 +775,29 @@ describe("session.llm.stream", () => {
         expect(config?.temperature).toBe(0.3)
         expect(config?.topP).toBe(0.8)
         expect(config?.maxOutputTokens).toBe(ProviderTransform.maxOutputTokens(resolved))
+        const tools = body.tools as Array<{
+          functionDeclarations: Array<{
+            name: string
+            parameters: { properties: Record<string, Record<string, unknown>> }
+          }>
+        }>
+        expect(tools[0].functionDeclarations[0].name).toBe("search")
+        expect(tools[0].functionDeclarations[0].parameters.properties.empty).toEqual({ type: "null" })
+        expect(tools[0].functionDeclarations[0].parameters.properties.query).toEqual({
+          anyOf: [{ type: "string" }],
+          nullable: true,
+        })
+        expect(tools[0].functionDeclarations[0].parameters.properties.options).toEqual({
+          anyOf: [{ type: "object" }],
+          nullable: true,
+          properties: { enabled: { type: "boolean" } },
+          required: ["enabled"],
+        })
+        expect(tools[0].functionDeclarations[0].parameters.properties.choices).toEqual({
+          anyOf: [{ type: "array" }],
+          nullable: true,
+          items: { type: "string", enum: ["first", "second"] },
+        })
       },
     })
   })

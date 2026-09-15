@@ -9,6 +9,65 @@ import { Flag } from "@/flag/flag"
 
 type Modality = NonNullable<ModelsDev.Model["modalities"]>["input"][number]
 
+const GEMINI_ANNOTATIONS = new Set([
+  "$schema",
+  "$id",
+  "$anchor",
+  "$comment",
+  "title",
+  "description",
+  "default",
+  "examples",
+  "example",
+  "deprecated",
+  "readOnly",
+  "writeOnly",
+])
+const GEMINI_ROOT_KEYS = new Set([...GEMINI_ANNOTATIONS, "$defs", "definitions", "defs"])
+const GEMINI_KEYWORD_TYPES = new Map<string, readonly string[]>([
+  ...[
+    "properties",
+    "required",
+    "additionalProperties",
+    "patternProperties",
+    "propertyNames",
+    "minProperties",
+    "maxProperties",
+    "dependencies",
+    "dependentRequired",
+    "dependentSchemas",
+    "unevaluatedProperties",
+    "propertyOrdering",
+  ].map((key) => [key, ["object"]] as const),
+  ...[
+    "items",
+    "prefixItems",
+    "additionalItems",
+    "contains",
+    "minContains",
+    "maxContains",
+    "minItems",
+    "maxItems",
+    "uniqueItems",
+    "unevaluatedItems",
+  ].map((key) => [key, ["array"]] as const),
+  ...["minLength", "maxLength", "pattern", "contentEncoding", "contentMediaType", "contentSchema"].map(
+    (key) => [key, ["string"]] as const,
+  ),
+  ...["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf"].map(
+    (key) => [key, ["number", "integer"]] as const,
+  ),
+  ["format", ["string", "number", "integer"]],
+])
+
+function isPlainObject(node: unknown): node is Record<string, any> {
+  return typeof node === "object" && node !== null && !Array.isArray(node)
+}
+
+function hasCombiner(node: unknown) {
+  return isPlainObject(node) && (Array.isArray(node.anyOf) || Array.isArray(node.oneOf) || Array.isArray(node.allOf))
+}
+
 function mimeToModality(mime: string): Modality | undefined {
   if (mime.startsWith("image/")) return "image"
   if (mime.startsWith("audio/")) return "audio"
@@ -938,6 +997,10 @@ export namespace ProviderTransform {
 
     // Convert integer enums to string enums for Google/Gemini
     if (model.providerID === "google" || model.api.id.includes("gemini")) {
+      // Native Google adapters already convert type arrays and preserve nullability.
+      // Pre-converting them here causes the pinned adapters to drop `nullable`.
+      const native = model.api.npm === "@ai-sdk/google" || model.api.npm === "@ai-sdk/google-vertex"
+
       const sanitizeGemini = (obj: any): any => {
         if (obj === null || typeof obj !== "object") {
           return obj
@@ -963,26 +1026,66 @@ export namespace ProviderTransform {
           }
         }
 
+        if (!native && Array.isArray(result.type) && result.type.length === 0) {
+          throw new Error("Gemini tool schema contains an empty type array")
+        }
+        const types = Array.isArray(result.type) ? result.type : result.type ? [result.type] : []
+        const composed = hasCombiner(result)
+
         // Filter required array to only include fields that exist in properties
-        if (result.type === "object" && result.properties && Array.isArray(result.required)) {
+        if (types.includes("object") && !composed && result.properties && Array.isArray(result.required)) {
           result.required = result.required.filter((field: any) => field in result.properties)
         }
 
-        if (result.type === "array") {
+        if (types.includes("array") && !composed) {
           if (result.items == null) {
             result.items = {}
           }
-          // Ensure items has at least a type if it's an empty object
-          // This handles nested arrays like { type: "array", items: { type: "array", items: {} } }
-          if (typeof result.items === "object" && !Array.isArray(result.items) && !result.items.type) {
+          if (
+            isPlainObject(result.items) &&
+            Object.keys(result.items).every(
+              (key) => GEMINI_ANNOTATIONS.has(key) || (key === "enum" && Array.isArray(result.items.enum)),
+            )
+          ) {
+            // Empty/annotation-only items retain the existing string default;
+            // enum-only items have already had their values converted to strings.
             result.items.type = "string"
           }
         }
 
         // Remove properties/required from non-object types (Gemini rejects these)
-        if (result.type && result.type !== "object") {
+        if (types.length > 0 && !types.includes("object") && !composed) {
           delete result.properties
           delete result.required
+        }
+
+        // Apply type-specific cleanup before splitting; afterwards type no longer
+        // identifies whether the union contains object or array members.
+        // Native adapters own this conversion to preserve their nullability rules.
+        if (Array.isArray(result.type) && !native) {
+          const nullable = types.includes("null")
+          const nonNull = types.filter((entry: unknown) => entry !== "null")
+          if (nonNull.length === 0) {
+            result.type = "null"
+          } else if (nonNull.length === 1 && !nullable) {
+            result.type = nonNull[0]
+          } else {
+            const entries = Object.entries(result).filter(([key]) => key !== "type")
+            const constraints = entries.filter(([key]) => !GEMINI_ROOT_KEYS.has(key))
+            // Universal constraints (including existing combiners and enum) can
+            // exclude null. Keep an explicit constrained null branch in that case.
+            const constrained = constraints.some(([key]) => !GEMINI_KEYWORD_TYPES.has(key))
+            return {
+              ...Object.fromEntries(entries.filter(([key]) => GEMINI_ROOT_KEYS.has(key))),
+              anyOf: (constrained ? types : nonNull).map((entry: string) => ({
+                type: entry,
+                ...Object.fromEntries(
+                  constraints.filter(([key]) => GEMINI_KEYWORD_TYPES.get(key)?.includes(entry) ?? true),
+                ),
+              })),
+              ...(!constrained && nullable ? { nullable: true } : {}),
+            }
+          }
         }
 
         return result
