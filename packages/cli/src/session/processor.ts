@@ -48,10 +48,13 @@ export namespace SessionProcessor {
         needsCompaction = false
         const shouldBreak = (await Config.get()).experimental?.continue_loop_on_deny !== true
         while (true) {
+          const parts = new Set<string>()
+          const texts: MessageV2.TextPart[] = []
+          let failed = false
           try {
             let currentText: MessageV2.TextPart | undefined
             let reasoningMap: Record<string, MessageV2.ReasoningPart> = {}
-            let toolcall = false
+            let sawToolCall = false
             const stream = await LLM.stream(streamInput)
 
             for await (const value of stream.fullStream) {
@@ -77,6 +80,7 @@ export namespace SessionProcessor {
                     metadata: value.providerMetadata,
                   }
                   reasoningMap[value.id] = reasoningPart
+                  parts.add(reasoningPart.id)
                   await Session.updatePart(reasoningPart)
                   break
 
@@ -111,7 +115,7 @@ export namespace SessionProcessor {
                   break
 
                 case "tool-input-start":
-                  toolcall = true
+                  sawToolCall = true
                   const part = await Session.updatePart({
                     id: toolcalls[value.id]?.id ?? Identifier.ascending("part"),
                     messageID: input.assistantMessage.id,
@@ -135,7 +139,7 @@ export namespace SessionProcessor {
                   break
 
                 case "tool-call": {
-                  toolcall = true
+                  sawToolCall = true
                   const match = toolcalls[value.toolCallId]
                   if (match) {
                     const part = await Session.updatePart({
@@ -236,8 +240,10 @@ export namespace SessionProcessor {
 
                 case "start-step":
                   snapshot = await Snapshot.track()
+                  const start = Identifier.ascending("part")
+                  parts.add(start)
                   await Session.updatePart({
-                    id: Identifier.ascending("part"),
+                    id: start,
                     messageID: input.assistantMessage.id,
                     sessionID: input.sessionID,
                     snapshot,
@@ -273,8 +279,10 @@ export namespace SessionProcessor {
                       metadata: { finishReason: value.finishReason },
                     }).toObject()
                   }
+                  const finish = Identifier.ascending("part")
+                  parts.add(finish)
                   await Session.updatePart({
-                    id: Identifier.ascending("part"),
+                    id: finish,
                     reason: value.finishReason,
                     snapshot: await Snapshot.track(),
                     messageID: input.assistantMessage.id,
@@ -284,12 +292,13 @@ export namespace SessionProcessor {
                     cost: usage.cost,
                   })
                   await Session.updateMessage(input.assistantMessage)
-                  if (value.finishReason === "unknown" && !toolcall) {
+                  if (value.finishReason === "unknown" && !sawToolCall && !texts.some((part) => part.text.trim())) {
+                    failed = true
                     throw new MessageV2.APIError({
                       message: "Provider ended stream without finishReason or a tool call.",
                       isRetryable: true,
                       metadata: { finishReason: "unknown" },
-                    }).toObject()
+                    })
                   }
                   if (input.assistantMessage.error) {
                     await Bus.publish(Session.Event.Error, {
@@ -335,6 +344,8 @@ export namespace SessionProcessor {
                     },
                     metadata: value.providerMetadata,
                   }
+                  parts.add(currentText.id)
+                  texts.push(currentText)
                   await Session.updatePart(currentText)
                   break
 
@@ -415,6 +426,15 @@ export namespace SessionProcessor {
                   error: input.assistantMessage.error,
                 })
               } else {
+                if (failed) {
+                  for (const partID of parts) {
+                    await Session.removePart({
+                      sessionID: input.sessionID,
+                      messageID: input.assistantMessage.id,
+                      partID,
+                    })
+                  }
+                }
                 const delay = SessionRetry.delay(attempt, error.name === "APIError" ? error : undefined)
                 SessionStatus.set(input.sessionID, {
                   type: "retry",

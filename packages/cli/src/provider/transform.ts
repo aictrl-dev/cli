@@ -171,6 +171,19 @@ export namespace ProviderTransform {
     return msgs
   }
 
+  function dropTrailingNonToolAssistant(msgs: ModelMessage[]): ModelMessage[] {
+    // Gemini rejects requests ending on a model turn. This applies only to
+    // @ai-sdk/google and @ai-sdk/google-vertex; even a trailing text answer
+    // must go, because the MAX_STEPS assistant prefill would still cause a 400.
+    // Unlike MessageV2's history filter, this also removes text-bearing turns.
+    const user = msgs.some((msg) => msg.role === "user")
+    if (!user) return msgs
+    const last = msgs.at(-1)
+    if (last?.role !== "assistant") return msgs
+    if (Array.isArray(last.content) && last.content.some((part) => part.type === "tool-call")) return msgs
+    return dropTrailingNonToolAssistant(msgs.slice(0, -1))
+  }
+
   function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage[] {
     const system = msgs.filter((msg) => msg.role === "system").slice(0, 2)
     const final = msgs.filter((msg) => msg.role !== "system").slice(-2)
@@ -252,12 +265,9 @@ export namespace ProviderTransform {
   export function message(msgs: ModelMessage[], model: Provider.Model, options: Record<string, unknown>) {
     msgs = unsupportedParts(msgs, model)
     msgs = normalizeMessages(msgs, model, options)
-    if (model.api.npm === "@ai-sdk/google" || model.api.npm === "@ai-sdk/google-vertex") {
-      while (msgs.at(-1)?.role === "assistant") {
-        const last = msgs.at(-1)
-        if (last && Array.isArray(last.content) && last.content.some((part) => part.type === "tool-call")) break
-        msgs = msgs.slice(0, -1)
-      }
+    const key = sdkKey(model.api.npm)
+    if (key === "google") {
+      msgs = dropTrailingNonToolAssistant(msgs)
     }
     if (
       (model.providerID === "anthropic" ||
@@ -272,7 +282,6 @@ export namespace ProviderTransform {
     }
 
     // Remap providerOptions keys from stored providerID to expected SDK key
-    const key = sdkKey(model.api.npm)
     if (key && key !== model.providerID && model.api.npm !== "@ai-sdk/azure") {
       const remap = (opts: Record<string, any> | undefined) => {
         if (!opts) return opts

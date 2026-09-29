@@ -33,6 +33,16 @@ describe("ProviderTransform.message - Gemini trailing assistant", () => {
   test("other providers keep trailing assistant turns", () => {
     expect(ProviderTransform.message([user, thought], model("@ai-sdk/openai"), {})).toEqual([user, thought])
   })
+
+  test.each(["@ai-sdk/google", "@ai-sdk/google-vertex"])(
+    "%s keeps all-assistant history when no user turn remains",
+    (npm) => {
+      expect(ProviderTransform.message([thought, { role: "assistant", content: "final" }], model(npm), {})).toEqual([
+        thought,
+        { role: "assistant", content: "final" },
+      ])
+    },
+  )
 })
 
 const OUTPUT_TOKEN_MAX = 32000

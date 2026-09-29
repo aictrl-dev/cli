@@ -13,7 +13,7 @@ When the parsed `aictrl run --format json` handler starts, the CLI emits newline
 
 `invocationID` is present on every event from `run --format json`. `sessionID` is present only after a real session has been created; invocation events never fabricate one.
 
-The schema is versioned via `invocation_start.schemaVersion` and `session_start.schemaVersion`. This document describes **schema version `"1"`**. Consumers should pin to this version and treat unknown fields as forward-compatible additions.
+The schema is versioned via `invocation_start.schemaVersion` and `session_start.schemaVersion`. This document describes **schema version `"1"`**. Consumers should pin to this version and treat unknown fields and event types as forward-compatible additions. The `retry` event is an additive event type, so `SCHEMA_VERSION` remains `"1"`.
 
 The invocation envelope covers accepted `run --format json` executions from the first line of the parsed handler through validation, bootstrap, session creation, and execution. Argument-parser failures, other commands, and process-global uncaught exceptions or unhandled rejections are outside this contract.
 
@@ -175,6 +175,27 @@ Emitted immediately before `session_complete` when the session terminates abnorm
 - `message` (string, **required**) — human-readable error message.
 
 ## Message Events
+
+### `retry`
+
+Emitted when a primary-session model attempt fails with a retryable error and the CLI schedules another attempt. This includes a thought-only `unknown` finish with no tool call or non-empty text. It is not emitted after retries are exhausted or for an `unknown` finish that includes text or a tool call.
+
+```json
+{
+  "type": "retry",
+  "timestamp": 1741500000000,
+  "schemaVersion": "1",
+  "invocationID": "7d142250-8bdc-43df-99af-efa252db62a7",
+  "sessionID": "session_01abc...",
+  "attempt": 1,
+  "reason": "Provider ended stream without finishReason or a tool call.",
+  "next": 1741500001000
+}
+```
+
+- `attempt` (number, **required**) — retry number, starting at 1.
+- `reason` (string, **required**) — human-readable reason for retrying.
+- `next` (number, **required**) — scheduled next-attempt time in Unix milliseconds.
 
 ### `message_complete`
 

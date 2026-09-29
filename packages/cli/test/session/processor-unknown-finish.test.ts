@@ -11,7 +11,7 @@ import { SessionRetry } from "../../src/session/retry"
 import { tmpdir } from "../fixture/fixture"
 
 describe("processor unknown finish", () => {
-  test.each(["recover", "exhaust", "tool-call"] as const)("%s", async (scenario) => {
+  test.each(["recover", "exhaust", "tool-call", "text"] as const)("%s", async (scenario) => {
     await using tmp = await tmpdir({
       git: true,
       config: {
@@ -70,8 +70,19 @@ describe("processor unknown finish", () => {
             fullStream: (async function* () {
               yield { type: "start-step" }
               yield { type: "reasoning-start", id: "thought" }
-              yield { type: "reasoning-delta", id: "thought", text: "Thinking" }
+              yield {
+                type: "reasoning-delta",
+                id: "thought",
+                text: scenario === "recover" && requests.length === 2 ? "Successful thought" : "Discarded thought",
+              }
               yield { type: "reasoning-end", id: "thought" }
+              if (scenario === "recover" || scenario === "text") {
+                yield { type: "text-start" }
+                if (scenario === "text" || requests.length === 2) {
+                  yield { type: "text-delta", text: "Answer" }
+                }
+                yield { type: "text-end" }
+              }
               if (scenario === "tool-call") {
                 yield { type: "tool-input-start", id: "call", toolName: "read" }
                 yield { type: "tool-call", toolCallId: "call", toolName: "read", input: {} }
@@ -111,6 +122,19 @@ describe("processor unknown finish", () => {
             expect(message.error?.data.message).toContain("Max retry attempts")
           } else {
             expect(message.error).toBeUndefined()
+          }
+          if (scenario === "recover") {
+            const parts = await MessageV2.parts(message.id)
+            expect(parts.map((part) => part.type)).toEqual(["step-start", "reasoning", "text", "step-finish"])
+            expect(parts.find((part) => part.type === "reasoning")?.text).toBe("Successful thought")
+            expect(parts.find((part) => part.type === "text")?.text).toBe("Answer")
+            expect(parts.find((part) => part.type === "step-finish")?.reason).toBe("stop")
+            const history = MessageV2.toModelMessages(
+              await MessageV2.filterCompacted(MessageV2.stream(session.id)),
+              model,
+            )
+            expect(JSON.stringify(history)).toContain("Successful thought")
+            expect(JSON.stringify(history)).not.toContain("Discarded thought")
           }
         } finally {
           stream.mockRestore()
