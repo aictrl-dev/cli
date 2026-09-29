@@ -400,7 +400,21 @@ export namespace SessionProcessor {
             const retry = SessionRetry.retryable(error)
             if (retry !== undefined) {
               attempt++
-              if (attempt <= SessionRetry.MAX_RETRY_ATTEMPTS) {
+              if (attempt > SessionRetry.MAX_RETRY_ATTEMPTS) {
+                log.error("max retry attempts reached", { attempt, retry })
+                input.assistantMessage.error = MessageV2.APIError.isInstance(error)
+                  ? new MessageV2.APIError({
+                      ...error.data,
+                      message: `Max retry attempts (${SessionRetry.MAX_RETRY_ATTEMPTS}) reached: ${retry}`,
+                    }).toObject()
+                  : new NamedError.Unknown({
+                      message: `Max retry attempts (${SessionRetry.MAX_RETRY_ATTEMPTS}) reached: ${retry}`,
+                    }).toObject()
+                await Bus.publish(Session.Event.Error, {
+                  sessionID: input.assistantMessage.sessionID,
+                  error: input.assistantMessage.error,
+                })
+              } else {
                 const delay = SessionRetry.delay(attempt, error.name === "APIError" ? error : undefined)
                 SessionStatus.set(input.sessionID, {
                   type: "retry",
@@ -411,19 +425,6 @@ export namespace SessionProcessor {
                 await SessionRetry.sleep(delay, input.abort).catch(() => {})
                 continue
               }
-              log.error("max retry attempts reached", { attempt, retry })
-              input.assistantMessage.error = MessageV2.APIError.isInstance(error)
-                ? new MessageV2.APIError({
-                    ...error.data,
-                    message: `Max retry attempts (${SessionRetry.MAX_RETRY_ATTEMPTS}) reached: ${retry}`,
-                  }).toObject()
-                : new NamedError.Unknown({
-                    message: `Max retry attempts (${SessionRetry.MAX_RETRY_ATTEMPTS}) reached: ${retry}`,
-                  }).toObject()
-              await Bus.publish(Session.Event.Error, {
-                sessionID: input.assistantMessage.sessionID,
-                error: input.assistantMessage.error,
-              })
             }
             if (retry === undefined) {
               input.assistantMessage.error = error
