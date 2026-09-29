@@ -51,6 +51,7 @@ export namespace SessionProcessor {
           try {
             let currentText: MessageV2.TextPart | undefined
             let reasoningMap: Record<string, MessageV2.ReasoningPart> = {}
+            let toolcall = false
             const stream = await LLM.stream(streamInput)
 
             for await (const value of stream.fullStream) {
@@ -110,6 +111,7 @@ export namespace SessionProcessor {
                   break
 
                 case "tool-input-start":
+                  toolcall = true
                   const part = await Session.updatePart({
                     id: toolcalls[value.id]?.id ?? Identifier.ascending("part"),
                     messageID: input.assistantMessage.id,
@@ -133,6 +135,7 @@ export namespace SessionProcessor {
                   break
 
                 case "tool-call": {
+                  toolcall = true
                   const match = toolcalls[value.toolCallId]
                   if (match) {
                     const part = await Session.updatePart({
@@ -281,6 +284,13 @@ export namespace SessionProcessor {
                     cost: usage.cost,
                   })
                   await Session.updateMessage(input.assistantMessage)
+                  if (value.finishReason === "unknown" && !toolcall) {
+                    throw new MessageV2.APIError({
+                      message: "Provider ended stream without finishReason or a tool call.",
+                      isRetryable: true,
+                      metadata: { finishReason: "unknown" },
+                    }).toObject()
+                  }
                   if (input.assistantMessage.error) {
                     await Bus.publish(Session.Event.Error, {
                       sessionID: input.sessionID,
@@ -381,39 +391,47 @@ export namespace SessionProcessor {
               error: e,
               stack: JSON.stringify(e.stack),
             })
-            const error = MessageV2.fromError(e, { providerID: input.model.providerID })
+            const error = MessageV2.APIError.isInstance(e)
+              ? e
+              : MessageV2.fromError(e, { providerID: input.model.providerID })
             if (MessageV2.ContextOverflowError.isInstance(error)) {
               // TODO: Handle context overflow error
             }
             const retry = SessionRetry.retryable(error)
             if (retry !== undefined) {
               attempt++
-              if (attempt > SessionRetry.MAX_RETRY_ATTEMPTS) {
-                log.error("max retry attempts reached", { attempt, retry })
-                input.assistantMessage.error = new NamedError.Unknown({
-                  message: `Max retry attempts (${SessionRetry.MAX_RETRY_ATTEMPTS}) reached: ${retry}`,
-                }).toObject()
-                await Bus.publish(Session.Event.Error, {
-                  sessionID: input.assistantMessage.sessionID,
-                  error: input.assistantMessage.error,
+              if (attempt <= SessionRetry.MAX_RETRY_ATTEMPTS) {
+                const delay = SessionRetry.delay(attempt, error.name === "APIError" ? error : undefined)
+                SessionStatus.set(input.sessionID, {
+                  type: "retry",
+                  attempt,
+                  message: retry,
+                  next: Date.now() + delay,
                 })
-                break
+                await SessionRetry.sleep(delay, input.abort).catch(() => {})
+                continue
               }
-              const delay = SessionRetry.delay(attempt, error.name === "APIError" ? error : undefined)
-              SessionStatus.set(input.sessionID, {
-                type: "retry",
-                attempt,
-                message: retry,
-                next: Date.now() + delay,
+              log.error("max retry attempts reached", { attempt, retry })
+              input.assistantMessage.error = MessageV2.APIError.isInstance(error)
+                ? new MessageV2.APIError({
+                    ...error.data,
+                    message: `Max retry attempts (${SessionRetry.MAX_RETRY_ATTEMPTS}) reached: ${retry}`,
+                  }).toObject()
+                : new NamedError.Unknown({
+                    message: `Max retry attempts (${SessionRetry.MAX_RETRY_ATTEMPTS}) reached: ${retry}`,
+                  }).toObject()
+              await Bus.publish(Session.Event.Error, {
+                sessionID: input.assistantMessage.sessionID,
+                error: input.assistantMessage.error,
               })
-              await SessionRetry.sleep(delay, input.abort).catch(() => {})
-              continue
             }
-            input.assistantMessage.error = error
-            await Bus.publish(Session.Event.Error, {
-              sessionID: input.assistantMessage.sessionID,
-              error: input.assistantMessage.error,
-            })
+            if (retry === undefined) {
+              input.assistantMessage.error = error
+              await Bus.publish(Session.Event.Error, {
+                sessionID: input.assistantMessage.sessionID,
+                error: input.assistantMessage.error,
+              })
+            }
           }
           if (snapshot) {
             const patch = await Snapshot.patch(snapshot)

@@ -104,6 +104,26 @@ function basePart(messageID: string, id: string) {
 }
 
 describe("session.message-v2.toModelMessage", () => {
+  test("drops reasoning-only assistant turns from rebuilt history", () => {
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo("m-user"),
+        parts: [{ ...basePart("m-user", "u1"), type: "text", text: "Continue" }] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo("m-assistant", "m-user"),
+        parts: [
+          { ...basePart("m-assistant", "a1"), type: "step-start" },
+          { ...basePart("m-assistant", "a2"), type: "reasoning", text: "Thinking", time: { start: 0 } },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    expect(MessageV2.toModelMessages(input, model)).toStrictEqual([
+      { role: "user", content: [{ type: "text", text: "Continue" }] },
+    ])
+  })
+
   test("filters out messages with no parts", () => {
     const input: MessageV2.WithParts[] = [
       {

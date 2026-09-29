@@ -599,6 +599,9 @@ export namespace MessageV2 {
         ) {
           continue
         }
+        if (!msg.parts.some((part) => (part.type === "text" && part.text.trim()) || part.type === "tool")) {
+          continue
+        }
         const assistantMessage: UIMessage = {
           id: msg.info.id,
           role: "assistant",

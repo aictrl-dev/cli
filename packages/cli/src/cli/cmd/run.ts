@@ -566,6 +566,15 @@ export const RunCommand = cmd({
         const toggles = new Map<string, boolean>()
 
         for await (const event of events.stream) {
+          if (
+            event.type === "session.status" &&
+            event.properties.sessionID === sessionID &&
+            event.properties.status.type === "retry"
+          ) {
+            const status = event.properties.status
+            if (emit("retry", { attempt: status.attempt, reason: status.message, next: status.next })) continue
+          }
+
           if (event.type === "message.updated" && event.properties.info.role === "assistant") {
             const info = event.properties.info
             if (args.format === "json") {

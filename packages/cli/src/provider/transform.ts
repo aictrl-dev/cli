@@ -252,6 +252,13 @@ export namespace ProviderTransform {
   export function message(msgs: ModelMessage[], model: Provider.Model, options: Record<string, unknown>) {
     msgs = unsupportedParts(msgs, model)
     msgs = normalizeMessages(msgs, model, options)
+    if (model.api.npm === "@ai-sdk/google" || model.api.npm === "@ai-sdk/google-vertex") {
+      while (msgs.at(-1)?.role === "assistant") {
+        const last = msgs.at(-1)
+        if (last && Array.isArray(last.content) && last.content.some((part) => part.type === "tool-call")) break
+        msgs = msgs.slice(0, -1)
+      }
+    }
     if (
       (model.providerID === "anthropic" ||
         model.api.id.includes("anthropic") ||
