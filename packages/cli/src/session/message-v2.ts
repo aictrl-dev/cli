@@ -33,6 +33,13 @@ export namespace MessageV2 {
   }
   export const OutputLengthError = NamedError.create("MessageOutputLengthError", z.object({}))
   export const AbortedError = NamedError.create("MessageAbortedError", z.object({ message: z.string() }))
+  export const StreamIdleTimeoutError = NamedError.create(
+    "StreamIdleTimeoutError",
+    z.object({
+      message: z.string(),
+      timeout: z.number(),
+    }),
+  )
   export const StructuredOutputError = NamedError.create(
     "StructuredOutputError",
     z.object({
@@ -415,6 +422,7 @@ export namespace MessageV2 {
         NamedError.Unknown.Schema,
         OutputLengthError.Schema,
         AbortedError.Schema,
+        StreamIdleTimeoutError.Schema,
         StructuredOutputError.Schema,
         ContextOverflowError.Schema,
         APIError.Schema,
@@ -608,7 +616,8 @@ export namespace MessageV2 {
         if (
           msg.info.error &&
           !(
-            MessageV2.AbortedError.isInstance(msg.info.error) &&
+            (MessageV2.AbortedError.isInstance(msg.info.error) ||
+              MessageV2.StreamIdleTimeoutError.isInstance(msg.info.error)) &&
             msg.parts.some((part) => part.type !== "step-start" && part.type !== "reasoning")
           )
         ) {
@@ -836,6 +845,8 @@ export namespace MessageV2 {
             cause: e,
           },
         ).toObject()
+      case MessageV2.StreamIdleTimeoutError.isInstance(e):
+        return e.toObject()
       case MessageV2.OutputLengthError.isInstance(e):
         return e
       case LoadAPIKeyError.isInstance(e):

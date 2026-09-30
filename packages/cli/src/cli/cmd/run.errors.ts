@@ -24,6 +24,9 @@ export function classifySessionError(err: unknown): ClassifiedSessionError {
   if (status === 429) return { reason: "rate_limit", code: "429", message }
   if (status === 401 || status === 403) return { reason: "auth", code: String(status), message }
   if (name === "ProviderAuthError") return { reason: "auth", code: status ? String(status) : undefined, message }
+  if (name === "StreamIdleTimeoutError") {
+    return { reason: "timeout", code: "MODEL_STREAM_IDLE_TIMEOUT", message }
+  }
   if (name === "AbortError" || /timeout/i.test(message)) {
     return { reason: "timeout", code: status ? String(status) : undefined, message }
   }
@@ -37,13 +40,13 @@ export function classifySessionError(err: unknown): ClassifiedSessionError {
 }
 
 function extractMessage(err: unknown): string {
-  if (err instanceof Error) return err.message
-  if (typeof err === "string") return err
-  if (err && typeof err === "object" && "message" in err) return String((err as { message: unknown }).message)
   if (err && typeof err === "object" && "data" in err) {
     const data = (err as { data: unknown }).data
     if (data && typeof data === "object" && "message" in data) return String((data as { message: unknown }).message)
   }
+  if (err instanceof Error) return err.message
+  if (typeof err === "string") return err
+  if (err && typeof err === "object" && "message" in err) return String((err as { message: unknown }).message)
   return String(err)
 }
 

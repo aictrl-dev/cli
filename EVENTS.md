@@ -170,8 +170,8 @@ Emitted immediately before `session_complete` when the session terminates abnorm
 }
 ```
 
-- `reason` (string, **required**) — one of `rate_limit`, `auth`, `timeout`, `oom`, `provider`, `interrupted`, `terminated`, `unknown`. `SIGINT` produces `interrupted`; `SIGTERM` produces `terminated`. Signals are not inferred to be timeouts.
-- `code` (string, optional) — provider HTTP status code, error code, or conventional signal-derived exit code (`130` for `SIGINT`, `143` for `SIGTERM`) when available.
+- `reason` (string, **required**) — one of `rate_limit`, `auth`, `timeout`, `oom`, `provider`, `interrupted`, `terminated`, `unknown`. A model stream idle timeout produces `timeout`; `SIGINT` produces `interrupted`; `SIGTERM` produces `terminated`. Signals are not inferred to be timeouts.
+- `code` (string, optional) — provider HTTP status code, error code, or conventional signal-derived exit code (`130` for `SIGINT`, `143` for `SIGTERM`) when available. A model stream idle timeout emits `MODEL_STREAM_IDLE_TIMEOUT` and persists a `StreamIdleTimeoutError` on the assistant message.
 - `message` (string, **required**) — human-readable error message.
 
 ## Message Events
