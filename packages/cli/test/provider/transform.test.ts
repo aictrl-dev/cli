@@ -37,6 +37,17 @@ describe("ProviderTransform.message - Gemini trailing assistant", () => {
     ])
   })
 
+  test("Google provider ID identifies a custom registry model", () => {
+    const target = model("@ai-sdk/openai-compatible", "custom-model")
+    expect(ProviderTransform.isGeminiTarget(target)).toBe(true)
+    expect(ProviderTransform.message([user, thought], target, {})).toEqual([user])
+  })
+
+  test("mixed-case proxy IDs identify Gemini targets", () => {
+    const target = { ...model("@ai-sdk/openai-compatible", "GoOgLe/Gemini-3"), providerID: "proxy" }
+    expect(ProviderTransform.isGeminiTarget(target)).toBe(true)
+  })
+
   test.each([
     ["@ai-sdk/gateway", "google/gemini-3-pro"],
     ["@openrouter/ai-sdk-provider", "google/gemini-3-pro"],

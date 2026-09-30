@@ -345,16 +345,23 @@ export namespace SessionPrompt {
       const agent = await Agent.get(lastUser.agent)
       const maxSteps = agent.steps ?? Infinity
       if (step > maxSteps) {
-        if (lastAssistant) {
-          lastAssistant.error = new MessageV2.APIError({
-            message: `Agent step limit (${maxSteps}) reached before a final response.`,
-            isRetryable: false,
-          }).toObject()
-          lastAssistant.finish = "stop"
+        const error = new MessageV2.APIError({
+          message: `Agent step limit (${maxSteps}) reached before a final response.`,
+          isRetryable: false,
+        }).toObject()
+        if (
+          lastAssistant &&
+          (lastAssistant.finish === "tool-calls" || lastAssistant.finish === "unknown") &&
+          !lastAssistant.summary &&
+          !msgs
+            .find((msg) => msg.info.id === lastAssistant.id)
+            ?.parts.some((part) => part.type === "tool" && part.tool === TaskTool.id)
+        ) {
+          lastAssistant.error = error
           lastAssistant.time.completed = Date.now()
           await Session.updateMessage(lastAssistant)
-          await Bus.publish(Session.Event.Error, { sessionID, error: lastAssistant.error })
         }
+        await Bus.publish(Session.Event.Error, { sessionID, error })
         break
       }
       if (step === 1)

@@ -21,8 +21,14 @@ export namespace ProviderTransform {
   export const OUTPUT_TOKEN_MAX = Flag.AICTRL_EXPERIMENTAL_OUTPUT_TOKEN_MAX || 32_000
 
   export function isGeminiTarget(model: Provider.Model) {
+    // Proxy model IDs can use mixed case even when registry IDs are lowercase.
     const id = model.api.id.toLowerCase()
-    return sdkKey(model.api.npm) === "google" || id.includes("gemini") || id.startsWith("google/")
+    return (
+      model.providerID === "google" ||
+      sdkKey(model.api.npm) === "google" ||
+      id.includes("gemini") ||
+      id.startsWith("google/")
+    )
   }
 
   // Maps npm package to the key the AI SDK expects for providerOptions

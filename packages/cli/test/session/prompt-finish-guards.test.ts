@@ -1,9 +1,13 @@
 import { describe, expect, spyOn, test } from "bun:test"
 import { Instance } from "../../src/project/instance"
+import { Bus } from "../../src/bus"
+import { Provider } from "../../src/provider/provider"
 import { Session } from "../../src/session"
+import { SessionCompaction } from "../../src/session/compaction"
 import { LLM } from "../../src/session/llm"
 import { MessageV2 } from "../../src/session/message-v2"
 import { SessionPrompt } from "../../src/session/prompt"
+import { TaskTool } from "../../src/tool/task"
 import { Log } from "../../src/util/log"
 import { tmpdir } from "../fixture/fixture"
 
@@ -95,7 +99,7 @@ describe("prompt finish guards", () => {
           expect(requests).toHaveLength(2)
           expect(answer.info.role).toBe("assistant")
           if (answer.info.role !== "assistant") throw new Error("expected assistant")
-          expect(answer.info.finish).toBe("stop")
+          expect(answer.info.finish).toBe("tool-calls")
           expect(MessageV2.APIError.isInstance(answer.info.error)).toBe(true)
           if (!MessageV2.APIError.isInstance(answer.info.error)) throw new Error("expected APIError")
           expect(answer.info.error.data.message).toContain("Agent step limit (2) reached")
@@ -104,6 +108,107 @@ describe("prompt finish guards", () => {
           expect(messages.flatMap((message) => message.parts).filter((part) => part.type === "tool")).toHaveLength(2)
         } finally {
           stream.mockRestore()
+          await Session.remove(session.id)
+        }
+      },
+    })
+  })
+
+  test("step cap preserves a compaction summary in model context", async () => {
+    await using tmp = await tmpdir({ git: true, config: { provider, agent: { build: { steps: 1 } } } })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "Compaction cap" })
+        await SessionCompaction.create({
+          sessionID: session.id,
+          agent: "build",
+          model: { providerID: "fixture", modelID: "gemini-fixture" },
+          auto: false,
+        })
+        const stream = spyOn(LLM, "stream").mockResolvedValue({
+          fullStream: (async function* () {
+            yield { type: "start-step" }
+            yield { type: "text-start" }
+            yield { type: "text-delta", text: "Saved summary" }
+            yield { type: "text-end" }
+            yield { type: "finish-step", finishReason: "tool-calls", usage: { inputTokens: 1, outputTokens: 1 } }
+          })(),
+        } as unknown as Awaited<ReturnType<typeof LLM.stream>>)
+        const errors: unknown[] = []
+        const unsub = Bus.subscribe(Session.Event.Error, (event) => {
+          errors.push(event.properties.error)
+        })
+        try {
+          await SessionPrompt.loop({ sessionID: session.id })
+          const messages = await Session.messages({ sessionID: session.id })
+          const summary = messages.find((message) => message.info.role === "assistant" && message.info.summary)
+          if (summary?.info.role !== "assistant") throw new Error("expected summary")
+          expect(summary?.info.error).toBeUndefined()
+          expect(summary?.info.finish).toBe("tool-calls")
+          expect(
+            JSON.stringify(
+              MessageV2.toModelMessages(
+                await MessageV2.filterCompacted(MessageV2.stream(session.id)),
+                await Provider.getModel("fixture", "gemini-fixture"),
+              ),
+            ),
+          ).toContain("Saved summary")
+          expect(errors).toHaveLength(1)
+          expect(stream).toHaveBeenCalledTimes(1)
+        } finally {
+          stream.mockRestore()
+          unsub()
+          await Session.remove(session.id)
+        }
+      },
+    })
+  })
+
+  test("step cap preserves a completed subtask result in model context", async () => {
+    await using tmp = await tmpdir({ git: true, config: { provider, agent: { build: { steps: 1 } } } })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "Subtask cap" })
+        const task = spyOn(TaskTool, "init").mockResolvedValue({
+          execute: async () => ({ title: "Task complete", output: "Saved subtask result", metadata: {} }),
+        } as unknown as Awaited<ReturnType<typeof TaskTool.init>>)
+        const stream = spyOn(LLM, "stream")
+        const errors: unknown[] = []
+        const unsub = Bus.subscribe(Session.Event.Error, (event) => {
+          errors.push(event.properties.error)
+        })
+        try {
+          await SessionPrompt.prompt({
+            sessionID: session.id,
+            agent: "build",
+            model: { providerID: "fixture", modelID: "gemini-fixture" },
+            parts: [{ type: "subtask", prompt: "Do the task", description: "Task", agent: "build" }],
+          })
+          const messages = await Session.messages({ sessionID: session.id })
+          const result = messages.find(
+            (message) =>
+              message.info.role === "assistant" &&
+              message.parts.some((part) => part.type === "tool" && part.tool === TaskTool.id),
+          )
+          if (result?.info.role !== "assistant") throw new Error("expected subtask result")
+          expect(result?.info.error).toBeUndefined()
+          expect(result?.info.finish).toBe("tool-calls")
+          expect(
+            JSON.stringify(
+              MessageV2.toModelMessages(
+                await MessageV2.filterCompacted(MessageV2.stream(session.id)),
+                await Provider.getModel("fixture", "gemini-fixture"),
+              ),
+            ),
+          ).toContain("Saved subtask result")
+          expect(errors).toHaveLength(1)
+          expect(stream).not.toHaveBeenCalled()
+        } finally {
+          task.mockRestore()
+          stream.mockRestore()
+          unsub()
           await Session.remove(session.id)
         }
       },

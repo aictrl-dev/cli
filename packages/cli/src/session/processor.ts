@@ -35,6 +35,36 @@ export namespace SessionProcessor {
     let blocked = false
     let attempt = 0
     let needsCompaction = false
+    const retried: MessageV2.ToolPart[] = []
+
+    async function patch() {
+      if (!snapshot) return
+      const result = await Snapshot.patch(snapshot)
+      if (result.files.length) {
+        await Session.updatePart({
+          id: Identifier.ascending("part"),
+          messageID: input.assistantMessage.id,
+          sessionID: input.sessionID,
+          type: "patch",
+          hash: result.hash,
+          files: result.files,
+        })
+      }
+      snapshot = undefined
+    }
+
+    function terminal(
+      error: NonNullable<MessageV2.Assistant["error"]>,
+      message?: string,
+    ): NonNullable<MessageV2.Assistant["error"]> {
+      if (!MessageV2.APIError.isInstance(error)) return error
+      return new MessageV2.APIError({
+        message: message ?? error.data.message,
+        statusCode: error.data.statusCode,
+        isRetryable: error.data.isRetryable,
+        metadata: error.data.metadata?.finishReason ? { finishReason: error.data.metadata.finishReason } : undefined,
+      }).toObject()
+    }
 
     const result = {
       get message() {
@@ -50,6 +80,7 @@ export namespace SessionProcessor {
         while (true) {
           const parts = new Set<string>()
           const texts: MessageV2.TextPart[] = []
+          const delivered = new Set<string>()
           const before = {
             finish: input.assistantMessage.finish,
             cost: input.assistantMessage.cost,
@@ -160,7 +191,10 @@ export namespace SessionProcessor {
                     toolcalls[value.toolCallId] = part as MessageV2.ToolPart
                     parts.add(part.id)
 
-                    const history = await MessageV2.parts(input.assistantMessage.id)
+                    delivered.add(part.id)
+                    const history = [...retried, ...(await MessageV2.parts(input.assistantMessage.id))].filter(
+                      (part): part is MessageV2.ToolPart => part.type === "tool" && part.state.status !== "pending",
+                    )
                     const lastThree = history.slice(-DOOM_LOOP_THRESHOLD)
 
                     if (
@@ -256,15 +290,14 @@ export namespace SessionProcessor {
                   break
 
                 case "finish-step":
+                  const visible = { text: texts.some((part) => !!part.text.trim()), tool: delivered.size > 0 }
                   const usage = Session.getUsage({
                     model: input.model,
                     usage: value.usage,
                     metadata: value.providerMetadata,
                   })
                   input.assistantMessage.finish =
-                    value.finishReason === "unknown" && texts.some((part) => part.text.trim())
-                      ? "stop"
-                      : value.finishReason
+                    value.finishReason === "unknown" && visible.text ? "stop" : value.finishReason
                   input.assistantMessage.cost += usage.cost
                   input.assistantMessage.tokens = usage.tokens
                   input.assistantMessage.usageStatus = usage.usageStatus
@@ -299,12 +332,7 @@ export namespace SessionProcessor {
                     cost: usage.cost,
                   })
                   await Session.updateMessage(input.assistantMessage)
-                  if (
-                    value.finishReason === "unknown" &&
-                    !MessageV2.hasVisibleOutput(
-                      (await MessageV2.parts(input.assistantMessage.id)).filter((part) => parts.has(part.id)),
-                    )
-                  ) {
+                  if (value.finishReason === "unknown" && !visible.text && !visible.tool) {
                     throw new MessageV2.APIError({
                       message: "Provider ended stream without finishReason or a tool call.",
                       isRetryable: true,
@@ -318,22 +346,7 @@ export namespace SessionProcessor {
                     })
                     break
                   }
-                  if (snapshot) {
-                    const patch = await Snapshot.patch(snapshot)
-                    if (patch.files.length) {
-                      const id = Identifier.ascending("part")
-                      parts.add(id)
-                      await Session.updatePart({
-                        id,
-                        messageID: input.assistantMessage.id,
-                        sessionID: input.sessionID,
-                        type: "patch",
-                        hash: patch.hash,
-                        files: patch.files,
-                      })
-                    }
-                    snapshot = undefined
-                  }
+                  await patch()
                   SessionSummary.summarize({
                     sessionID: input.sessionID,
                     messageID: input.assistantMessage.parentID,
@@ -424,22 +437,13 @@ export namespace SessionProcessor {
             }
             const retry = SessionRetry.retryable(error)
             if (retry !== undefined) {
-              if (snapshot) {
-                const patch = await Snapshot.patch(snapshot)
-                if (patch.files.length) {
-                  const id = Identifier.ascending("part")
-                  parts.add(id)
-                  await Session.updatePart({
-                    id,
-                    messageID: input.assistantMessage.id,
-                    sessionID: input.sessionID,
-                    type: "patch",
-                    hash: patch.hash,
-                    files: patch.files,
-                  })
-                }
-                snapshot = undefined
-              }
+              // Keep the failed attempt's file changes available to revert tooling.
+              await patch()
+              retried.push(
+                ...(await MessageV2.parts(input.assistantMessage.id)).filter(
+                  (part): part is MessageV2.ToolPart => part.type === "tool" && delivered.has(part.id),
+                ),
+              )
               for (const partID of parts) {
                 await Session.removePart({
                   sessionID: input.sessionID,
@@ -459,14 +463,10 @@ export namespace SessionProcessor {
               if (attempt > SessionRetry.MAX_RETRY_ATTEMPTS) {
                 log.error("max retry attempts reached", { attempt, retry })
                 input.assistantMessage.error = apiError
-                  ? new MessageV2.APIError({
-                      message: `Max retry attempts (${SessionRetry.MAX_RETRY_ATTEMPTS}) reached: ${SessionRetry.reason(error)}`,
-                      statusCode: error.data.statusCode,
-                      isRetryable: error.data.isRetryable,
-                      metadata: error.data.metadata?.finishReason
-                        ? { finishReason: error.data.metadata.finishReason }
-                        : undefined,
-                    }).toObject()
+                  ? terminal(
+                      error,
+                      `Max retry attempts (${SessionRetry.MAX_RETRY_ATTEMPTS}) reached: ${SessionRetry.reason(error)}`,
+                    )
                   : new NamedError.Unknown({
                       message: `Max retry attempts (${SessionRetry.MAX_RETRY_ATTEMPTS}) reached: ${SessionRetry.reason(error)}`,
                     }).toObject()
@@ -488,27 +488,14 @@ export namespace SessionProcessor {
               }
             }
             if (retry === undefined) {
-              input.assistantMessage.error = error
+              input.assistantMessage.error = terminal(error)
               await Bus.publish(Session.Event.Error, {
                 sessionID: input.assistantMessage.sessionID,
                 error: input.assistantMessage.error,
               })
             }
           }
-          if (snapshot) {
-            const patch = await Snapshot.patch(snapshot)
-            if (patch.files.length) {
-              await Session.updatePart({
-                id: Identifier.ascending("part"),
-                messageID: input.assistantMessage.id,
-                sessionID: input.sessionID,
-                type: "patch",
-                hash: patch.hash,
-                files: patch.files,
-              })
-            }
-            snapshot = undefined
-          }
+          await patch()
           const p = await MessageV2.parts(input.assistantMessage.id)
           for (const part of p) {
             if (part.type === "tool" && part.state.status !== "completed" && part.state.status !== "error") {

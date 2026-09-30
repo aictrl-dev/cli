@@ -195,6 +195,7 @@ Emitted when a primary-session model attempt fails with a retryable error and th
 
 - `attempt` (number, **required**) — retry number, starting at 1.
 - `code` (string, **required**) — safe retry reason: `no_finish_reason`, `rate_limited`, `overloaded`, `server_error`, `network`, or `unknown`. Provider error text is omitted from this event.
+- `retry.code` `rate_limited` maps to `session_error.reason` `rate_limit`; `no_finish_reason`, `overloaded`, `server_error`, and `network` are retry-only codes.
 - `next` (number, **required**) — scheduled next-attempt time in Unix milliseconds.
 
 ### `message_complete`
@@ -255,17 +256,20 @@ For compatibility with sessions written before usage provenance was persisted, a
 
 A provider can finish an HTTP stream normally while reporting a failed model turn. `error` and `content-filter` finishes persist a nonretryable `APIError` with `data.metadata.finishReason`; they emit `message_complete.status: "error"`, `session_error.reason: "provider"`, a populated `session_complete.error`, and `invocation_complete.status: "error"`. Headless execution exits 1 after flushing output. Partial text, completed tools, and reported usage remain available. No automatic recovery is attempted.
 
-| Finish or termination         | Behavior                                                                                     |
-| ----------------------------- | -------------------------------------------------------------------------------------------- |
-| `error`                       | Failed model turn; session/invocation failure and exit 1.                                    |
-| `content-filter`              | Failed model turn with a visible content-filter message; exit 1.                             |
-| `stop`                        | Completed turn, including empty output.                                                      |
-| `tool-calls`                  | Completed model turn; run tools and continue the session loop.                               |
-| `length`                      | Existing behavior: completed turn; preserve the reason so consumers can identify truncation. |
-| `unknown`                     | Existing behavior: continue the session loop.                                                |
-| Other nonempty finish         | Existing behavior: end the loop without inferring failure from an unfamiliar reason.         |
-| Thrown provider error         | Existing retry/error handling; unrecoverable failures emit the failure lifecycle.            |
-| Cancellation / stream timeout | Existing cancellation and timeout lifecycle; not reclassified as a provider finish error.    |
+An `unknown` finish is triaged by delivered output. Nonempty text becomes `stop`; a delivered tool call continues the loop. With neither, the attempt is retried, its output parts and usage are rolled back, and a `retry` event is emitted for each scheduled retry. Snapshot patch parts remain available for reverting file changes from failed attempts. Exhaustion produces a terminal error with `data.metadata.finishReason: "unknown"`. A pending tool input alone does not count as a delivered call. The agent step cap emits a terminal error; when it applies to an unfinished model turn, the provider's finish reason is preserved rather than rewritten as `stop`.
+
+| Finish or termination         | Behavior                                                                                                                           |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `error`                       | Failed model turn; session/invocation failure and exit 1.                                                                          |
+| `content-filter`              | Failed model turn with a visible content-filter message; exit 1.                                                                   |
+| `stop`                        | Completed turn, including empty output.                                                                                            |
+| `tool-calls`                  | Completed model turn; run tools and continue the session loop.                                                                     |
+| `length`                      | Existing behavior: completed turn; preserve the reason so consumers can identify truncation.                                       |
+| `unknown`                     | Text becomes `stop`; a delivered tool call continues; no visible output retries, then fails on exhaustion.                         |
+| Agent step cap                | Terminal error; preserve the unfinished model turn's provider finish, or emit a session-level error after a subtask or compaction. |
+| Other nonempty finish         | Existing behavior: end the loop without inferring failure from an unfamiliar reason.                                               |
+| Thrown provider error         | Existing retry/error handling; unrecoverable failures emit the failure lifecycle.                                                  |
+| Cancellation / stream timeout | Existing cancellation and timeout lifecycle; not reclassified as a provider finish error.                                          |
 
 With pinned Google SDK 2.0.54, `IMAGE_SAFETY`, `RECITATION`, `SAFETY`, `BLOCKLIST`, `PROHIBITED_CONTENT`, and `SPII` map to `content-filter`; `MALFORMED_FUNCTION_CALL` maps to `error`. `OTHER` and `FINISH_REASON_UNSPECIFIED` map to `other`, while `LANGUAGE` maps to `unknown`. These last mappings retain the behavior above; they do not prove successful task completion. Consumers can distinguish `other` from `stop` using `message_complete.finish`.
 
