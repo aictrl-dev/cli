@@ -55,6 +55,21 @@ jobs:
           echo "AICTRL_VERSION=$AICTRL_VERSION" >> "$GITHUB_ENV"
           bun turbo build
 
+      - name: Verify the release tag matches the @aictrl/cli package version
+        # publish-if-new.sh publishes @aictrl/cli with the version in
+        # packages/cli/package.json (only the platform binaries are stamped
+        # with the tag). If the two disagree, the platform binaries publish
+        # under the tag while @aictrl/cli silently re-tries an already
+        # published version and the release half-ships (v0.4.4, first run).
+        # Fail before publishing anything.
+        run: |
+          PKG_VERSION=$(node -p "require('./packages/cli/package.json').version")
+          if [ "$PKG_VERSION" != "$AICTRL_VERSION" ]; then
+            echo "::error::Release tag version $AICTRL_VERSION does not match packages/cli/package.json version $PKG_VERSION. Bump package.json on main, then re-create the release."
+            exit 1
+          fi
+          echo "Release version $AICTRL_VERSION matches packages/cli/package.json"
+
       - name: Publish @aictrl/util
         working-directory: packages/util
         run: ${{ github.workspace }}/.github/scripts/publish-if-new.sh "@aictrl/util"
