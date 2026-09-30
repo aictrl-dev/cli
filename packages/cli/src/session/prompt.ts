@@ -62,6 +62,27 @@ const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested struc
 export namespace SessionPrompt {
   const log = Log.create({ service: "session.prompt" })
 
+  export function hasToolCalls(parts: MessageV2.Part[]) {
+    return parts.some(
+      (part) =>
+        part.type === "tool" &&
+        part.metadata?.[MessageV2.PROVIDER_EXECUTED_METADATA_KEY] !== true &&
+        (part.state.status === "completed" ||
+          (part.state.status === "error" &&
+            (part.state.error !== MessageV2.TOOL_EXECUTION_ABORTED ||
+              part.metadata?.[MessageV2.PROVIDER_EXECUTED_METADATA_KEY] === false))),
+    )
+  }
+
+  export function isModelFinished(finish?: string) {
+    return !!finish && !["tool-calls", "unknown"].includes(finish)
+  }
+
+  export async function missingStructuredOutput(message: MessageV2.Assistant, load: () => Promise<MessageV2.Part[]>) {
+    if (!isModelFinished(message.finish) || message.error) return false
+    return !hasToolCalls(await load())
+  }
+
   const state = Instance.state(
     () => {
       const data: Record<
@@ -332,9 +353,11 @@ export namespace SessionPrompt {
       }
 
       if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+      const lastAssistantMsg = msgs.findLast((msg) => msg.info.id === lastAssistant?.id)
       if (
-        lastAssistant?.finish &&
-        !["tool-calls", "unknown"].includes(lastAssistant.finish) &&
+        lastAssistant &&
+        isModelFinished(lastAssistant.finish) &&
+        !hasToolCalls(lastAssistantMsg?.parts ?? []) &&
         lastUser.id < lastAssistant.id
       ) {
         log.info("exiting loop", { sessionID })
@@ -727,19 +750,16 @@ export namespace SessionPrompt {
         break
       }
 
-      // Check if model finished (finish reason is not "tool-calls" or "unknown")
-      const modelFinished = processor.message.finish && !["tool-calls", "unknown"].includes(processor.message.finish)
-
-      if (modelFinished && !processor.message.error) {
-        if (format.type === "json_schema") {
-          // Model stopped without calling StructuredOutput tool
-          processor.message.error = new MessageV2.StructuredOutputError({
-            message: "Model did not produce structured output",
-            retries: 0,
-          }).toObject()
-          await Session.updateMessage(processor.message)
-          break
-        }
+      if (
+        format.type === "json_schema" &&
+        (await missingStructuredOutput(processor.message, () => MessageV2.parts(processor.message.id)))
+      ) {
+        processor.message.error = new MessageV2.StructuredOutputError({
+          message: "Model did not produce structured output",
+          retries: 0,
+        }).toObject()
+        await Session.updateMessage(processor.message)
+        break
       }
 
       if (result === "stop") break

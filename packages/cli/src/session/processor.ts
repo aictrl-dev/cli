@@ -186,7 +186,10 @@ export namespace SessionProcessor {
                           start: Date.now(),
                         },
                       },
-                      metadata: value.providerMetadata,
+                      metadata: {
+                        ...value.providerMetadata,
+                        [MessageV2.PROVIDER_EXECUTED_METADATA_KEY]: value.providerExecuted === true,
+                      },
                     })
                     toolcalls[value.toolCallId] = part as MessageV2.ToolPart
                     parts.add(part.id)
@@ -504,7 +507,7 @@ export namespace SessionProcessor {
                 state: {
                   ...part.state,
                   status: "error",
-                  error: "Tool execution aborted",
+                  error: MessageV2.TOOL_EXECUTION_ABORTED,
                   time: {
                     start: Date.now(),
                     end: Date.now(),

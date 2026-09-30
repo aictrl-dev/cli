@@ -17,6 +17,16 @@ import { type SystemError } from "bun"
 import type { Provider } from "@/provider/provider"
 
 export namespace MessageV2 {
+  export const PROVIDER_EXECUTED_METADATA_KEY = "providerExecuted"
+  export const TOOL_EXECUTION_ABORTED = "Tool execution aborted"
+
+  export function toolProviderMetadata(part: ToolPart) {
+    const metadata = Object.fromEntries(
+      Object.entries(part.metadata ?? {}).filter(([key]) => key !== PROVIDER_EXECUTED_METADATA_KEY),
+    )
+    return Object.keys(metadata).length ? metadata : undefined
+  }
+
   export function hasVisibleOutput(parts: Part[]) {
     return parts.some((part) => (part.type === "text" && !!part.text.trim()) || part.type === "tool")
   }
@@ -652,7 +662,7 @@ export namespace MessageV2 {
                 toolCallId: part.callID,
                 input: part.state.input,
                 output,
-                ...(differentModel ? {} : { callProviderMetadata: part.metadata }),
+                ...(differentModel ? {} : { callProviderMetadata: toolProviderMetadata(part) }),
               })
             }
             if (part.state.status === "error")
@@ -662,7 +672,7 @@ export namespace MessageV2 {
                 toolCallId: part.callID,
                 input: part.state.input,
                 errorText: part.state.error,
-                ...(differentModel ? {} : { callProviderMetadata: part.metadata }),
+                ...(differentModel ? {} : { callProviderMetadata: toolProviderMetadata(part) }),
               })
             // Handle pending/running tool calls to prevent dangling tool_use blocks
             // Anthropic/Claude APIs require every tool_use to have a corresponding tool_result
@@ -673,7 +683,7 @@ export namespace MessageV2 {
                 toolCallId: part.callID,
                 input: part.state.input,
                 errorText: "[Tool execution was interrupted]",
-                ...(differentModel ? {} : { callProviderMetadata: part.metadata }),
+                ...(differentModel ? {} : { callProviderMetadata: toolProviderMetadata(part) }),
               })
           }
           if (part.type === "reasoning") {
