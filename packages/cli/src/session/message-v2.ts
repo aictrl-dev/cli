@@ -616,7 +616,8 @@ export namespace MessageV2 {
         if (
           msg.info.error &&
           !(
-            MessageV2.AbortedError.isInstance(msg.info.error) &&
+            (MessageV2.AbortedError.isInstance(msg.info.error) ||
+              MessageV2.StreamIdleTimeoutError.isInstance(msg.info.error)) &&
             msg.parts.some((part) => part.type !== "step-start" && part.type !== "reasoning")
           )
         ) {

@@ -40,13 +40,13 @@ export function classifySessionError(err: unknown): ClassifiedSessionError {
 }
 
 function extractMessage(err: unknown): string {
-  if (err instanceof Error) return err.message
-  if (typeof err === "string") return err
-  if (err && typeof err === "object" && "message" in err) return String((err as { message: unknown }).message)
   if (err && typeof err === "object" && "data" in err) {
     const data = (err as { data: unknown }).data
     if (data && typeof data === "object" && "message" in data) return String((data as { message: unknown }).message)
   }
+  if (err instanceof Error) return err.message
+  if (typeof err === "string") return err
+  if (err && typeof err === "object" && "message" in err) return String((err as { message: unknown }).message)
   return String(err)
 }
 

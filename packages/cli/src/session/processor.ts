@@ -94,13 +94,17 @@ export namespace SessionProcessor {
           try {
             let currentText: MessageV2.TextPart | undefined
             let reasoningMap: Record<string, MessageV2.ReasoningPart> = {}
-            const idle = StreamIdle.signal(streamInput.abort)
-            const stream = await LLM.stream({
-              ...streamInput,
-              abort: idle.signal,
-            })
-            const runningTools = new Set<string>()
             const idleMs = Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS
+            const idle = StreamIdle.signal(streamInput.abort)
+            const stream = await StreamIdle.wait(
+              LLM.stream({
+                ...streamInput,
+                abort: idle.signal,
+              }),
+              idleMs,
+              () => idle.controller.abort(),
+            )
+            const runningTools = new Set<string>()
 
             for await (const value of StreamIdle.timeout(
               stream.fullStream,

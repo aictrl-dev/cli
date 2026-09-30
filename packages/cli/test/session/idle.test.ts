@@ -1,8 +1,52 @@
 import { describe, expect, test } from "bun:test"
 import { StreamIdle } from "../../src/session/idle"
 import { MessageV2 } from "../../src/session/message-v2"
+import { Flag } from "../../src/flag/flag"
 
 describe("model stream idle timeout", () => {
+  test("missing configuration lets a quiet stream complete", async () => {
+    const original = process.env.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS
+    delete process.env.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS
+    try {
+      async function* stream() {
+        await Bun.sleep(20)
+        yield "ready"
+      }
+      const values = []
+      for await (const value of StreamIdle.timeout(stream(), Flag.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS, () => {
+        throw new Error("default timeout should not abort")
+      })) {
+        values.push(value)
+      }
+      expect(values).toEqual(["ready"])
+    } finally {
+      if (original === undefined) delete process.env.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS
+      else process.env.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS = original
+    }
+  })
+
+  test("disabled setup timeout waits for provider preparation", async () => {
+    const result = await StreamIdle.wait(
+      Bun.sleep(20).then(() => "ready"),
+      0,
+      () => {
+        throw new Error("disabled timeout should not abort")
+      },
+    )
+    expect(result).toBe("ready")
+  })
+
+  test("enabled setup timeout aborts stalled provider preparation", async () => {
+    const pending = Promise.withResolvers<string>()
+    let aborted = false
+    const error = await StreamIdle.wait(pending.promise, 10, () => {
+      aborted = true
+    }).catch((error) => error)
+    expect(aborted).toBe(true)
+    expect(MessageV2.StreamIdleTimeoutError.isInstance(error)).toBe(true)
+    expect(error.data).toEqual({ message: "Model stream setup produced no result for 10ms", timeout: 10 })
+  })
+
   test("uses its own abort signal when the caller signal is undefined", () => {
     const idle = StreamIdle.signal()
 

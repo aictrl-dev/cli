@@ -104,6 +104,67 @@ function basePart(messageID: string, id: string) {
 }
 
 describe("session.message-v2.toModelMessage", () => {
+  test("retains completed tool results after an idle timeout", () => {
+    const userID = "m-user"
+    const assistantID = "m-assistant"
+    const input: MessageV2.WithParts[] = [
+      {
+        info: userInfo(userID),
+        parts: [{ ...basePart(userID, "u1"), type: "text", text: "deploy" }] as MessageV2.Part[],
+      },
+      {
+        info: assistantInfo(
+          assistantID,
+          userID,
+          new MessageV2.StreamIdleTimeoutError({ message: "stream stalled", timeout: 25 }).toObject(),
+        ),
+        parts: [
+          {
+            ...basePart(assistantID, "a1"),
+            type: "tool",
+            callID: "call-deploy",
+            tool: "bash",
+            state: {
+              status: "completed",
+              input: { cmd: "deploy" },
+              output: "deployed",
+              title: "Bash",
+              metadata: {},
+              time: { start: 0, end: 1 },
+            },
+          },
+        ] as MessageV2.Part[],
+      },
+    ]
+
+    expect(MessageV2.toModelMessages(input, model)).toStrictEqual([
+      { role: "user", content: [{ type: "text", text: "deploy" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "call-deploy",
+            toolName: "bash",
+            input: { cmd: "deploy" },
+            providerExecuted: undefined,
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-deploy",
+            toolName: "bash",
+            output: { type: "text", value: "deployed" },
+          },
+        ],
+      },
+    ])
+  })
+
   test("drops reasoning-only assistant turns from rebuilt history", () => {
     const input: MessageV2.WithParts[] = [
       {

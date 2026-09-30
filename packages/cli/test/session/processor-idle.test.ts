@@ -14,6 +14,78 @@ import { MessageV2 } from "../../src/session/message-v2"
 import { tmpdir } from "../fixture/fixture"
 
 describe("session processor model stream idle timeout", () => {
+  test("times out stalled model stream setup when enabled", async () => {
+    await using tmp = await tmpdir({
+      config: {
+        enabled_providers: ["alibaba"],
+        provider: { alibaba: { options: { apiKey: "test-key" } } },
+      },
+    })
+    const original = process.env.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS
+    process.env.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS = "20"
+
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const session = await Session.create({ title: "Stalled setup fixture" })
+          const agent = await Agent.get("build")
+          const model = await Provider.getModel("alibaba", "qwen-plus")
+          const user = (await Session.updateMessage({
+            id: Identifier.ascending("message"),
+            sessionID: session.id,
+            role: "user",
+            time: { created: Date.now() },
+            agent: agent.name,
+            model: { providerID: model.providerID, modelID: model.id },
+          })) as MessageV2.User
+          const assistant = (await Session.updateMessage({
+            id: Identifier.ascending("message"),
+            sessionID: session.id,
+            role: "assistant",
+            parentID: user.id,
+            modelID: model.id,
+            providerID: model.providerID,
+            mode: agent.name,
+            agent: agent.name,
+            path: { cwd: tmp.path, root: tmp.path },
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            time: { created: Date.now() },
+          })) as MessageV2.Assistant
+          const stream = spyOn(LLM, "stream").mockImplementation(() => new Promise(() => {}))
+
+          try {
+            const processor = SessionProcessor.create({
+              assistantMessage: assistant,
+              sessionID: session.id,
+              model,
+              abort: new AbortController().signal,
+            })
+            const result = await processor.process({
+              user,
+              sessionID: session.id,
+              model,
+              agent,
+              abort: new AbortController().signal,
+              system: [],
+              messages: [],
+              tools: {},
+            })
+            expect(result).toBe("stop")
+            expect(MessageV2.StreamIdleTimeoutError.isInstance(assistant.error)).toBe(true)
+            expect(assistant.error?.data.message).toContain("setup")
+          } finally {
+            stream.mockRestore()
+          }
+        },
+      })
+    } finally {
+      if (original === undefined) delete process.env.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS
+      else process.env.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS = original
+    }
+  })
+
   test("aborts a stalled provider stream, records the timeout, and returns the session to idle", async () => {
     using server = Bun.serve({
       port: 0,

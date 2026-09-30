@@ -16,6 +16,16 @@ export namespace StreamIdle {
     }
   }
 
+  export async function wait<T>(promise: Promise<T>, ms: number, abort: () => void): Promise<T> {
+    if (ms === 0) return promise
+    const timer = Promise.withResolvers<never>()
+    const id = setTimeout(() => {
+      timer.reject(error(ms, `Model stream setup produced no result for ${ms}ms`))
+      abort()
+    }, ms)
+    return Promise.race([promise, timer.promise]).finally(() => clearTimeout(id))
+  }
+
   export async function* timeout<T>(
     stream: AsyncIterable<T>,
     ms: number,
