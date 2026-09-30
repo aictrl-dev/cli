@@ -400,7 +400,8 @@ from credential material by format. Values over 128 characters also set
 `truncated: true`. The SDK's generated response ID is never presented as a
 provider request ID. No new prompts,
 reasoning, tool arguments, full responses, or response-header maps are collected
-by this diagnostic path. Existing exception diagnostics are unchanged.
+by this diagnostic path. Terminal API errors follow the separate sanitised
+error path.
 
 For #109, this delivers observed raw finish reasons and privacy-preserving
 diagnostic availability. Richer diagnostic text remains a separate policy and

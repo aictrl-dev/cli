@@ -15,12 +15,18 @@ test("provider termination survives adapter, storage, and headless NDJSON withou
             {
               index: 0,
               finishReason: "MALFORMED_FUNCTION_CALL",
-              finishMessage: "Invalid arguments: api_key=private-fixture-value " + "x".repeat(3000),
+              finishMessage: "Invalid arguments: body-only-canary " + "x".repeat(3000),
             },
           ],
           usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 },
         })}\n\n`,
-        { headers: { "content-type": "text/event-stream", "x-request-id": "xoxb-private-fixture-value" } },
+        {
+          headers: {
+            "content-type": "text/event-stream",
+            "x-request-id": "xoxb-id-only-canary",
+            "x-provider-secret": "header-only-canary",
+          },
+        },
       )
     },
   })
@@ -87,7 +93,12 @@ test("provider termination survives adapter, storage, and headless NDJSON withou
     expect(finish.part.sessionID).toBe(finish.sessionID)
     expect(finish.part.messageID).toBeString()
     expect(finish.invocationID).toBe(events.find((event) => event.type === "invocation_complete").invocationID)
-    expect(stdout + stderr).not.toContain("private-fixture-value")
+    expect(events.find((event) => event.type === "session_error")).toBeDefined()
+    expect(stdout + stderr).not.toContain("id-only-canary")
+    expect(stdout + stderr).not.toContain("header-only-canary")
+    expect(stdout + stderr).not.toContain("body-only-canary")
+    expect(stdout + stderr).not.toContain("responseHeaders")
+    expect(stdout + stderr).not.toContain("responseBody")
     expect(events.some((event) => event.type === "raw")).toBe(false)
   } finally {
     clearTimeout(timeout)
