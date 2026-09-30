@@ -6,7 +6,7 @@ import { Provider } from "../../src/provider/provider"
 import { Session } from "../../src/session"
 import { LLM } from "../../src/session/llm"
 import { SessionProcessor } from "../../src/session/processor"
-import type { MessageV2 } from "../../src/session/message-v2"
+import { MessageV2 } from "../../src/session/message-v2"
 import { tmpdir } from "../fixture/fixture"
 
 describe("session processor tool metadata", () => {
@@ -57,6 +57,15 @@ describe("session processor tool metadata", () => {
               input: {},
               providerExecuted: true,
             }
+            yield { type: "tool-input-start", id: "call_2", toolName: "server_tool" }
+            yield {
+              type: "tool-call",
+              toolCallId: "call_2",
+              toolName: "server_tool",
+              input: { second: true },
+              providerExecuted: false,
+              providerMetadata: { providerExecuted: true },
+            }
             yield {
               type: "finish-step",
               finishReason: "stop",
@@ -83,10 +92,11 @@ describe("session processor tool metadata", () => {
             tools: {},
           })
 
-          const part = (await Session.messages({ sessionID: session.id }))
-            .flatMap((message) => message.parts)
-            .find((item) => item.type === "tool" && item.callID === "call_1")
-          expect(part?.type === "tool" ? part.metadata?.providerExecuted : undefined).toBe(true)
+          const parts = (await Session.messages({ sessionID: session.id })).flatMap((message) => message.parts)
+          const first = parts.find((part) => part.type === "tool" && part.callID === "call_1")
+          const second = parts.find((part) => part.type === "tool" && part.callID === "call_2")
+          expect(first?.type === "tool" ? first.metadata?.providerExecuted : undefined).toBe(true)
+          expect(second?.type === "tool" ? second.metadata?.providerExecuted : undefined).toBe(false)
         } finally {
           stream.mockRestore()
         }

@@ -28,7 +28,10 @@ const parameters = z.object({
 export function taskResultText(result: MessageV2.WithParts, sessionID: string) {
   if (result.info.role === "assistant" && result.info.error) {
     const data = result.info.error.data
-    const message = "message" in data && typeof data.message === "string" ? data.message : result.info.error.name
+    const message =
+      data && typeof data === "object" && "message" in data && typeof data.message === "string"
+        ? data.message
+        : result.info.error.name
     throw new Error(`Subagent failed (task_id: ${sessionID}): ${message}`)
   }
   const failed = result.parts.findLast((part) => part.type === "tool" && part.state.status === "error")
@@ -36,6 +39,12 @@ export function taskResultText(result: MessageV2.WithParts, sessionID: string) {
     throw new Error(`Subagent failed (task_id: ${sessionID}): ${failed.state.error}`)
   }
   return result.parts.findLast((part) => part.type === "text")?.text ?? ""
+}
+
+export async function completeTask(result: MessageV2.WithParts, subagentSessionID: string, parentSessionID: string) {
+  const text = result.parts.findLast((part) => part.type === "text")?.text ?? ""
+  await Plugin.trigger("agent.subtask.complete", { subagentSessionID, parentSessionID }, { result: text })
+  return taskResultText(result, subagentSessionID)
 }
 
 export const TaskTool = Tool.define("task", async (ctx) => {
@@ -163,13 +172,7 @@ export const TaskTool = Tool.define("task", async (ctx) => {
         parts: promptParts,
       })
 
-      const text = taskResultText(result, session.id)
-
-      await Plugin.trigger(
-        "agent.subtask.complete",
-        { subagentSessionID: session.id, parentSessionID: ctx.sessionID },
-        { result: text },
-      )
+      const text = await completeTask(result, session.id, ctx.sessionID)
 
       const output = [
         `task_id: ${session.id} (for resuming to continue this task if needed)`,

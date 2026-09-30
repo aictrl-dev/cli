@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import { MessageV2 } from "../../src/session/message-v2"
-import { taskResultText } from "../../src/tool/task"
+import { Plugin } from "../../src/plugin"
+import { completeTask, taskResultText } from "../../src/tool/task"
 
 function result(input: { error?: MessageV2.Assistant["error"]; parts?: MessageV2.Part[] }): MessageV2.WithParts {
   return {
@@ -36,6 +37,42 @@ describe("task tool child result", () => {
         "child_1",
       ),
     ).toThrow("Subagent failed (task_id: child_1): provider unavailable")
+  })
+
+  test("falls back to the child error name when data is absent or malformed", () => {
+    for (const data of [undefined, null, "bad data"]) {
+      expect(() =>
+        taskResultText(
+          result({ error: { name: "ChildFailed", data } as unknown as MessageV2.Assistant["error"] }),
+          "child_1",
+        ),
+      ).toThrow("Subagent failed (task_id: child_1): ChildFailed")
+    }
+  })
+
+  test("notifies plugins before propagating a child failure", async () => {
+    const events: string[] = []
+    const trigger = spyOn(Plugin, "trigger").mockImplementation(async (name, _input, output) => {
+      events.push(name)
+      return output
+    })
+    try {
+      await expect(
+        completeTask(
+          result({ error: { name: "ChildFailed" } as unknown as MessageV2.Assistant["error"] }),
+          "child_1",
+          "parent_1",
+        ),
+      ).rejects.toThrow("Subagent failed (task_id: child_1): ChildFailed")
+      expect(events).toEqual(["agent.subtask.complete"])
+      expect(trigger).toHaveBeenCalledWith(
+        "agent.subtask.complete",
+        { subagentSessionID: "child_1", parentSessionID: "parent_1" },
+        { result: "" },
+      )
+    } finally {
+      trigger.mockRestore()
+    }
   })
 
   test("surfaces the last failed child tool instead of returning empty success", () => {
