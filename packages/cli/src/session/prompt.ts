@@ -342,6 +342,21 @@ export namespace SessionPrompt {
       }
 
       step++
+      const agent = await Agent.get(lastUser.agent)
+      const maxSteps = agent.steps ?? Infinity
+      if (step > maxSteps) {
+        if (lastAssistant) {
+          lastAssistant.error = new MessageV2.APIError({
+            message: `Agent step limit (${maxSteps}) reached before a final response.`,
+            isRetryable: false,
+          }).toObject()
+          lastAssistant.finish = "stop"
+          lastAssistant.time.completed = Date.now()
+          await Session.updateMessage(lastAssistant)
+          await Bus.publish(Session.Event.Error, { sessionID, error: lastAssistant.error })
+        }
+        break
+      }
       if (step === 1)
         ensureTitle({
           session,
@@ -572,8 +587,6 @@ export namespace SessionPrompt {
       }
 
       // normal processing
-      const agent = await Agent.get(lastUser.agent)
-      const maxSteps = agent.steps ?? Infinity
       const isLastStep = step >= maxSteps
       msgs = await insertReminders({
         messages: msgs,
@@ -687,7 +700,7 @@ export namespace SessionPrompt {
           ...(isLastStep
             ? [
                 {
-                  role: "assistant" as const,
+                  role: ProviderTransform.isGeminiTarget(model) ? ("user" as const) : ("assistant" as const),
                   content: MAX_STEPS,
                 },
               ]

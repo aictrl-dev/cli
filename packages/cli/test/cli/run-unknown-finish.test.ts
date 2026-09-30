@@ -14,6 +14,11 @@ describe("headless retry after missing finish reason", () => {
         const body = (await req.json()) as { contents?: { role: string }[] }
         roles.push(body.contents?.at(-1)?.role ?? "empty")
         if (roles.at(-1) !== "user") return new Response("trailing model turn", { status: 400 })
+        if (roles.length === 2)
+          return new Response(JSON.stringify({ error: { message: "fake-token-123" } }), {
+            status: 500,
+            headers: { "content-type": "application/json" },
+          })
         const chunks =
           roles.length === 1
             ? [
@@ -99,10 +104,12 @@ describe("headless retry after missing finish reason", () => {
         .filter((line) => line.startsWith("{"))
         .map((line) => JSON.parse(line))
       expect(exit, stderr + stdout).toBe(0)
-      expect(roles).toEqual(["user", "user"])
+      expect(roles).toEqual(["user", "user", "user"])
       expect(events.filter((event) => event.type === "retry")).toMatchObject([
-        { attempt: 1, reason: expect.stringContaining("without finishReason") },
+        { attempt: 1, code: "no_finish_reason" },
+        { attempt: 2, code: "server_error" },
       ])
+      expect(stdout).not.toContain("fake-token-123")
       expect(events.filter((event) => event.type === "step_finish").map((event) => event.part.reason)).toContain(
         "unknown",
       )

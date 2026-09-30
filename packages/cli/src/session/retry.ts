@@ -3,6 +3,32 @@ import { MessageV2 } from "./message-v2"
 import { iife } from "@/util/iife"
 
 export namespace SessionRetry {
+  export const Reason = [
+    "no_finish_reason",
+    "rate_limited",
+    "overloaded",
+    "server_error",
+    "network",
+    "unknown",
+  ] as const
+  export type Reason = (typeof Reason)[number]
+
+  export function reason(error: ReturnType<NamedError["toObject"]>): Reason {
+    if (MessageV2.APIError.isInstance(error)) {
+      if (error.data.metadata?.finishReason === "unknown") return "no_finish_reason"
+      if (error.data.statusCode === 429) return "rate_limited"
+      if (error.data.statusCode === 503 || /overload|unavailable/i.test(error.data.message)) return "overloaded"
+      if (error.data.statusCode && error.data.statusCode >= 500) return "server_error"
+      if (/network|connect|socket|fetch failed/i.test(error.data.message)) return "network"
+      return "unknown"
+    }
+    const message = typeof error.data?.message === "string" ? error.data.message : ""
+    if (/rate.limit|too.many.requests|exhausted/i.test(message)) return "rate_limited"
+    if (/overload|unavailable/i.test(message)) return "overloaded"
+    if (/network|connect|socket|fetch failed/i.test(message)) return "network"
+    return "unknown"
+  }
+
   export const RETRY_INITIAL_DELAY = 2000
   export const RETRY_BACKOFF_FACTOR = 2
   export const RETRY_MAX_DELAY_NO_HEADERS = 30_000 // 30 seconds

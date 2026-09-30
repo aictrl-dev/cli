@@ -565,14 +565,27 @@ export const RunCommand = cmd({
       async function loop() {
         const toggles = new Map<string, boolean>()
 
-        for await (const event of events.stream) {
-          if (
-            event.type === "session.status" &&
-            event.properties.sessionID === sessionID &&
-            event.properties.status.type === "retry"
-          ) {
+        eventsLoop: for await (const event of events.stream) {
+          if (event.type === "session.status") {
             const status = event.properties.status
-            if (emit("retry", { attempt: status.attempt, reason: status.message, next: status.next })) continue
+            switch (status.type) {
+              case "retry":
+                if (event.properties.sessionID === sessionID) {
+                  if (emit("retry", { attempt: status.attempt, code: status.reason, next: status.next })) continue
+                }
+                break
+              case "idle":
+                if (event.properties.sessionID === sessionID) break eventsLoop
+                if (childSessions.has(event.properties.sessionID)) {
+                  emit("subagent_complete", {
+                    subagentSessionID: event.properties.sessionID,
+                    parentSessionID: sessionID,
+                  })
+                }
+                break
+              case "busy":
+                break
+            }
           }
 
           if (event.type === "message.updated" && event.properties.info.role === "assistant") {
@@ -765,18 +778,6 @@ export const RunCommand = cmd({
                 subagentSessionID: info.id,
                 parentSessionID: sessionID,
                 title: info.title,
-              })
-            }
-          }
-
-          if (event.type === "session.status" && event.properties.status.type === "idle") {
-            if (event.properties.sessionID === sessionID) {
-              break
-            }
-            if (childSessions.has(event.properties.sessionID)) {
-              emit("subagent_complete", {
-                subagentSessionID: event.properties.sessionID,
-                parentSessionID: sessionID,
               })
             }
           }

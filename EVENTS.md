@@ -188,13 +188,13 @@ Emitted when a primary-session model attempt fails with a retryable error and th
   "invocationID": "7d142250-8bdc-43df-99af-efa252db62a7",
   "sessionID": "session_01abc...",
   "attempt": 1,
-  "reason": "Provider ended stream without finishReason or a tool call.",
+  "code": "no_finish_reason",
   "next": 1741500001000
 }
 ```
 
 - `attempt` (number, **required**) — retry number, starting at 1.
-- `reason` (string, **required**) — human-readable reason for retrying.
+- `code` (string, **required**) — safe retry reason: `no_finish_reason`, `rate_limited`, `overloaded`, `server_error`, `network`, or `unknown`. Provider error text is omitted from this event.
 - `next` (number, **required**) — scheduled next-attempt time in Unix milliseconds.
 
 ### `message_complete`

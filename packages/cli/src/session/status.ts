@@ -2,6 +2,7 @@ import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { Instance } from "@/project/instance"
 import z from "zod"
+import { SessionRetry } from "./retry"
 
 export namespace SessionStatus {
   export const Info = z
@@ -13,6 +14,7 @@ export namespace SessionStatus {
         type: z.literal("retry"),
         attempt: z.number(),
         message: z.string(),
+        reason: z.enum(SessionRetry.Reason),
         next: z.number(),
       }),
       z.object({

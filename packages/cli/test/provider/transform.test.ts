@@ -10,11 +10,11 @@ describe("ProviderTransform.message - Gemini trailing assistant", () => {
     role: "assistant",
     content: [{ type: "tool-call", toolCallId: "call", toolName: "read", input: {} }],
   }
-  const model = (npm: string) =>
+  const model = (npm: string, id = "gemini-fixture") =>
     ({
-      id: "gemini-fixture",
+      id,
       providerID: npm === "@ai-sdk/openai" ? "openai" : "google",
-      api: { id: "gemini-fixture", npm },
+      api: { id, npm },
       capabilities: { interleaved: false },
     }) as Provider.Model
 
@@ -31,7 +31,21 @@ describe("ProviderTransform.message - Gemini trailing assistant", () => {
   )
 
   test("other providers keep trailing assistant turns", () => {
-    expect(ProviderTransform.message([user, thought], model("@ai-sdk/openai"), {})).toEqual([user, thought])
+    expect(ProviderTransform.message([user, thought], model("@ai-sdk/openai", "gpt-fixture"), {})).toEqual([
+      user,
+      thought,
+    ])
+  })
+
+  test.each([
+    ["@ai-sdk/gateway", "google/gemini-3-pro"],
+    ["@openrouter/ai-sdk-provider", "google/gemini-3-pro"],
+    ["@openrouter/ai-sdk-provider", "gemini-3-pro"],
+    ["@ai-sdk/openai-compatible", "google/gemini-3-pro"],
+  ])("%s %s drops trailing assistant turns", (npm, id) => {
+    expect(ProviderTransform.isGeminiTarget(model(npm, id))).toBe(true)
+    expect(ProviderTransform.message([user, thought], model(npm, id), {})).toEqual([user])
+    expect(ProviderTransform.message([user, call], model(npm, id), {})).toEqual([user, call])
   })
 
   test.each(["@ai-sdk/google", "@ai-sdk/google-vertex"])(

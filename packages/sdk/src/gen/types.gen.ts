@@ -458,6 +458,7 @@ export type SessionStatus =
       type: "retry"
       attempt: number
       message: string
+      reason: "no_finish_reason" | "rate_limited" | "overloaded" | "server_error" | "network" | "unknown"
       next: number
     }
   | {

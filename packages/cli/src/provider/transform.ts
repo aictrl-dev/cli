@@ -20,6 +20,11 @@ function mimeToModality(mime: string): Modality | undefined {
 export namespace ProviderTransform {
   export const OUTPUT_TOKEN_MAX = Flag.AICTRL_EXPERIMENTAL_OUTPUT_TOKEN_MAX || 32_000
 
+  export function isGeminiTarget(model: Provider.Model) {
+    const id = model.api.id.toLowerCase()
+    return sdkKey(model.api.npm) === "google" || id.includes("gemini") || id.startsWith("google/")
+  }
+
   // Maps npm package to the key the AI SDK expects for providerOptions
   function sdkKey(npm: string): string | undefined {
     switch (npm) {
@@ -172,9 +177,8 @@ export namespace ProviderTransform {
   }
 
   function dropTrailingNonToolAssistant(msgs: ModelMessage[]): ModelMessage[] {
-    // Gemini rejects requests ending on a model turn. This applies only to
-    // @ai-sdk/google and @ai-sdk/google-vertex; even a trailing text answer
-    // must go, because the MAX_STEPS assistant prefill would still cause a 400.
+    // Gemini rejects requests ending on a model turn, including proxy routes.
+    // A trailing text answer must go as well.
     // Unlike MessageV2's history filter, this also removes text-bearing turns.
     const user = msgs.some((msg) => msg.role === "user")
     if (!user) return msgs
@@ -266,7 +270,7 @@ export namespace ProviderTransform {
     msgs = unsupportedParts(msgs, model)
     msgs = normalizeMessages(msgs, model, options)
     const key = sdkKey(model.api.npm)
-    if (key === "google") {
+    if (isGeminiTarget(model)) {
       msgs = dropTrailingNonToolAssistant(msgs)
     }
     if (
