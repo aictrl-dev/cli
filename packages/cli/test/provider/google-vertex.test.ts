@@ -75,7 +75,10 @@ test.each([
 ])("Google Vertex rejects unsafe location %s before resolving a client or constructing an SDK", async (location) => {
   await using tmp = await tmpdir({
     config: {
-      provider: { "google-vertex": { options: { project: "test-project", location } } },
+      provider: {
+        "google-vertex": { options: { project: "test-project", location } },
+        anthropic: { options: { apiKey: "synthetic" } },
+      },
     },
   })
   const client = spyOn(GoogleAuth.prototype, "getClient")
@@ -85,12 +88,95 @@ test.each([
       fn: async () => {
         const { Provider } = await import("../../src/provider/provider")
         await expect(Provider.getProvider("google-vertex")).rejects.toThrow("Invalid Google Vertex location")
+        await expect(Provider.getProvider("google-vertex")).rejects.toBeInstanceOf(Provider.VertexConfigError)
+        expect(await Provider.list()).toHaveProperty("anthropic")
+        expect(await Provider.getProvider("anthropic")).toBeDefined()
         expect(client).not.toHaveBeenCalled()
       },
     })
   } finally {
     client.mockRestore()
   }
+})
+
+test.each([
+  ["global", "aiplatform.googleapis.com"],
+  [" US ", "aiplatform.us.rep.googleapis.com"],
+  ["eu", "aiplatform.eu.rep.googleapis.com"],
+  ["us-central1", "us-central1-aiplatform.googleapis.com"],
+])("Google Vertex Anthropic resolves the %s endpoint", async (location, endpoint) => {
+  await using tmp = await tmpdir({
+    config: { provider: { "google-vertex-anthropic": { options: { project: "test-project", location } } } },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const { Provider } = await import("../../src/provider/provider")
+      const provider = await Provider.getProvider("google-vertex-anthropic")
+      expect(provider.options.location).toBe(location.trim().toLowerCase())
+      expect(provider.options.baseURL).toBe(
+        `https://${endpoint}/v1/projects/test-project/locations/${location.trim().toLowerCase()}/publishers/anthropic/models`,
+      )
+    },
+  })
+})
+
+test.each([
+  ["google-vertex", "location", "us-central1-a"],
+  ["google-vertex-anthropic", "location", "attacker.com/"],
+  ["google-vertex", "project", "test-project/other"],
+  ["google-vertex-anthropic", "project", "test-project?x=1"],
+])("%s rejects invalid %s without breaking other providers", async (id, key, value) => {
+  await using tmp = await tmpdir({
+    config: {
+      provider: {
+        [id]: { options: { project: "test-project", location: "us-central1", [key]: value } },
+        anthropic: { options: { apiKey: "synthetic" } },
+      },
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const { Provider } = await import("../../src/provider/provider")
+      await expect(Provider.getProvider(id)).rejects.toThrow(`Invalid Google Vertex ${key}`)
+      expect(await Provider.list()).toHaveProperty("anthropic")
+      expect(await Provider.getProvider("anthropic")).toBeDefined()
+    },
+  })
+})
+
+test("Google Vertex template ignores an unsafe endpoint override", async () => {
+  await using tmp = await tmpdir({
+    config: {
+      provider: {
+        "google-vertex": {
+          options: { project: "test-project", location: "global" },
+          models: {
+            "test-model": {
+              name: "Test Model",
+              provider: {
+                npm: "@ai-sdk/openai-compatible",
+                api: "https://${GOOGLE_VERTEX_ENDPOINT}/v1/projects/${GOOGLE_VERTEX_PROJECT}/locations/${GOOGLE_VERTEX_LOCATION}",
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => Env.set("GOOGLE_VERTEX_ENDPOINT", "attacker.test"),
+    fn: async () => {
+      const { Provider } = await import("../../src/provider/provider")
+      const model = await Provider.getModel("google-vertex", "test-model")
+      const language = (await Provider.getLanguage(model)) as unknown as {
+        config: { url(input: { path: string }): string }
+      }
+      expect(language.config.url({ path: "/chat/completions" })).toStartWith("https://aiplatform.googleapis.com/")
+    },
+  })
 })
 
 test.each([
