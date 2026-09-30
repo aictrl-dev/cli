@@ -17,6 +17,9 @@ import { type SystemError } from "bun"
 import type { Provider } from "@/provider/provider"
 
 export namespace MessageV2 {
+  export function hasVisibleOutput(parts: Part[]) {
+    return parts.some((part) => (part.type === "text" && !!part.text.trim()) || part.type === "tool")
+  }
   export const OutputLengthError = NamedError.create("MessageOutputLengthError", z.object({}))
   export const AbortedError = NamedError.create("MessageAbortedError", z.object({ message: z.string() }))
   export const StructuredOutputError = NamedError.create(
@@ -597,6 +600,9 @@ export namespace MessageV2 {
             msg.parts.some((part) => part.type !== "step-start" && part.type !== "reasoning")
           )
         ) {
+          continue
+        }
+        if (!hasVisibleOutput(msg.parts)) {
           continue
         }
         const assistantMessage: UIMessage = {

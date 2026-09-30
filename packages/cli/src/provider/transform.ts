@@ -20,6 +20,17 @@ function mimeToModality(mime: string): Modality | undefined {
 export namespace ProviderTransform {
   export const OUTPUT_TOKEN_MAX = Flag.AICTRL_EXPERIMENTAL_OUTPUT_TOKEN_MAX || 32_000
 
+  export function isGeminiTarget(model: Provider.Model) {
+    // Proxy model IDs can use mixed case even when registry IDs are lowercase.
+    const id = model.api.id.toLowerCase()
+    return (
+      model.providerID === "google" ||
+      sdkKey(model.api.npm) === "google" ||
+      id.includes("gemini") ||
+      id.startsWith("google/")
+    )
+  }
+
   // Maps npm package to the key the AI SDK expects for providerOptions
   function sdkKey(npm: string): string | undefined {
     switch (npm) {
@@ -171,6 +182,18 @@ export namespace ProviderTransform {
     return msgs
   }
 
+  function dropTrailingNonToolAssistant(msgs: ModelMessage[]): ModelMessage[] {
+    // Gemini rejects requests ending on a model turn, including proxy routes.
+    // A trailing text answer must go as well.
+    // Unlike MessageV2's history filter, this also removes text-bearing turns.
+    const user = msgs.some((msg) => msg.role === "user")
+    if (!user) return msgs
+    const last = msgs.at(-1)
+    if (last?.role !== "assistant") return msgs
+    if (Array.isArray(last.content) && last.content.some((part) => part.type === "tool-call")) return msgs
+    return dropTrailingNonToolAssistant(msgs.slice(0, -1))
+  }
+
   function applyCaching(msgs: ModelMessage[], model: Provider.Model): ModelMessage[] {
     const system = msgs.filter((msg) => msg.role === "system").slice(0, 2)
     const final = msgs.filter((msg) => msg.role !== "system").slice(-2)
@@ -252,6 +275,10 @@ export namespace ProviderTransform {
   export function message(msgs: ModelMessage[], model: Provider.Model, options: Record<string, unknown>) {
     msgs = unsupportedParts(msgs, model)
     msgs = normalizeMessages(msgs, model, options)
+    const key = sdkKey(model.api.npm)
+    if (isGeminiTarget(model)) {
+      msgs = dropTrailingNonToolAssistant(msgs)
+    }
     if (
       (model.providerID === "anthropic" ||
         model.api.id.includes("anthropic") ||
@@ -265,7 +292,6 @@ export namespace ProviderTransform {
     }
 
     // Remap providerOptions keys from stored providerID to expected SDK key
-    const key = sdkKey(model.api.npm)
     if (key && key !== model.providerID && model.api.npm !== "@ai-sdk/azure") {
       const remap = (opts: Record<string, any> | undefined) => {
         if (!opts) return opts

@@ -195,9 +195,19 @@ describe("session.retry.max_attempts", () => {
   })
 
   test("processor checks max retry attempts", async () => {
-    const source = await Bun.file(
-      path.join(import.meta.dir, "../../src/session/processor.ts"),
-    ).text()
+    const source = await Bun.file(path.join(import.meta.dir, "../../src/session/processor.ts")).text()
     expect(source).toMatch(/attempt\s*>\s*SessionRetry\.MAX_RETRY_ATTEMPTS/)
   })
+})
+
+test("retry reasons match the SDK and event specification", async () => {
+  const sdk = await Bun.file(path.join(import.meta.dir, "../../../sdk/src/gen/types.gen.ts")).text()
+  const docs = await Bun.file(path.join(import.meta.dir, "../../../../EVENTS.md")).text()
+  const union = sdk.match(/export type SessionStatus =[\s\S]*?reason: ([^\n]+)/)?.[1]
+  const list = docs.match(/safe retry reason: ([^\n]+)/)?.[1]
+  expect(union).toBeDefined()
+  expect(list).toBeDefined()
+  const values = (text: string) => [...text.matchAll(/`([^`]+)`|"([^"]+)"/g)].map((match) => match[1] ?? match[2])
+  expect(values(union!)).toEqual([...SessionRetry.Reason])
+  expect(values(list!)).toEqual([...SessionRetry.Reason])
 })

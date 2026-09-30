@@ -1,5 +1,74 @@
 import { describe, expect, test } from "bun:test"
+import type { ModelMessage } from "ai"
 import { ProviderTransform } from "../../src/provider/transform"
+import type { Provider } from "../../src/provider/provider"
+
+describe("ProviderTransform.message - Gemini trailing assistant", () => {
+  const user: ModelMessage = { role: "user", content: "Continue" }
+  const thought: ModelMessage = { role: "assistant", content: [{ type: "reasoning", text: "Thinking" }] }
+  const call: ModelMessage = {
+    role: "assistant",
+    content: [{ type: "tool-call", toolCallId: "call", toolName: "read", input: {} }],
+  }
+  const model = (npm: string, id = "gemini-fixture") =>
+    ({
+      id,
+      providerID: npm === "@ai-sdk/openai" ? "openai" : "google",
+      api: { id, npm },
+      capabilities: { interleaved: false },
+    }) as Provider.Model
+
+  test.each(["@ai-sdk/google", "@ai-sdk/google-vertex"])(
+    "%s drops trailing assistant turns without tool calls",
+    (npm) => {
+      expect(ProviderTransform.message([user, thought, thought], model(npm), {})).toEqual([user])
+      expect(ProviderTransform.message([user, { role: "assistant", content: "partial" }], model(npm), {})).toEqual([
+        user,
+      ])
+      expect(ProviderTransform.message([user, call], model(npm), {})).toEqual([user, call])
+      expect(ProviderTransform.message([], model(npm), {})).toEqual([])
+    },
+  )
+
+  test("other providers keep trailing assistant turns", () => {
+    expect(ProviderTransform.message([user, thought], model("@ai-sdk/openai", "gpt-fixture"), {})).toEqual([
+      user,
+      thought,
+    ])
+  })
+
+  test("Google provider ID identifies a custom registry model", () => {
+    const target = model("@ai-sdk/openai-compatible", "custom-model")
+    expect(ProviderTransform.isGeminiTarget(target)).toBe(true)
+    expect(ProviderTransform.message([user, thought], target, {})).toEqual([user])
+  })
+
+  test("mixed-case proxy IDs identify Gemini targets", () => {
+    const target = { ...model("@ai-sdk/openai-compatible", "GoOgLe/Gemini-3"), providerID: "proxy" }
+    expect(ProviderTransform.isGeminiTarget(target)).toBe(true)
+  })
+
+  test.each([
+    ["@ai-sdk/gateway", "google/gemini-3-pro"],
+    ["@openrouter/ai-sdk-provider", "google/gemini-3-pro"],
+    ["@openrouter/ai-sdk-provider", "gemini-3-pro"],
+    ["@ai-sdk/openai-compatible", "google/gemini-3-pro"],
+  ])("%s %s drops trailing assistant turns", (npm, id) => {
+    expect(ProviderTransform.isGeminiTarget(model(npm, id))).toBe(true)
+    expect(ProviderTransform.message([user, thought], model(npm, id), {})).toEqual([user])
+    expect(ProviderTransform.message([user, call], model(npm, id), {})).toEqual([user, call])
+  })
+
+  test.each(["@ai-sdk/google", "@ai-sdk/google-vertex"])(
+    "%s keeps all-assistant history when no user turn remains",
+    (npm) => {
+      expect(ProviderTransform.message([thought, { role: "assistant", content: "final" }], model(npm), {})).toEqual([
+        thought,
+        { role: "assistant", content: "final" },
+      ])
+    },
+  )
+})
 
 const OUTPUT_TOKEN_MAX = 32000
 
