@@ -169,6 +169,16 @@ jobs:
         working-directory: packages/cli
         run: ${{ github.workspace }}/.github/scripts/publish-if-new.sh "@aictrl/cli"
 
+  smoke:
+    needs: publish
+    runs-on: ubuntu-latest
+    # Registry install and binary execution receive no publication permissions.
+    permissions: {}
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
       - name: Smoke test - verify @aictrl/cli installs cleanly via npm
         # Catches the v0.3.3-class bug where the published manifest carries
         # Bun-only protocols (workspace:*, catalog:) that plain `npm install`
@@ -176,8 +186,11 @@ jobs:
         # publish goes unnoticed until consumers report install failures.
         # #72.
         timeout-minutes: 15
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
+          AICTRL_VERSION="${RELEASE_TAG#v}"
           smoke="${RUNNER_TEMP}/aictrl-publish-smoke"
           rm -rf "$smoke"
           mkdir -p "$smoke"
@@ -190,7 +203,10 @@ jobs:
           for attempt in {1..10}; do
             if npm install "@aictrl/cli@${AICTRL_VERSION}" 2>&1 | tee install.log; then
               echo "::notice::npm install @aictrl/cli@${AICTRL_VERSION} succeeded on attempt ${attempt}"
-              INSTALLED_VERSION=$(./node_modules/.bin/aictrl --version)
+              if ! INSTALLED_VERSION=$(./node_modules/.bin/aictrl --version); then
+                echo "::error::Installed CLI binary could not run for @aictrl/cli@${AICTRL_VERSION}"
+                exit 1
+              fi
               if [ "$INSTALLED_VERSION" != "$AICTRL_VERSION" ]; then
                 echo "::error::Installed CLI reports $INSTALLED_VERSION, expected $AICTRL_VERSION"
                 exit 1

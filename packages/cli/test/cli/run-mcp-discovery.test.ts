@@ -17,6 +17,7 @@ type Event = {
 describe("headless MCP discovery", () => {
   test.each([
     { name: "healthy", failure: 0, hang: false, turns: 3, code: 0 },
+    { name: "catalog failure recovers before model turn", failure: 2, hang: false, turns: 3, code: 0 },
     { name: "failure before first model turn", failure: 3, hang: false, turns: 0, code: 1 },
     { name: "failure after successful model turn", failure: 4, hang: false, turns: 1, code: 1 },
     { name: "hung discovery after successful model turn", failure: 4, hang: true, turns: 1, code: 1 },
@@ -156,9 +157,11 @@ describe("headless MCP discovery", () => {
         expect(exit, stderr + stdout).toBe(code)
         expect(requests).toHaveLength(turns)
         for (const tools of requests) expect(tools).toContain("aictrl_record_finding")
-        expect(events.find((event) => event.type === "tool_catalog")?.tools).toContainEqual(
-          expect.objectContaining({ name: "aictrl_record_finding", source: "mcp" }),
-        )
+        if (failure === 2) expect(events.filter((event) => event.type === "tool_catalog_error")).toHaveLength(1)
+        else
+          expect(events.find((event) => event.type === "tool_catalog")?.tools).toContainEqual(
+            expect.objectContaining({ name: "aictrl_record_finding", source: "mcp" }),
+          )
         expect(records).toBe(code ? 0 : 1)
         expect(events.filter((event) => event.type === "session_error")).toHaveLength(code ? 1 : 0)
         if (code) {

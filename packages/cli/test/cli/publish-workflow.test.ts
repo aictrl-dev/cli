@@ -6,11 +6,16 @@ import { tmpdir } from "../fixture/fixture"
 const workflow = Bun.YAML.parse(
   await Bun.file(path.resolve(import.meta.dir, "../../../../.github/workflows/publish.yml")).text(),
 ) as {
-  jobs: { publish: { steps: { name?: string; run?: string }[] } }
+  jobs: Record<
+    string,
+    { steps: { name?: string; run?: string }[]; needs?: string; permissions?: Record<string, string> }
+  >
 }
 const steps = workflow.jobs.publish.steps
 const guard = steps.find((step) => step.name === "Verify release version before building")!
-const smoke = steps.find((step) => step.name === "Smoke test - verify @aictrl/cli installs cleanly via npm")!
+const smoke = workflow.jobs.smoke.steps.find(
+  (step) => step.name === "Smoke test - verify @aictrl/cli installs cleanly via npm",
+)!
 
 describe("release version gate", () => {
   test.each([
@@ -38,6 +43,10 @@ describe("release version gate", () => {
 })
 
 describe("release install smoke gate", () => {
+  test("published package execution has no publishing permissions", () => {
+    expect(workflow.jobs.smoke.needs).toBe("publish")
+    expect(workflow.jobs.smoke.permissions).toEqual({})
+  })
   test.each([
     { name: "immediate availability", failures: 0, error: "ETARGET", version: "0.4.5", code: 0, attempts: 1 },
     { name: "delayed beyond old window", failures: 6, error: "ETARGET", version: "0.4.5", code: 0, attempts: 7 },
@@ -51,6 +60,7 @@ describe("release install smoke gate", () => {
       attempts: 1,
     },
     { name: "wrong binary installed", failures: 0, error: "ETARGET", version: "0.4.4", code: 1, attempts: 1 },
+    { name: "missing binary", failures: 0, error: "ETARGET", version: "missing", code: 1, attempts: 1 },
   ])("$name", async ({ failures, error, version, code, attempts }) => {
     await using tmp = await tmpdir()
     const bin = path.join(tmp.path, "bin")
@@ -66,6 +76,7 @@ count=$((count + 1))
 echo "$count" > "$FIXTURE_ROOT/count"
 if [ "$count" -le "$FIXTURE_FAILURES" ]; then echo "$FIXTURE_ERROR"; exit 1; fi
 mkdir -p node_modules/.bin
+if [ "$FIXTURE_VERSION" = missing ]; then exit 0; fi
 cat > node_modules/.bin/aictrl <<'BIN'
 #!/bin/sh
 printf '%s' "$FIXTURE_VERSION"
@@ -85,7 +96,7 @@ echo "$1" >> "$FIXTURE_ROOT/sleeps"
       env: {
         PATH: `${bin}:${process.env.PATH}`,
         RUNNER_TEMP: tmp.path,
-        AICTRL_VERSION: "0.4.5",
+        RELEASE_TAG: "v0.4.5",
         FIXTURE_ROOT: tmp.path,
         FIXTURE_FAILURES: String(failures),
         FIXTURE_ERROR: error,
@@ -96,6 +107,7 @@ echo "$1" >> "$FIXTURE_ROOT/sleeps"
     })
     const [stdout, exit] = await Promise.all([new Response(proc.stdout).text(), proc.exited])
     expect(exit, stdout).toBe(code)
+    if (version === "missing") expect(stdout).toContain("::error::Installed CLI binary could not run")
     expect(await Bun.file(path.join(tmp.path, "count")).text()).toBe(`${attempts}\n`)
     const sleeps = Bun.file(path.join(tmp.path, "sleeps"))
     if (attempts === 1) expect(await sleeps.exists()).toBe(false)
