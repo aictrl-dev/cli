@@ -619,7 +619,7 @@ export namespace MCP {
     return (entry && isMcpConfigured(entry) ? entry.timeout : undefined) ?? cfg.experimental?.mcp_timeout
   }
 
-  async function discoverTools(clientName: string, client: MCPClient, timeout: number) {
+  async function discoverTools(clientName: string, client: MCPClient, timeout?: number) {
     const s = await state()
     return client
       .listTools(undefined, { timeout })
@@ -659,17 +659,17 @@ export namespace MCP {
 
     const toolsResults = await Promise.all(
       connectedClients.map(async ([clientName, client]) => {
-        const timeout = configuredTimeout(cfg, clientName)
-        // Listing uses the connection/discovery default. Calls retain the
-        // SDK's existing default when no explicit timeout is configured.
-        const toolsResult = await discoverTools(clientName, client, timeout ?? DEFAULT_TIMEOUT)
-        return { clientName, client, toolsResult, timeout }
+        const callTimeout = configuredTimeout(cfg, clientName)
+        // Preserve the SDK's bounded request default for discovery and calls
+        // when no explicit timeout is configured.
+        const toolsResult = await discoverTools(clientName, client, callTimeout)
+        return { clientName, client, toolsResult, callTimeout }
       }),
     )
 
-    for (const { clientName, client, toolsResult, timeout } of toolsResults) {
+    for (const { clientName, client, toolsResult, callTimeout } of toolsResults) {
       for (const mcpTool of toolsResult.tools) {
-        result[mcpToolKey(clientName, mcpTool.name)] = await convertMcpTool(mcpTool, client, timeout)
+        result[mcpToolKey(clientName, mcpTool.name)] = await convertMcpTool(mcpTool, client, callTimeout)
       }
     }
     return result
@@ -695,8 +695,8 @@ export namespace MCP {
 
     const toolsResults = await Promise.all(
       connectedClients.map(async ([clientName, client]) => {
-        const timeout = configuredTimeout(cfg, clientName) ?? DEFAULT_TIMEOUT
-        const toolsResult = await discoverTools(clientName, client, timeout)
+        const discoveryTimeout = configuredTimeout(cfg, clientName)
+        const toolsResult = await discoverTools(clientName, client, discoveryTimeout)
         return { clientName, toolsResult }
       }),
     )

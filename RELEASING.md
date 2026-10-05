@@ -3,10 +3,10 @@
 1. Prepare a PR against `main` with the fixes, the version bump in
    `packages/cli/package.json`, and the matching `packages/cli` workspace
    version in `bun.lock`. Run `bun install --frozen-lockfile`.
-2. Run the headless release regressions from `packages/cli`:
+2. Run the release regressions from `packages/cli`:
 
    ```bash
-   bun test test/cli/run-mcp-discovery.test.ts test/cli/run-provider-finish.test.ts test/cli/run-signal-cancellation.test.ts test/cli/classify-session-error.test.ts test/session/idle.test.ts test/session/processor-idle.test.ts
+   bun test test/cli/run-mcp-discovery.test.ts test/mcp/discovery-recovery.test.ts test/cli/publish-workflow.test.ts test/cli/run-provider-finish.test.ts test/cli/run-signal-cancellation.test.ts test/cli/classify-session-error.test.ts test/session/idle.test.ts test/session/processor-idle.test.ts
    ```
 
    Wait for CI build, workspace typecheck and tests to pass and address reviews.

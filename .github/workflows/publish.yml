@@ -17,7 +17,7 @@ jobs:
         with:
           bun-version: latest
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
 
@@ -175,7 +175,7 @@ jobs:
     # Registry install and binary execution receive no publication permissions.
     permissions: {}
     steps:
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
 
