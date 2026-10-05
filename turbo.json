@@ -1,7 +1,15 @@
 {
   "$schema": "https://turborepo.com/schema.json",
-  "globalEnv": ["CI", "AICTRL_DISABLE_SHARE"],
-  "globalPassThroughEnv": ["CI", "AICTRL_DISABLE_SHARE", "AICTRL_VERSION", "AICTRL_CHANNEL", "AICTRL_RELEASE", "MODELS_DEV_API_JSON", "AICTRL_MODELS_URL", "GH_REPO"],
+  "globalEnv": ["CI", "AICTRL_DISABLE_SHARE", "AICTRL_VERSION", "AICTRL_BUILD_SINGLE"],
+  "globalPassThroughEnv": [
+    "CI",
+    "AICTRL_DISABLE_SHARE",
+    "AICTRL_CHANNEL",
+    "AICTRL_RELEASE",
+    "MODELS_DEV_API_JSON",
+    "AICTRL_MODELS_URL",
+    "GH_REPO"
+  ],
   "tasks": {
     "typecheck": {
       "dependsOn": ["^build"]

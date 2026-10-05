@@ -611,6 +611,19 @@ export namespace MCP {
     return sanitizedClientName + "_" + sanitizedToolName
   }
 
+  async function discoverTools(clientName: string, client: MCPClient, timeout: number) {
+    return client.listTools(undefined, { timeout }).catch((error) => {
+      log.error("MCP tool discovery failed", {
+        clientName,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      // A catalog from startup does not guarantee tools on this turn. Stop
+      // before submitting a reduced toolset. Retain the client for disposal
+      // and a subsequent retry instead of silently deleting it (#127).
+      throw new Error(`MCP tool discovery failed for server "${clientName}". Check the MCP server and retry.`)
+    })
+  }
+
   export async function tools() {
     const result: Record<string, Tool> = {}
     const s = await state()
@@ -625,22 +638,15 @@ export namespace MCP {
 
     const toolsResults = await Promise.all(
       connectedClients.map(async ([clientName, client]) => {
-        const toolsResult = await client.listTools().catch((e) => {
-          log.error("failed to get tools", { clientName, error: e.message })
-          const failedStatus = {
-            status: "failed" as const,
-            error: e instanceof Error ? e.message : String(e),
-          }
-          s.status[clientName] = failedStatus
-          delete s.clients[clientName]
-          return undefined
-        })
+        const mcpConfig = config[clientName]
+        const timeout =
+          (isMcpConfigured(mcpConfig) ? mcpConfig.timeout : undefined) ?? defaultTimeout ?? DEFAULT_TIMEOUT
+        const toolsResult = await discoverTools(clientName, client, timeout)
         return { clientName, client, toolsResult }
       }),
     )
 
     for (const { clientName, client, toolsResult } of toolsResults) {
-      if (!toolsResult) continue
       const mcpConfig = config[clientName]
       const entry = isMcpConfigured(mcpConfig) ? mcpConfig : undefined
       const timeout = entry?.timeout ?? defaultTimeout
@@ -662,6 +668,7 @@ export namespace MCP {
   export async function toolEntries(): Promise<{ toolKey: string; serverName: string }[]> {
     const result: { toolKey: string; serverName: string }[] = []
     const s = await state()
+    const cfg = await Config.get()
     const clientsSnapshot = await clients()
 
     const connectedClients = Object.entries(clientsSnapshot).filter(
@@ -670,16 +677,17 @@ export namespace MCP {
 
     const toolsResults = await Promise.all(
       connectedClients.map(async ([clientName, client]) => {
-        const toolsResult = await client.listTools().catch((e) => {
-          log.error("failed to get tool entries", { clientName, error: e.message })
-          return undefined
-        })
+        const mcpConfig = cfg.mcp?.[clientName]
+        const timeout =
+          (mcpConfig && isMcpConfigured(mcpConfig) ? mcpConfig.timeout : undefined) ??
+          cfg.experimental?.mcp_timeout ??
+          DEFAULT_TIMEOUT
+        const toolsResult = await discoverTools(clientName, client, timeout)
         return { clientName, toolsResult }
       }),
     )
 
     for (const { clientName, toolsResult } of toolsResults) {
-      if (!toolsResult) continue
       for (const mcpTool of toolsResult.tools) {
         result.push({
           toolKey: mcpToolKey(clientName, mcpTool.name),
