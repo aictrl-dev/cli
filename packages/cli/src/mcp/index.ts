@@ -147,7 +147,7 @@ export namespace MCP {
       } catch (error) {
         if (toolCatalogs.get(client) !== catalog) return
         catalog.error = new Error(
-          `MCP tool discovery failed for server "${serverName}". Check the MCP server and retry.`,
+          `MCP tool discovery failed for server "${serverName}". Reconnect the MCP server and retry.`,
           { cause: error },
         )
         log.error("MCP tool discovery failed", {
@@ -580,6 +580,11 @@ export namespace MCP {
     }
   }
 
+  function clientStatus(client: MCPClient | undefined, current: Status | undefined): Status {
+    const error = client && toolCatalogs.get(client)?.error
+    return error ? { status: "failed", error: error.message } : (current ?? { status: "disabled" })
+  }
+
   export async function status() {
     const s = await state()
     const cfg = await Config.get()
@@ -589,9 +594,7 @@ export namespace MCP {
     // Include all configured MCPs from config, not just connected ones
     for (const [key, mcp] of Object.entries(config)) {
       if (!isMcpConfigured(mcp)) continue
-      const client = s.clients[key]
-      const error = client && toolCatalogs.get(client)?.error
-      result[key] = error ? { status: "failed", error: error.message } : (s.status[key] ?? { status: "disabled" })
+      result[key] = clientStatus(s.clients[key], s.status[key])
     }
 
     return result
@@ -697,7 +700,7 @@ export namespace MCP {
       (
         await Promise.all(
           Object.entries(clientsSnapshot).map(async ([clientName, client]) => {
-            if (s.status[clientName]?.status !== "connected") {
+            if (clientStatus(client, s.status[clientName]).status !== "connected") {
               return []
             }
 
@@ -718,7 +721,7 @@ export namespace MCP {
       (
         await Promise.all(
           Object.entries(clientsSnapshot).map(async ([clientName, client]) => {
-            if (s.status[clientName]?.status !== "connected") {
+            if (clientStatus(client, s.status[clientName]).status !== "connected") {
               return []
             }
 

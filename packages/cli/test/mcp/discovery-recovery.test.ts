@@ -6,6 +6,7 @@ import { tmpdir } from "../fixture/fixture"
 async function run(source: string, initial = "initial") {
   await using tmp = await tmpdir()
   const lists: Record<string, number> = {}
+  const rpc: Record<string, number> = {}
   const modes: Record<string, string> = { "/mcp": initial, "/replacement": "replacement" }
   const streams = new Map<string, ReadableStreamDefaultController<Uint8Array>>()
   const closed: Record<string, number> = {}
@@ -18,7 +19,7 @@ async function run(source: string, initial = "initial") {
     idleTimeout: 0,
     async fetch(req): Promise<Response> {
       const route = new URL(req.url).pathname
-      if (route === "/inspect") return Response.json({ lists, closed, maxActive })
+      if (route === "/inspect") return Response.json({ lists, rpc, closed, maxActive })
       if (route === "/control") {
         const body = (await req.json()) as { mode?: string; route?: string; count?: number; release?: boolean }
         if (body.release) releases.splice(0).forEach((resolve) => resolve())
@@ -61,9 +62,20 @@ async function run(source: string, initial = "initial") {
           id: body.id,
           result: {
             protocolVersion: body.params.protocolVersion,
-            capabilities: { tools: { listChanged: true } },
+            capabilities: { tools: { listChanged: true }, prompts: {}, resources: {} },
             serverInfo: { name: "fixture", version: "1" },
           },
+        })
+      }
+      if (body.method === "prompts/list" || body.method === "resources/list") {
+        rpc[body.method] = (rpc[body.method] ?? 0) + 1
+        return Response.json({
+          jsonrpc: "2.0",
+          id: body.id,
+          result:
+            body.method === "prompts/list"
+              ? { prompts: [{ name: "review", description: "Review prompt" }] }
+              : { resources: [{ name: "evidence", uri: "fixture://evidence", description: "Review evidence" }] },
         })
       }
       if (body.method === "tools/call") {
@@ -116,6 +128,17 @@ async function run(source: string, initial = "initial") {
     import { Instance } from ${JSON.stringify(path.resolve(import.meta.dir, "../../src/project/instance.ts"))}
     const base = ${JSON.stringify(base)}
     const inspect = async () => (await fetch(base + "/inspect")).json()
+    const extras = async (healthy, calls) => {
+      const [prompts, resources] = await Promise.all([MCP.prompts(), MCP.resources()])
+      const stats = await inspect()
+      assert.deepEqual({
+        prompts: Object.keys(prompts), resources: Object.keys(resources),
+        calls: [stats.rpc["prompts/list"], stats.rpc["resources/list"]],
+      }, {
+        prompts: healthy ? ["fixture:review"] : [], resources: healthy ? ["fixture:evidence"] : [],
+        calls: [calls, calls],
+      }, "prompts and resources must follow the shared MCP health and suppress RPCs while failed")
+    }
     const control = async (body) => {
       const response = await fetch(base + "/control", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
       assert.equal(response.status, 200)
@@ -181,6 +204,7 @@ test("tools and catalog share startup discovery, including a valid empty catalog
 test("notifications serialize refreshes, expose new definitions and recover from discovery errors", async () => {
   await run(`
     assert.equal((await MCP.status()).fixture.status, "connected")
+    await extras(true, 1)
     await control({ mode: "updated", count: 2 })
     await wait(async () => (await inspect()).lists["/mcp"] >= 2)
     assert.deepEqual(Object.keys(await MCP.tools()), ["fixture_record_updated"])
@@ -192,12 +216,15 @@ test("notifications serialize refreshes, expose new definitions and recover from
     await assert.rejects(MCP.tools(), /MCP tool discovery failed for server "fixture"/)
     await assert.rejects(MCP.toolEntries(), /MCP tool discovery failed for server "fixture"/)
     assert.equal((await MCP.status()).fixture.status, "failed")
+    await extras(false, 1)
+    assert.match((await MCP.status()).fixture.error, /Reconnect the MCP server and retry/)
     assert.equal(Object.keys(await MCP.clients()).length, 1)
     assert.equal((await inspect()).lists["/mcp"], 4, "failed catalog reads must not silently retry")
     await control({ mode: "updated" })
     await wait(async () => (await inspect()).lists["/mcp"] === 5)
     assert.deepEqual(Object.keys(await MCP.tools()), ["fixture_record_updated"])
     assert.equal((await MCP.status()).fixture.status, "connected")
+    await extras(true, 2)
     await control({ mode: "empty" })
     await wait(async () => (await inspect()).lists["/mcp"] === 6)
     assert.deepEqual(await MCP.tools(), {})
@@ -231,20 +258,28 @@ test("replacing or disconnecting a client isolates a late refresh and removes fa
     await wait(async () => (await inspect()).closed["/replacement"] === 1)
     await MCP.disconnect("fixture")
     assert.equal((await MCP.status()).fixture.status, "disabled")
+    await MCP.add("dynamic", { type: "remote", url: base + "/replacement", oauth: false, timeout: 1000 })
+    assert.deepEqual(Object.keys(await MCP.prompts()), ["dynamic:review"], "programmatic clients need not appear in config")
+    assert.deepEqual(Object.keys(await MCP.resources()), ["dynamic:evidence"])
+    await MCP.disconnect("dynamic")
   `)
 }, 20000)
 
 test("transport closure fails catalog reads and reconnect installs a fresh client", async () => {
   await run(`
     assert.deepEqual(Object.keys(await MCP.tools()), ["fixture_record_initial"])
+    await extras(true, 1)
     const client = (await MCP.clients()).fixture
     await client.close()
     assert.equal((await MCP.status()).fixture.status, "failed")
+    await extras(false, 1)
+    assert.match((await MCP.status()).fixture.error, /Reconnect the MCP server and retry/)
     await assert.rejects(MCP.tools(), /MCP connection closed for server "fixture"/)
     await assert.rejects(MCP.toolEntries(), /MCP connection closed for server "fixture"/)
     await MCP.connect("fixture")
     assert.notEqual((await MCP.clients()).fixture, client)
     assert.equal((await MCP.status()).fixture.status, "connected")
+    await extras(true, 2)
     assert.deepEqual(Object.keys(await MCP.tools()), ["fixture_record_initial"])
     assert.equal((await inspect()).lists["/mcp"], 2)
     await MCP.disconnect("fixture")
