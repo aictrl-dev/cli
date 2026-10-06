@@ -38,10 +38,12 @@
 
 ## 0.4.5 candidate
 
-- Connected MCP discovery failures stop a headless invocation before a reduced
-  toolset reaches the model (CLI #127). Startup catalogs are snapshots; they
-  do not guarantee discovery on a later turn. Initially unavailable optional
-  MCP servers keep their existing connection behavior.
+- MCP tools are discovered once per connection and retained for both the
+  startup catalog and model turns (CLI #127). Tool-list change notifications
+  refresh that catalog; a failed refresh or closed connection stops the next
+  turn with an actionable error, instead of submitting a reduced toolset.
+  A successful later notification or reconnection restores discovery health.
+  Initially unavailable optional MCP servers keep their existing behavior.
 - Release version checks and npm propagation handling address CLI #126.
 - The executor enables the existing five-minute model stream idle guard in
   application #5891. The CLI retains its generic opt-in default; local tools

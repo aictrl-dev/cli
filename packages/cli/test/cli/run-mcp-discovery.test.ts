@@ -16,18 +16,48 @@ type Event = {
 
 describe("headless MCP discovery", () => {
   test.each([
-    { name: "healthy", failure: 0, hang: false, turns: 3, code: 0 },
-    { name: "catalog failure recovers before model turn", failure: 2, hang: false, turns: 3, code: 0 },
-    { name: "failure before first model turn", failure: 3, hang: false, turns: 0, code: 1 },
-    { name: "failure after successful model turn", failure: 4, hang: false, turns: 1, code: 1 },
-    { name: "hung discovery after successful model turn", failure: 4, hang: true, turns: 1, code: 1 },
+    {
+      name: "healthy catalog is discovered once across model turns",
+      notify: false,
+      failure: false,
+      hang: false,
+      turns: 3,
+      code: 0,
+    },
+    { name: "unrequested rediscovery would fail", notify: false, failure: true, hang: false, turns: 3, code: 0 },
+    { name: "unrequested rediscovery would hang", notify: false, failure: true, hang: true, turns: 3, code: 0 },
+    {
+      name: "notified catalog update reaches next model turn",
+      notify: true,
+      failure: false,
+      hang: false,
+      turns: 3,
+      code: 0,
+    },
+    {
+      name: "notified discovery failure stops next model turn",
+      notify: true,
+      failure: true,
+      hang: false,
+      turns: 1,
+      code: 1,
+    },
+    {
+      name: "hung notified discovery stops next model turn",
+      notify: true,
+      failure: true,
+      hang: true,
+      turns: 1,
+      code: 1,
+    },
   ])(
     "$name",
-    async ({ failure, hang, turns, code }) => {
+    async ({ notify, failure, hang, turns, code }) => {
       await using tmp = await tmpdir()
       let lists = 0
       let records = 0
       const requests: string[][] = []
+      const descriptions: string[] = []
       const server = Bun.serve({
         hostname: "127.0.0.1",
         port: 0,
@@ -43,14 +73,14 @@ describe("headless MCP discovery", () => {
                 id: body.id,
                 result: {
                   protocolVersion: body.params.protocolVersion,
-                  capabilities: { tools: {} },
+                  capabilities: { tools: { listChanged: true } },
                   serverInfo: { name: "fixture", version: "1" },
                 },
               })
             }
             if (body.method === "tools/list") {
               lists++
-              if (lists === failure) {
+              if (failure && lists > 1) {
                 if (hang)
                   return new Response(new ReadableStream(), { headers: { "content-type": "text/event-stream" } })
                 return Response.json({
@@ -63,21 +93,47 @@ describe("headless MCP discovery", () => {
                 jsonrpc: "2.0",
                 id: body.id,
                 result: {
-                  tools: [{ name: "record_finding", description: "Record a finding", inputSchema: { type: "object" } }],
+                  tools: [
+                    {
+                      name: "record_finding",
+                      description: lists === 1 ? "Initial catalog" : "Updated catalog",
+                      inputSchema: { type: "object" },
+                    },
+                  ],
                 },
               })
             }
-            if (body.method === "tools/call") records++
+            if (body.method === "tools/call") {
+              records++
+              if (notify) {
+                const events = [
+                  { jsonrpc: "2.0", method: "notifications/tools/list_changed" },
+                  { jsonrpc: "2.0", id: body.id, result: { content: [{ type: "text", text: "recorded" }] } },
+                ]
+                return new Response(
+                  events.map((event) => `event: message\ndata: ${JSON.stringify(event)}\n\n`).join(""),
+                  {
+                    headers: { "content-type": "text/event-stream" },
+                  },
+                )
+              }
+            }
             return Response.json({
               jsonrpc: "2.0",
               id: body.id,
               result: { content: [{ type: "text", text: "recorded" }] },
             })
           }
-          const body = (await req.json()) as { tools?: { function: { name: string } }[] }
+          const body = (await req.json()) as { tools?: { function: { name: string; description?: string } }[] }
           const tools = body.tools?.map((tool) => tool.function.name) ?? []
-          if (tools.length) requests.push(tools)
-          const name = requests.length === 1 ? "bash" : "aictrl_record_finding"
+          if (tools.length) {
+            requests.push(tools)
+            descriptions.push(
+              body.tools!.find((tool) => tool.function.name === "aictrl_record_finding")?.function.description ??
+                "missing",
+            )
+          }
+          const name = requests.length === 1 ? "aictrl_record_finding" : "bash"
           const call = tools.length && requests.length < 3
           const delta = call
             ? {
@@ -157,12 +213,16 @@ describe("headless MCP discovery", () => {
         expect(exit, stderr + stdout).toBe(code)
         expect(requests).toHaveLength(turns)
         for (const tools of requests) expect(tools).toContain("aictrl_record_finding")
-        if (failure === 2) expect(events.filter((event) => event.type === "tool_catalog_error")).toHaveLength(1)
-        else
-          expect(events.find((event) => event.type === "tool_catalog")?.tools).toContainEqual(
-            expect.objectContaining({ name: "aictrl_record_finding", source: "mcp" }),
-          )
-        expect(records).toBe(code ? 0 : 1)
+        expect(events.find((event) => event.type === "tool_catalog")?.tools).toContainEqual(
+          expect.objectContaining({ name: "aictrl_record_finding", source: "mcp" }),
+        )
+        expect(lists).toBe(notify ? 2 : 1)
+        expect(records).toBe(1)
+        expect(descriptions).toEqual(
+          notify && !code
+            ? ["Initial catalog", "Updated catalog", "Updated catalog"]
+            : Array(turns).fill("Initial catalog"),
+        )
         expect(events.filter((event) => event.type === "session_error")).toHaveLength(code ? 1 : 0)
         if (code) {
           expect(events.find((event) => event.type === "session_error")?.message).toContain(
