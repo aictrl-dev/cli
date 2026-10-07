@@ -41,14 +41,15 @@ aictrl run --output-schema result.schema.json --output-schema-retries 2 \
 ```
 
 - `--output-schema <file>`: JSON Schema file, forwarded in local and `--attach` runs.
-  Relative `--output-schema` and `--output-result` paths resolve against `--dir`
-  when it is given (as `--file` paths do); configuration errors print the resolved path.
 - `--output-schema-retries <n>`: additional corrective turns, integer from 0 to 10,
   default 2. Zero permits one model request; N permits at most N+1 corrective
   requests. Each rejected call is counted, including multiple calls in one step.
 - `--output-result <file>`: atomically write only the validated JSON value,
   indented with two spaces and a trailing newline. Failures preserve an existing
   file and leave an absent file absent. The destination directory must exist.
+
+Relative `--output-schema` and `--output-result` paths resolve against `--dir` when
+it is given (as `--file` paths do); configuration errors print the resolved path.
 
 Ajv strict mode rejects unknown schema keywords and unregistered `format`
 values such as `date-time` and `uri` as configuration errors (exit **2**).

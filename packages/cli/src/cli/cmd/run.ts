@@ -561,8 +561,8 @@ export const RunCommand = cmd({
         return false
       }
 
-      const subscription = new AbortController()
-      const events = await sdk.event.subscribe({ signal: subscription.signal })
+      const subscriptionAbort = new AbortController()
+      const events = await sdk.event.subscribe({ signal: subscriptionAbort.signal })
       let error: string | undefined
       const startTime = Date.now()
       const childSessions = new Set<string>()
@@ -1060,7 +1060,7 @@ export const RunCommand = cmd({
 
       if (schema && (failure || error)) {
         abort()
-        subscription.abort()
+        subscriptionAbort.abort()
         const result = await loopDone
         if (failure) await reject(failure.cause)
         if (!failure) await finish(result)
@@ -1082,7 +1082,7 @@ export const RunCommand = cmd({
       ])
       if (schema && !result.ok) {
         abort()
-        subscription.abort()
+        subscriptionAbort.abort()
         await loopDone
       }
       await finish(result)

@@ -542,9 +542,12 @@ does not coerce types, insert defaults or remove extra properties.
 `--output-schema-retries <n>` permits N additional corrective turns (0–10, default 2).
 Zero permits exactly one model request. A step can contain multiple StructuredOutput
 calls; every rejected call is reported and counted even after the budget is spent.
-`--output-result <file>` writes only accepted JSON using two-space indentation and a trailing newline, with a temporary file
-in the destination directory followed by an atomic rename. Failures preserve the
-file. Both flags require `--output-schema`; the destination directory must exist and be writable at configuration time.
+`--output-result <file>` writes only accepted JSON using two-space indentation and
+a trailing newline, with a temporary file in the destination directory followed
+by an atomic rename. Failures preserve the file. Both flags require
+`--output-schema`; the destination directory must exist and be writable at
+configuration time. Relative paths resolve against `--dir` when it is given, and
+configuration errors name the resolved path after the reason.
 Without `--output-result`, formatted mode prints final JSON; NDJSON includes the
 value in the terminal event below.
 

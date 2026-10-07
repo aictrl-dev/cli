@@ -237,7 +237,7 @@ for (const [name, options, reason] of [
     // and the error names the resolved path rather than the bare argument.
     "relative schema under --dir",
     { flags: ["--dir", "home", "--output-schema", "schema.json"] },
-    `${path.sep}home${path.sep}schema.json: cannot read schema file`,
+    `${path.sep}home${path.sep}schema.json)`,
   ],
   ["invalid JSON", { content: "{broken" }, "invalid JSON"],
   ["uncompilable", { content: '{"type":"object","unknownKeyword":true}' }, "strict mode"],
@@ -246,6 +246,17 @@ for (const [name, options, reason] of [
   ["null JSON root", { content: "null" }, "schema root must be a JSON object"],
   ["scalar JSON root", { content: '"schema"' }, "schema root must be a JSON object"],
   ["oversized schema", { content: JSON.stringify({ type: "object", description: "x".repeat(64 * 1024) }) }, "64 KiB"],
+  [
+    // ~2,000 levels is only ~16 KB but overflows Ajv's recursive codegen.
+    "deeply nested schema",
+    {
+      content: JSON.stringify({
+        type: "object",
+        properties: { a: Array.from({ length: 2000 }).reduce<object>((inner) => ({ not: inner }), { type: "string" }) },
+      }),
+    },
+    "nesting must not exceed 64 levels",
+  ],
   [
     "unknown format",
     { content: '{"type":"object","properties":{"result":{"type":"string","format":"date-time"}}}' },
@@ -722,7 +733,7 @@ test("schema config NDJSON clips the specific compilation cause", async () => {
   expect(result.requests).toEqual([])
   const event = result.events.find((event) => event.type === "invocation_error")
   expect(event?.code).toBe("OUTPUT_SCHEMA_CONFIG")
-  expect(event?.message).toStartWith(path.sep)
-  expect(event?.message).toContain(`${path.sep}schema.json: strict mode: unknown keyword:`)
+  // The reason leads so the 300-char clip removes path text, never the cause.
+  expect(event?.message).toStartWith("strict mode: unknown keyword:")
   expect((event?.message as string).length).toBe(300)
 }, 25000)

@@ -16,28 +16,29 @@ export async function outputSchema(input: { schema?: string; retries?: number; r
   if (input.retries !== undefined && (!Number.isSafeInteger(input.retries) || input.retries < 0 || input.retries > 10))
     throw new Error("--output-schema-retries must be an integer between 0 and 10")
   // Relative paths resolve against --dir (run changes into it first), like --file.
-  // Report the resolved path so a misplaced relative path is obvious.
+  // Report the resolved path after the reason, so clipping (300 chars) drops path
+  // text rather than the cause.
   const file = path.resolve(input.schema)
   const text = await Bun.file(file)
     .text()
     .catch(() => {
-      throw new Error(`${file}: cannot read schema file`)
+      throw new Error(`cannot read schema file (${file})`)
     })
   const schema: unknown = (() => {
     try {
       return JSON.parse(text)
     } catch {
-      throw new Error(`${file}: invalid JSON`)
+      throw new Error(`invalid JSON (${file})`)
     }
   })()
   if (!schema || typeof schema !== "object" || Array.isArray(schema))
-    throw new Error(`${file}: schema root must be a JSON object`)
+    throw new Error(`schema root must be a JSON object (${file})`)
   const canonical = schema as Record<string, unknown>
   const validate = (() => {
     try {
       return OutputSchema.compile(canonical)
     } catch (error) {
-      throw new Error(`${file}: ${error instanceof Error ? error.message : "cannot compile schema"}`)
+      throw new Error(`${error instanceof Error ? error.message : "cannot compile schema"} (${file})`)
     }
   })()
   if (input.result) {
@@ -51,7 +52,7 @@ export async function outputSchema(input: { schema?: string; retries?: number; r
         return true
       })
       .catch(() => false)
-    if (!writable) throw new Error(`${result}: output-result parent directory must exist and be writable`)
+    if (!writable) throw new Error(`output-result parent directory must exist and be writable (${result})`)
   }
   return { format: { type: "json_schema" as const, schema: canonical, retryCount: input.retries ?? 2 }, validate }
 }
