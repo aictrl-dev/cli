@@ -1,4 +1,5 @@
 import path from "path"
+// Bun content I/O preserves createPath: false; fs/promises supplies metadata and atomic rename/removal.
 import fs from "fs/promises"
 import { OutputSchema } from "@/session/output-schema"
 
@@ -12,32 +13,37 @@ export async function outputSchema(input: { schema?: string; retries?: number; r
       throw new Error("--output-schema-retries and --output-result require --output-schema")
     return
   }
-  if (input.retries !== undefined && (!Number.isSafeInteger(input.retries) || input.retries < 0))
-    throw new Error("--output-schema-retries must be an integer >= 0")
-  const text = await Bun.file(input.schema)
+  if (input.retries !== undefined && (!Number.isSafeInteger(input.retries) || input.retries < 0 || input.retries > 10))
+    throw new Error("--output-schema-retries must be an integer between 0 and 10")
+  // Relative paths resolve against --dir (run changes into it first), like --file.
+  // Report the resolved path after the reason, so clipping (300 chars) drops path
+  // text rather than the cause.
+  const file = path.resolve(input.schema)
+  const text = await Bun.file(file)
     .text()
     .catch(() => {
-      throw new Error(`${input.schema}: cannot read schema file`)
+      throw new Error(`cannot read schema file (${file})`)
     })
   const schema: unknown = (() => {
     try {
       return JSON.parse(text)
     } catch {
-      throw new Error(`${input.schema}: invalid JSON`)
+      throw new Error(`invalid JSON (${file})`)
     }
   })()
   if (!schema || typeof schema !== "object" || Array.isArray(schema))
-    throw new Error(`${input.schema}: schema root must have type "object"`)
+    throw new Error(`schema root must be a JSON object (${file})`)
   const canonical = schema as Record<string, unknown>
   const validate = (() => {
     try {
       return OutputSchema.compile(canonical)
     } catch (error) {
-      throw new Error(`${input.schema}: ${error instanceof Error ? error.message : "cannot compile schema"}`)
+      throw new Error(`${error instanceof Error ? error.message : "cannot compile schema"} (${file})`)
     }
   })()
   if (input.result) {
-    const directory = path.dirname(input.result)
+    const result = path.resolve(input.result)
+    const directory = path.dirname(result)
     const writable = await fs
       .stat(directory)
       .then(async (stat) => {
@@ -46,7 +52,7 @@ export async function outputSchema(input: { schema?: string; retries?: number; r
         return true
       })
       .catch(() => false)
-    if (!writable) throw new Error(`${input.result}: output-result parent directory must exist and be writable`)
+    if (!writable) throw new Error(`output-result parent directory must exist and be writable (${result})`)
   }
   return { format: { type: "json_schema" as const, schema: canonical, retryCount: input.retries ?? 2 }, validate }
 }

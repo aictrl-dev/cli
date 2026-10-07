@@ -18,6 +18,7 @@ async function run(
     timeout?: boolean
     abort?: boolean
     failure?: boolean
+    queued?: boolean
     attach?: boolean
     locked?: boolean
     denied?: boolean
@@ -107,6 +108,26 @@ async function run(
   if (options.existing) await Bun.write(path.join(tmp.path, "result.json"), options.existing)
   const home = path.join(tmp.path, "home")
   await fs.mkdir(home)
+  if (options.queued) {
+    // Inject a synchronous provider failure after a burst of real bus events so
+    // the local subscription still has a rejection queued when it is aborted.
+    await Bun.write(
+      path.join(tmp.path, "failure.ts"),
+      `import { SessionPrompt } from ${JSON.stringify(path.resolve(import.meta.dir, "../../src/session/prompt.ts"))}
+import { GlobalBus } from ${JSON.stringify(path.resolve(import.meta.dir, "../../src/bus/global.ts"))}
+import { MessageV2 } from ${JSON.stringify(path.resolve(import.meta.dir, "../../src/session/message-v2.ts"))}
+SessionPrompt.prompt = async (input) => {
+  for (let n = 0; n < 32; n++) GlobalBus.emit("event", { payload: { type: "fixture.queued", properties: {} } })
+  GlobalBus.emit("event", { payload: {
+    type: "session.structured_output_rejected",
+    properties: { sessionID: input.sessionID, attempt: 1, maxAttempts: 3,
+      errors: [{ path: "", keyword: "required", message: "must have required property 'result'" }] }
+  } })
+  throw new MessageV2.APIError({ message: "Fixture provider failed", statusCode: 400, isRetryable: false })
+}
+`,
+    )
+  }
   const attached: { url: string; body: Record<string, unknown> }[] = []
   // The headless package has no HTTP server; bridge its real session APIs rather
   // than synthesizing responses or terminal events for the attach regression.
@@ -171,6 +192,7 @@ async function run(
       "bun",
       "run",
       "--conditions=browser",
+      ...(options.queued ? ["--preload", path.join(tmp.path, "failure.ts")] : []),
       entry,
       "run",
       ...(bridge ? ["--attach", bridge.url.origin, "--dir", tmp.path] : []),
@@ -232,9 +254,31 @@ async function run(
 
 for (const [name, options, reason] of [
   ["unreadable", { flags: ["--output-schema", "absent.json"] }, "cannot read"],
+  [
+    // run changes into --dir first, so relative paths resolve there (as --file does)
+    // and the error names the resolved path rather than the bare argument.
+    "relative schema under --dir",
+    { flags: ["--dir", "home", "--output-schema", "schema.json"] },
+    `${path.sep}home${path.sep}schema.json)`,
+  ],
   ["invalid JSON", { content: "{broken" }, "invalid JSON"],
   ["uncompilable", { content: '{"type":"object","unknownKeyword":true}' }, "strict mode"],
-  ["non-object root", { content: '{"type":"array"}' }, "object"],
+  ["non-object root", { content: '{"type":"array"}' }, 'schema root must have type "object"'],
+  ["array JSON root", { content: "[]" }, "schema root must be a JSON object"],
+  ["null JSON root", { content: "null" }, "schema root must be a JSON object"],
+  ["scalar JSON root", { content: '"schema"' }, "schema root must be a JSON object"],
+  ["oversized schema", { content: JSON.stringify({ type: "object", description: "x".repeat(64 * 1024) }) }, "64 KiB"],
+  [
+    // ~2,000 levels is only ~16 KB but overflows Ajv's recursive codegen.
+    "deeply nested schema",
+    {
+      content: JSON.stringify({
+        type: "object",
+        properties: { a: Array.from({ length: 2000 }).reduce<object>((inner) => ({ not: inner }), { type: "string" }) },
+      }),
+    },
+    "nesting must not exceed 64 levels",
+  ],
   [
     "unknown format",
     { content: '{"type":"object","properties":{"result":{"type":"string","format":"date-time"}}}' },
@@ -257,11 +301,20 @@ for (const [name, options, reason] of [
   ],
   ["retries without schema", { flags: ["--output-schema-retries", "1"] }, "require --output-schema"],
   ["result without schema", { flags: ["--output-result", "result.json"] }, "require --output-schema"],
-  ["negative retries", { flags: ["--output-schema", "schema.json", "--output-schema-retries", "-1"] }, "integer >= 0"],
+  [
+    "excessive retries",
+    { flags: ["--output-schema", "schema.json", "--output-schema-retries", "11"] },
+    "integer between 0 and 10",
+  ],
+  [
+    "negative retries",
+    { flags: ["--output-schema", "schema.json", "--output-schema-retries", "-1"] },
+    "integer between 0 and 10",
+  ],
   [
     "fractional retries",
     { flags: ["--output-schema", "schema.json", "--output-schema-retries", "1.5"] },
-    "integer >= 0",
+    "integer between 0 and 10",
   ],
   [
     "unsupported draft",
@@ -279,8 +332,8 @@ for (const [name, options, reason] of [
       expect(result.stderr).toContain(reason)
       const event = result.events.find((event) => event.type === "invocation_error")
       expect((event!.message as string).length).toBeLessThanOrEqual(300)
-      if (name === "negative retries" || name === "fractional retries")
-        expect(event?.message).toBe("--output-schema-retries must be an integer >= 0")
+      if (name === "negative retries" || name === "fractional retries" || name === "excessive retries")
+        expect(event?.message).toBe("--output-schema-retries must be an integer between 0 and 10")
       expect(event).toMatchObject({ code: "OUTPUT_SCHEMA_CONFIG", message: expect.stringContaining(reason) })
       if ("content" in options) expect(result.stderr).toContain("schema.json")
       expect(result.requests).toEqual([])
@@ -324,7 +377,10 @@ for (const json of [true, false]) {
     })
     expect(result.exit, result.stderr).toBe(0)
     expect(result.requests).toHaveLength(2)
-    expect(result.requests.map((request) => request.tool_choice)).toEqual(["required", "required"])
+    expect(result.requests.map((request) => request.tool_choice)).toEqual([
+      "required",
+      { type: "function", function: { name: "StructuredOutput" } },
+    ])
     expect(JSON.stringify(result.requests[1].messages)).toContain("call StructuredOutput with the final result")
     expect(result.result).toBe(JSON.stringify({ result: "accepted" }, null, 2) + "\n")
     if (!json) return
@@ -464,7 +520,10 @@ test("schema attach repairs a prose finish through the HTTP session boundary", a
     retryCount: 2,
   })
   expect(result.requests).toHaveLength(2)
-  expect(result.requests.map((request) => request.tool_choice)).toEqual(["required", "required"])
+  expect(result.requests.map((request) => request.tool_choice)).toEqual([
+    "required",
+    { type: "function", function: { name: "StructuredOutput" } },
+  ])
   expect(result.result).toBe(JSON.stringify({ result: "accepted" }, null, 2) + "\n")
   expect(result.events.filter((event) => event.type === "structured_output_rejected")).toMatchObject([
     { attempt: 1, errors: [{ path: "", keyword: "missing", message: "call StructuredOutput with the final result" }] },
@@ -490,12 +549,17 @@ for (const [name, value, failure, code] of [
   ["malformed outcome", { result: "attached" }, false, 3],
   ["structured failure followed by loop rejection", {}, false, 3],
   ["provider rejection", { result: "submitted-secret" }, false, 1],
+  ["provider rejection after loop failure", { result: "submitted-secret" }, false, 1],
 ] as const) {
   test(`attach ${name} forwards the canonical schema and validates final acceptance`, async () => {
     await using tmp = await tmpdir()
     await Bun.write(path.join(tmp.path, "schema.json"), JSON.stringify(schema))
+    const rejection = name.startsWith("provider rejection")
     const requests: { url: string; body: Record<string, unknown> }[] = []
-    let controller: ReadableStreamDefaultController<Uint8Array> | undefined
+    let ready: (value: ReadableStreamDefaultController<Uint8Array>) => void = () => {}
+    const connected = new Promise<ReadableStreamDefaultController<Uint8Array>>((resolve) => {
+      ready = resolve
+    })
     const server = Bun.serve({
       port: 0,
       idleTimeout: 0,
@@ -505,8 +569,8 @@ for (const [name, value, failure, code] of [
           return new Response(
             new ReadableStream({
               start(value) {
-                controller = value
-                controller.enqueue(new TextEncoder().encode(": ready\n\n"))
+                value.enqueue(new TextEncoder().encode(": ready\n\n"))
+                ready(value)
               },
             }),
             { headers: { "Content-Type": "text/event-stream" } },
@@ -517,10 +581,13 @@ for (const [name, value, failure, code] of [
         requests.push({ url, body })
         if (url === "/session") return Response.json({ id: "ses_fixture" })
         if (url === "/session/ses_fixture/message") {
+          const controller = await connected
           // Provider rejection answers before any SSE event, the ordering that
           // once let a stale exit code 3 survive a genuine provider failure.
-          for (const event of name === "provider rejection"
-            ? []
+          for (const event of rejection
+            ? name === "provider rejection after loop failure"
+              ? [{ type: "session.status", properties: { sessionID: "ses_fixture", status: null } }]
+              : []
             : [
                 {
                   type: "session.structured_output_rejected",
@@ -572,12 +639,14 @@ for (const [name, value, failure, code] of [
                     ]
                   : [{ type: "session.status", properties: { sessionID: "ses_fixture", status: { type: "idle" } } }]),
               ])
-            controller!.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`))
-          if (name === "provider rejection")
+            controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`))
+          if (rejection) {
+            if (name === "provider rejection after loop failure") await Bun.sleep(25)
             return Response.json(
               { name: "APIError", data: { message: "Fixture provider failed", statusCode: 400, isRetryable: false } },
               { status: 400 },
             )
+          }
           return Response.json({})
         }
         return new Response("unexpected request", { status: 400 })
@@ -618,8 +687,9 @@ for (const [name, value, failure, code] of [
         proc.exited,
       ])
       expect(exit, stderr + stdout).toBe(code)
-      if (name === "provider rejection") {
-        expect(stderr).toContain('"code":"400"')
+      if (rejection) {
+        expect(stderr.split("\n").filter((line) => line.startsWith("{") && line.includes('"reason":'))).toHaveLength(1)
+        expect(stderr.split("\n").filter((line) => line.includes('"code":"400"'))).toHaveLength(1)
         expect(stderr).toContain('"reason":"unknown"')
         expect(stdout + stderr).not.toContain("submitted-secret")
       }
@@ -640,7 +710,7 @@ for (const [name, value, failure, code] of [
           : {
               status: "failed",
               reason: "error",
-              attempts: name === "malformed outcome" ? 1 : name === "provider rejection" ? 0 : 2,
+              attempts: name === "malformed outcome" ? 1 : rejection ? 0 : 2,
             },
       ])
       expect(events.filter((event) => event.type === "structured_output")).toHaveLength(1)
@@ -685,6 +755,25 @@ test("schema config NDJSON clips the specific compilation cause", async () => {
   expect(result.requests).toEqual([])
   const event = result.events.find((event) => event.type === "invocation_error")
   expect(event?.code).toBe("OUTPUT_SCHEMA_CONFIG")
-  expect(event?.message).toStartWith("schema.json: strict mode: unknown keyword:")
+  // The reason leads so the 300-char clip removes path text, never the cause.
+  expect(event?.message).toStartWith("strict mode: unknown keyword:")
   expect((event?.message as string).length).toBe(300)
+}, 25000)
+
+test("local abort drains rejection queued immediately before provider failure", async () => {
+  const result = await run({ queued: true })
+  expect(result.exit, result.stderr + result.stdout).toBe(1)
+  expect(result.events.filter((event) => event.type === "structured_output_rejected")).toMatchObject([
+    { attempt: 1, maxAttempts: 3, errors: [{ keyword: "required" }] },
+  ])
+  expect(result.events.filter((event) => event.type === "structured_output")).toMatchObject([
+    { status: "failed", reason: "error", attempts: 1 },
+  ])
+  expect(result.events.filter((event) => event.type === "structured_output")).toHaveLength(1)
+  expect(result.events.filter((event) => event.type === "session_complete")).toHaveLength(1)
+  expect(result.stderr.split("\n").filter((line) => line.startsWith("{") && line.includes('"reason":'))).toHaveLength(1)
+  const types = result.events.map((event) => event.type)
+  expect(types.indexOf("structured_output_rejected")).toBeLessThan(types.indexOf("structured_output"))
+  expect(types.indexOf("structured_output")).toBeLessThan(types.indexOf("session_complete"))
+  expect(types.at(-1)).toBe("invocation_complete")
 }, 25000)

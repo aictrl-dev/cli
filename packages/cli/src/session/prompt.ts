@@ -725,16 +725,14 @@ export namespace SessionPrompt {
 
       const rejection = async (errors: OutputSchema.Diagnostic[]) => {
         if (!contract) throw new Error("Missing output schema")
-        if (attempts < contract.format.retryCount + 1) {
-          attempts++
-          rejected++
-          await Bus.publish(Session.Event.StructuredOutputRejected, {
-            sessionID,
-            attempt: attempts,
-            maxAttempts: contract.format.retryCount + 1,
-            errors,
-          })
-        }
+        attempts++
+        rejected++
+        await Bus.publish(Session.Event.StructuredOutputRejected, {
+          sessionID,
+          attempt: attempts,
+          maxAttempts: contract.format.retryCount + 1,
+          errors,
+        })
         return OutputSchema.error(errors).message
       }
 
@@ -752,8 +750,8 @@ export namespace SessionPrompt {
           model,
           async onSuccess(output) {
             if (structuredOutput !== undefined) return
-            if (!available) throw new Error("StructuredOutput attempt budget exhausted")
-            attempts = Math.min(attempts + 1, format.retryCount + 1)
+            if (!available) throw new Error("StructuredOutput corrective turn budget exhausted")
+            attempts++
             structuredOutput = output
           },
         })
@@ -823,7 +821,7 @@ export namespace SessionPrompt {
         ],
         tools,
         model,
-        toolChoice: contract ? "required" : undefined,
+        toolChoice: contract ? (reminder ? { type: "tool", toolName: "StructuredOutput" } : "required") : undefined,
         structured: contract
           ? {
               reject,
@@ -1125,10 +1123,16 @@ export namespace SessionPrompt {
     model?: Provider.Model
     onSuccess: (output: unknown) => void | Promise<void>
   }): AITool & { id: "StructuredOutput" } {
+    OutputSchema.canonical(input.schema)
     const validate = input.validate ?? OutputSchema.compile(input.schema)
     const schema = Object.fromEntries(Object.entries(input.schema).filter(([key]) => key !== "$schema"))
+    const canonical = OutputSchema.canonical(schema)
+    const description =
+      canonical.bytes <= 8 * 1024
+        ? `Canonical JSON Schema: ${canonical.text}`
+        : `Canonical JSON Schema (truncated; the validator enforces the full schema): ${new TextDecoder().decode(Buffer.from(canonical.text).subarray(0, 8 * 1024))}`
     const result = tool({
-      description: STRUCTURED_OUTPUT_DESCRIPTION,
+      description: `${STRUCTURED_OUTPUT_DESCRIPTION}\n\n${description}`,
       inputSchema: jsonSchema(input.model ? ProviderTransform.schema(input.model, schema) : schema, {
         validate(value) {
           return validate(value)

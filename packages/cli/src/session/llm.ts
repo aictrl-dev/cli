@@ -9,6 +9,7 @@ import {
   type StreamTextResult,
   type Tool,
   type ToolSet,
+  type ToolChoice,
   tool,
   jsonSchema,
 } from "ai"
@@ -40,7 +41,7 @@ export namespace LLM {
     small?: boolean
     tools: Record<string, Tool>
     retries?: number
-    toolChoice?: "auto" | "required" | "none"
+    toolChoice?: ToolChoice<ToolSet>
     structured?: { reject: (input: string) => Promise<string>; checkpoint: () => () => void; repairs: Set<string> }
   }
 

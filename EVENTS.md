@@ -538,12 +538,20 @@ These events are additive in schema version `"1"` and emitted only when
 The schema is validated before any model request, with Ajv defaults and
 `allErrors: true` (draft-07, or Ajv2020 for a declared draft 2020-12). Validation
 does not coerce types, insert defaults or remove extra properties.
+Serialized schemas are limited to 64 KiB, depth 64 and 10,000 nested objects.
+The schema file is trusted instruction input: annotations (`description`, `title`,
+`examples`) are shown to the model in the StructuredOutput tool description.
 
-`--output-schema-retries <n>` permits N additional corrective attempts (default 2).
-Zero permits exactly one attempt. `--output-result <file>` writes only accepted
-JSON using two-space indentation and a trailing newline, with a temporary file
-in the destination directory followed by an atomic rename. Failures preserve the
-file. Both flags require `--output-schema`; the destination directory must exist and be writable at configuration time.
+`--output-schema-retries <n>` permits N additional corrective turns (0–10, default 2).
+Zero permits only the initial turn; N permits the initial turn and at most N
+corrective turns. A step can contain multiple StructuredOutput
+calls; every rejected call is reported and counted even after the budget is spent.
+`--output-result <file>` writes only accepted JSON using two-space indentation and
+a trailing newline, with a temporary file in the destination directory followed
+by an atomic rename. Failures preserve the file. Both flags require
+`--output-schema`; the destination directory must exist and be writable at
+configuration time. Relative paths resolve against `--dir` when it is given, and
+configuration errors name the resolved path after the reason.
 Without `--output-result`, formatted mode prints final JSON; NDJSON includes the
 value in the terminal event below.
 
@@ -562,7 +570,8 @@ and a model turn that finishes in prose without a final tool call:
 ```
 
 The usual event envelope fields also apply. `attempt` is one-based;
-`maxAttempts` equals `retryCount + 1`. Diagnostics include at most ten errors,
+`maxAttempts` equals `retryCount + 1`, the corrective turn budget; `attempt` can
+exceed it when a step contains multiple calls. Diagnostics include at most ten errors,
 with bounded JSON-pointer paths, keywords and messages. Their encoded payload
 is under 2 KB and never includes submitted values or raw JSON arguments. A `path`
 can contain property names submitted by the model (for example, in map or
@@ -578,7 +587,8 @@ validation always uses the canonical schema.
 
 ### `structured_output`
 
-Exactly one terminal event per schema-enabled session, before `session_complete`:
+Exactly one terminal event per schema-enabled prompt run, before `session_complete`.
+A headless `aictrl run` has one prompt run:
 
 ```json
 { "type": "structured_output", "status": "accepted", "attempts": 2, "value": { "result": "ok" } }
@@ -595,8 +605,9 @@ and prose-only finishes without a final call. Other tool calls do not count.
 Compaction turns do not consume a missing-result attempt. Discarded provider
 streams restore the budget and captured result; their rejection events remain
 as telemetry. A valid call in a parallel step wins regardless of call order if
-that step started with budget remaining, and its attempt count stays within the
-configured maximum.
+that step started with budget remaining. The attempt count includes every call
+in that step and can exceed `maxAttempts`; the N+1 bound applies to corrective
+turns.
 When the budget is spent, the last rejection determines the reason: `missing`
 for a prose-only finish, otherwise `exhausted`. Failure reasons are:
 

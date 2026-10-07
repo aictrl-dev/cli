@@ -83,7 +83,12 @@ export namespace MessageV2 {
     .object({
       type: z.literal("json_schema"),
       schema: z.record(z.string(), z.any()).meta({ ref: "JSONSchema" }),
-      retryCount: z.number().int().min(0).default(2),
+      retryCount: z
+        .number()
+        .int()
+        .min(0)
+        .transform((n) => Math.min(n, 10))
+        .default(2),
     })
     .meta({
       ref: "OutputFormatJsonSchema",

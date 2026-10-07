@@ -1,6 +1,7 @@
 import Ajv, { type ErrorObject } from "ajv"
 import Ajv2020 from "ajv/dist/2020"
 import z from "zod"
+import { createHash } from "crypto"
 
 export namespace OutputSchema {
   export const Diagnostic = z.object({ path: z.string(), keyword: z.string(), message: z.string() })
@@ -19,9 +20,34 @@ export namespace OutputSchema {
   // acceptance, including schemas cloned by Zod or loaded from session storage.
   const cache = new Map<string, ReturnType<Ajv["compile"]>>()
 
+  // Ajv codegen recurses per nesting level: ~2,000 levels fit in 16 KB yet overflow
+  // the stack, so bound structure as well as bytes. Iterative, so the check itself
+  // cannot overflow.
+  const MAX_DEPTH = 64
+  const MAX_NODES = 10_000
+  function bound(schema: unknown) {
+    const stack: [unknown, number][] = [[schema, 0]]
+    let nodes = 0
+    while (stack.length) {
+      const [value, depth] = stack.pop()!
+      if (!value || typeof value !== "object") continue
+      if (depth > MAX_DEPTH) throw new Error(`schema nesting must not exceed ${MAX_DEPTH} levels`)
+      if (++nodes > MAX_NODES) throw new Error(`schema must not exceed ${MAX_NODES} nested objects`)
+      for (const child of Object.values(value)) stack.push([child, depth + 1])
+    }
+  }
+
+  export function canonical(schema: Record<string, unknown>) {
+    bound(schema)
+    const text = JSON.stringify(schema)
+    const bytes = Buffer.byteLength(text)
+    if (bytes > 64 * 1024) throw new Error("serialized schema must not exceed 64 KiB")
+    return { text, bytes }
+  }
+
   export function compile(schema: Record<string, unknown>) {
     if (schema.type !== "object") throw new Error('schema root must have type "object"')
-    const key = JSON.stringify(schema)
+    const key = createHash("sha256").update(canonical(schema).text).digest("hex")
     const cached = cache.get(key)
     if (cached) return cached
     const ajv =

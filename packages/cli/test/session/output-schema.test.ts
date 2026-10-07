@@ -491,7 +491,8 @@ test("Gemini tool schema is transformed but canonical numeric enum remains autho
 test("prose-only finish is a counted corrective attempt before a valid result", async () => {
   const result = await run(["prose", '{"result":"repaired"}'], 1)
   expect(result.requests).toHaveLength(2)
-  result.requests.forEach((request) => expect(request.tool_choice).toBe("required"))
+  expect(result.requests[0].tool_choice).toBe("required")
+  expect(result.requests[1].tool_choice).toEqual({ type: "function", function: { name: "StructuredOutput" } })
   expect(result.info.structured).toEqual({ result: "repaired" })
   expect(result.info.error).toBeUndefined()
   expect(result.rejected).toEqual([
@@ -583,7 +584,8 @@ for (const parallel of [
     expect(result.requests).toHaveLength(1)
     expect(result.info.error).toBeUndefined()
     expect(result.info.structured).toEqual({ result: "accepted" })
-    expect(result.outcomes).toEqual([{ status: "accepted", attempts: 1, value: { result: "accepted" } }])
+    expect(result.outcomes).toEqual([{ status: "accepted", attempts: 2, value: { result: "accepted" } }])
+    expect(result.rejected).toMatchObject([{ attempt: parallel[0] === "{}" ? 1 : 2, maxAttempts: 1 }])
   }, 15000)
 }
 
@@ -645,3 +647,84 @@ test("structured error summaries preserve bounded identity without submitted dat
     name: "x".repeat(96),
   })
 })
+
+test("serialized schema limit counts bytes and accepts exactly 64 KiB", () => {
+  const schema = { type: "object", description: "" }
+  const size = Buffer.byteLength(JSON.stringify(schema))
+  schema.description = "x".repeat(64 * 1024 - size)
+  expect(OutputSchema.compile(schema)({})).toBe(true)
+  expect(() => OutputSchema.compile({ ...schema, description: schema.description + "x" })).toThrow("64 KiB")
+  expect(() => OutputSchema.compile({ ...schema, description: "é".repeat(33 * 1024) })).toThrow("64 KiB")
+  expect(OutputSchema.compile(schema)).toBe(OutputSchema.compile(JSON.parse(JSON.stringify(schema))))
+})
+
+test("prompt path rejects an oversized schema before any provider request", async () => {
+  await expect(run(["unused"], 0, { schema: { type: "object", description: "x".repeat(64 * 1024) } })).rejects.toThrow(
+    "64 KiB",
+  )
+})
+
+test("retryCount accepts the upper bound and clamps legacy values above ten", () => {
+  expect(MessageV2.OutputFormatJsonSchema.parse({ type: "json_schema", schema, retryCount: 10 }).retryCount).toBe(10)
+  expect(MessageV2.OutputFormatJsonSchema.parse({ type: "json_schema", schema, retryCount: 50 }).retryCount).toBe(10)
+})
+
+test("every parallel rejection is counted after the corrective budget is spent", async () => {
+  const result = await run(["unused"], 0, { parallel: ["{}", "{}", "{}"] })
+  expect(result.requests).toHaveLength(1)
+  expect(result.rejected).toMatchObject([
+    { attempt: 1, maxAttempts: 1 },
+    { attempt: 2, maxAttempts: 1 },
+    { attempt: 3, maxAttempts: 1 },
+  ])
+  expect(result.outcomes).toEqual([{ status: "failed", reason: "exhausted", attempts: 3 }])
+})
+
+test("provider tool description includes canonical pattern constraints", async () => {
+  const canonical = {
+    type: "object",
+    properties: { result: { type: "string", pattern: "^OK-[0-9]{4}$" } },
+    required: ["result"],
+    additionalProperties: false,
+  }
+  const result = await run(['{"result":"OK-1234"}'], 0, { schema: canonical, gemini: true })
+  const tools = result.requests[0].tools as { function: { name: string; description: string } }[]
+  expect(tools.find((tool) => tool.function.name === "StructuredOutput")?.function.description).toContain(
+    JSON.stringify(canonical),
+  )
+})
+
+for (const [name, description] of [
+  ["ASCII", "x".repeat(9 * 1024)],
+  ["multibyte", "x" + "€".repeat(4 * 1024)],
+]) {
+  test(`tool description caps ${name} schema at 8 KiB and explains truncation`, () => {
+    const canonical = { type: "object", description }
+    const tool = SessionPrompt.createStructuredOutputTool({ schema: canonical, onSuccess() {} })
+    const text = JSON.stringify(canonical)
+    const expected = new TextDecoder().decode(Buffer.from(text).subarray(0, 8 * 1024))
+    expect(tool.description).toContain("truncated; the validator enforces the full schema")
+    expect(tool.description?.split(": ").at(-1)).toBe(expected)
+    if (name === "multibyte") expect(expected).toEndWith("�")
+  })
+}
+
+for (const [name, schema, reason] of [
+  ["oversized", { type: "object", description: "é".repeat(33 * 1024) }, "64 KiB"],
+  [
+    "over-deep",
+    { type: "object", properties: { a: Array.from({ length: 65 }).reduce<object>((inner) => ({ not: inner }), {}) } },
+    "nesting must not exceed 64 levels",
+  ],
+  ["too many objects", { type: "object", examples: Array.from({ length: 10_000 }, () => ({})) }, "10000"],
+] as const) {
+  test(`custom validator cannot bypass ${name} schema bounds`, () => {
+    expect(() =>
+      SessionPrompt.createStructuredOutputTool({
+        schema,
+        validate: OutputSchema.compile({ type: "object" }),
+        onSuccess() {},
+      }),
+    ).toThrow(reason)
+  })
+}
