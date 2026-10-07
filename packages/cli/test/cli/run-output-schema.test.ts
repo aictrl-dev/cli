@@ -232,6 +232,13 @@ async function run(
 
 for (const [name, options, reason] of [
   ["unreadable", { flags: ["--output-schema", "absent.json"] }, "cannot read"],
+  [
+    // run changes into --dir first, so relative paths resolve there (as --file does)
+    // and the error names the resolved path rather than the bare argument.
+    "relative schema under --dir",
+    { flags: ["--dir", "home", "--output-schema", "schema.json"] },
+    `${path.sep}home${path.sep}schema.json: cannot read schema file`,
+  ],
   ["invalid JSON", { content: "{broken" }, "invalid JSON"],
   ["uncompilable", { content: '{"type":"object","unknownKeyword":true}' }, "strict mode"],
   ["non-object root", { content: '{"type":"array"}' }, 'schema root must have type "object"'],
@@ -715,6 +722,7 @@ test("schema config NDJSON clips the specific compilation cause", async () => {
   expect(result.requests).toEqual([])
   const event = result.events.find((event) => event.type === "invocation_error")
   expect(event?.code).toBe("OUTPUT_SCHEMA_CONFIG")
-  expect(event?.message).toStartWith("schema.json: strict mode: unknown keyword:")
+  expect(event?.message).toStartWith(path.sep)
+  expect(event?.message).toContain(`${path.sep}schema.json: strict mode: unknown keyword:`)
   expect((event?.message as string).length).toBe(300)
 }, 25000)
