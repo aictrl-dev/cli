@@ -37,12 +37,17 @@ export namespace OutputSchema {
     }
   }
 
+  export function canonical(schema: Record<string, unknown>) {
+    bound(schema)
+    const text = JSON.stringify(schema)
+    const bytes = Buffer.byteLength(text)
+    if (bytes > 64 * 1024) throw new Error("serialized schema must not exceed 64 KiB")
+    return { text, bytes }
+  }
+
   export function compile(schema: Record<string, unknown>) {
     if (schema.type !== "object") throw new Error('schema root must have type "object"')
-    const text = JSON.stringify(schema)
-    if (Buffer.byteLength(text) > 64 * 1024) throw new Error("serialized schema must not exceed 64 KiB")
-    bound(schema)
-    const key = createHash("sha256").update(text).digest("hex")
+    const key = createHash("sha256").update(canonical(schema).text).digest("hex")
     const cached = cache.get(key)
     if (cached) return cached
     const ajv =

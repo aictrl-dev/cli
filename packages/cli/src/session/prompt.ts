@@ -750,7 +750,7 @@ export namespace SessionPrompt {
           model,
           async onSuccess(output) {
             if (structuredOutput !== undefined) return
-            if (!available) throw new Error("StructuredOutput attempt budget exhausted")
+            if (!available) throw new Error("StructuredOutput corrective turn budget exhausted")
             attempts++
             structuredOutput = output
           },
@@ -1123,14 +1123,14 @@ export namespace SessionPrompt {
     model?: Provider.Model
     onSuccess: (output: unknown) => void | Promise<void>
   }): AITool & { id: "StructuredOutput" } {
+    OutputSchema.canonical(input.schema)
     const validate = input.validate ?? OutputSchema.compile(input.schema)
     const schema = Object.fromEntries(Object.entries(input.schema).filter(([key]) => key !== "$schema"))
-    const canonical = JSON.stringify(input.schema)
-    const bytes = Buffer.from(canonical)
+    const canonical = OutputSchema.canonical(schema)
     const description =
-      bytes.length <= 8 * 1024
-        ? `Canonical JSON Schema: ${canonical}`
-        : `Canonical JSON Schema (truncated; the validator enforces the full schema): ${new TextDecoder().decode(bytes.subarray(0, 8 * 1024), { stream: true })}`
+      canonical.bytes <= 8 * 1024
+        ? `Canonical JSON Schema: ${canonical.text}`
+        : `Canonical JSON Schema (truncated; the validator enforces the full schema): ${new TextDecoder().decode(Buffer.from(canonical.text).subarray(0, 8 * 1024))}`
     const result = tool({
       description: `${STRUCTURED_OUTPUT_DESCRIPTION}\n\n${description}`,
       inputSchema: jsonSchema(input.model ? ProviderTransform.schema(input.model, schema) : schema, {

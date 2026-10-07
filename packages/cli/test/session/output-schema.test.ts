@@ -664,9 +664,9 @@ test("prompt path rejects an oversized schema before any provider request", asyn
   )
 })
 
-test("retryCount accepts the upper bound and rejects values above ten", () => {
+test("retryCount accepts the upper bound and clamps legacy values above ten", () => {
   expect(MessageV2.OutputFormatJsonSchema.parse({ type: "json_schema", schema, retryCount: 10 }).retryCount).toBe(10)
-  expect(() => MessageV2.OutputFormatJsonSchema.parse({ type: "json_schema", schema, retryCount: 11 })).toThrow()
+  expect(MessageV2.OutputFormatJsonSchema.parse({ type: "json_schema", schema, retryCount: 50 }).retryCount).toBe(10)
 })
 
 test("every parallel rejection is counted after the corrective budget is spent", async () => {
@@ -694,9 +694,37 @@ test("provider tool description includes canonical pattern constraints", async (
   )
 })
 
-test("tool description caps the canonical schema at 8 KiB and explains truncation", () => {
-  const canonical = { type: "object", description: "x".repeat(9 * 1024) }
-  const tool = SessionPrompt.createStructuredOutputTool({ schema: canonical, onSuccess() {} })
-  expect(tool.description).toContain("truncated; the validator enforces the full schema")
-  expect(tool.description?.split(": ").at(-1)).toBe(JSON.stringify(canonical).slice(0, 8 * 1024))
-})
+for (const [name, description] of [
+  ["ASCII", "x".repeat(9 * 1024)],
+  ["multibyte", "x" + "€".repeat(4 * 1024)],
+]) {
+  test(`tool description caps ${name} schema at 8 KiB and explains truncation`, () => {
+    const canonical = { type: "object", description }
+    const tool = SessionPrompt.createStructuredOutputTool({ schema: canonical, onSuccess() {} })
+    const text = JSON.stringify(canonical)
+    const expected = new TextDecoder().decode(Buffer.from(text).subarray(0, 8 * 1024))
+    expect(tool.description).toContain("truncated; the validator enforces the full schema")
+    expect(tool.description?.split(": ").at(-1)).toBe(expected)
+    if (name === "multibyte") expect(expected).toEndWith("�")
+  })
+}
+
+for (const [name, schema, reason] of [
+  ["oversized", { type: "object", description: "é".repeat(33 * 1024) }, "64 KiB"],
+  [
+    "over-deep",
+    { type: "object", properties: { a: Array.from({ length: 65 }).reduce<object>((inner) => ({ not: inner }), {}) } },
+    "nesting must not exceed 64 levels",
+  ],
+  ["too many objects", { type: "object", examples: Array.from({ length: 10_000 }, () => ({})) }, "10000"],
+] as const) {
+  test(`custom validator cannot bypass ${name} schema bounds`, () => {
+    expect(() =>
+      SessionPrompt.createStructuredOutputTool({
+        schema,
+        validate: OutputSchema.compile({ type: "object" }),
+        onSuccess() {},
+      }),
+    ).toThrow(reason)
+  })
+}

@@ -213,6 +213,8 @@ describe("structured-output.createStructuredOutputTool", () => {
     // AI SDK wraps schema in { jsonSchema: {...} }
     const inputSchema = tool.inputSchema as any
     expect(inputSchema.jsonSchema?.$schema).toBeUndefined()
+    expect(tool.description).toContain(`Canonical JSON Schema: ${JSON.stringify(inputSchema.jsonSchema)}`)
+    expect(tool.description).not.toContain("$schema")
   })
 
   test("execute calls onSuccess with valid args", async () => {
