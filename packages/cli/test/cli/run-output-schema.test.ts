@@ -517,60 +517,61 @@ for (const [name, value, failure, code] of [
         requests.push({ url, body })
         if (url === "/session") return Response.json({ id: "ses_fixture" })
         if (url === "/session/ses_fixture/message") {
-          for (const event of [
-            {
-              type: "session.structured_output_rejected",
-              properties: {
-                sessionID: "ses_fixture",
-                attempt: 1,
-                maxAttempts: 5,
-                errors: [{ path: "", keyword: "required", message: "must have required property 'result'" }],
-              },
-            },
-            {
-              type: "session.structured_output",
-              properties: {
-                sessionID: "ses_fixture",
-                outcome:
-                  name === "malformed outcome"
-                    ? { status: "unexpected", attempts: "bad", value }
-                    : { status: "accepted", attempts: 2, value },
-              },
-            },
-            ...(failure || name === "provider rejection"
-              ? [
-                  {
-                    type: "session.error",
-                    properties: {
-                      sessionID: "ses_fixture",
-                      error: {
-                        name: "APIError",
-                        data: {
-                          message: "Late provider failure",
-                          isRetryable: false,
-                          ...(name === "provider rejection" ? { statusCode: 400 } : {}),
+          // Provider rejection answers before any SSE event, the ordering that
+          // once let a stale exit code 3 survive a genuine provider failure.
+          for (const event of name === "provider rejection"
+            ? []
+            : [
+                {
+                  type: "session.structured_output_rejected",
+                  properties: {
+                    sessionID: "ses_fixture",
+                    attempt: 1,
+                    maxAttempts: 5,
+                    errors: [{ path: "", keyword: "required", message: "must have required property 'result'" }],
+                  },
+                },
+                {
+                  type: "session.structured_output",
+                  properties: {
+                    sessionID: "ses_fixture",
+                    outcome:
+                      name === "malformed outcome"
+                        ? { status: "unexpected", attempts: "bad", value }
+                        : { status: "accepted", attempts: 2, value },
+                  },
+                },
+                ...(failure
+                  ? [
+                      {
+                        type: "session.error",
+                        properties: {
+                          sessionID: "ses_fixture",
+                          error: {
+                            name: "APIError",
+                            data: {
+                              message: "Late provider failure",
+                              isRetryable: false,
+                            },
+                          },
                         },
                       },
-                    },
-                  },
-                ]
-              : []),
-            ...(name === "structured failure followed by loop rejection"
-              ? [
-                  {
-                    type: "session.error",
-                    properties: {
-                      sessionID: "ses_fixture",
-                      error: { name: "StructuredOutputError", data: { message: "No valid result", retries: 1 } },
-                    },
-                  },
-                  // A malformed later event forces the CLI event loop to reject.
-                  { type: "session.status", properties: { sessionID: "ses_fixture", status: null } },
-                ]
-              : name === "provider rejection"
-                ? []
-                : [{ type: "session.status", properties: { sessionID: "ses_fixture", status: { type: "idle" } } }]),
-          ])
+                    ]
+                  : []),
+                ...(name === "structured failure followed by loop rejection"
+                  ? [
+                      {
+                        type: "session.error",
+                        properties: {
+                          sessionID: "ses_fixture",
+                          error: { name: "StructuredOutputError", data: { message: "No valid result", retries: 1 } },
+                        },
+                      },
+                      // A malformed later event forces the CLI event loop to reject.
+                      { type: "session.status", properties: { sessionID: "ses_fixture", status: null } },
+                    ]
+                  : [{ type: "session.status", properties: { sessionID: "ses_fixture", status: { type: "idle" } } }]),
+              ])
             controller!.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`))
           if (name === "provider rejection")
             return Response.json(
@@ -636,7 +637,11 @@ for (const [name, value, failure, code] of [
       expect(events.filter((event) => event.type === "structured_output")).toMatchObject([
         code === 0
           ? { status: "accepted", attempts: 2, value }
-          : { status: "failed", reason: "error", attempts: name === "malformed outcome" ? 1 : 2 },
+          : {
+              status: "failed",
+              reason: "error",
+              attempts: name === "malformed outcome" ? 1 : name === "provider rejection" ? 0 : 2,
+            },
       ])
       expect(events.filter((event) => event.type === "structured_output")).toHaveLength(1)
       expect(events.filter((event) => event.type === "session_complete")).toHaveLength(1)

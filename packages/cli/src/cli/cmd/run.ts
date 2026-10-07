@@ -579,6 +579,10 @@ export const RunCommand = cmd({
       let structured: OutputSchema.Outcome | undefined
       let pending: OutputSchema.Outcome | undefined
       let attempts = 0
+      // Set only when the session itself reports a structured-output failure, so a
+      // later loop rejection keeps exit 3 while provider failures keep exit 1
+      // regardless of whether the SSE error or the rejected request lands first.
+      let invalid = false
       async function complete(message = error ?? null) {
         if (schema && !structured) {
           if (pending?.status === "accepted" && !message && !control.current && schema.validate(pending.value)) {
@@ -807,7 +811,10 @@ export const RunCommand = cmd({
               // loop drain to session.status idle and emit session_complete first.
               if (!control.current) {
                 process.exitCode = 1
-                if (props.error.name === "StructuredOutputError") process.exitCode = OUTPUT_FAILED_EXIT
+                if (props.error.name === "StructuredOutputError") {
+                  invalid = true
+                  process.exitCode = OUTPUT_FAILED_EXIT
+                }
               }
               invocation.error(props.error)
               const classified = classifySessionError(props.error)
@@ -976,7 +983,7 @@ export const RunCommand = cmd({
           return
         }
         console.error(schema ? JSON.stringify(classified) : cause)
-        if (process.exitCode !== OUTPUT_FAILED_EXIT) process.exitCode = 1
+        process.exitCode = invalid ? OUTPUT_FAILED_EXIT : 1
       }
 
       // Emit the resolved tool catalog (builtin + MCP tools) and available
