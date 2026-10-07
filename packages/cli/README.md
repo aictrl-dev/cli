@@ -34,6 +34,7 @@ aictrl run --format json "scan for secrets" | jq '.properties.part.text'
 while the agent can continue using tools. The schema root must be `type: "object"`.
 Schemas use Ajv defaults (strict validation, draft-07); a declared draft 2020-12
 schema uses Ajv2020. Invalid configuration exits before any model request.
+Serialized schemas are limited to 64 KiB, depth 64 and 10,000 nested objects.
 
 ```bash
 aictrl run --output-schema result.schema.json --output-schema-retries 2 \
@@ -41,9 +42,12 @@ aictrl run --output-schema result.schema.json --output-schema-retries 2 \
 ```
 
 - `--output-schema <file>`: JSON Schema file, forwarded in local and `--attach` runs.
+  The file is trusted instruction input: annotations (`description`, `title`,
+  `examples`) are shown to the model in the StructuredOutput tool description.
 - `--output-schema-retries <n>`: additional corrective turns, integer from 0 to 10,
-  default 2. Zero permits one model request; N permits at most N+1 corrective
-  requests. Each rejected call is counted, including multiple calls in one step.
+  default 2. Zero permits only the initial turn; N permits the initial turn and
+  at most N corrective turns. Each rejected call is counted, including multiple
+  calls in one step.
 - `--output-result <file>`: atomically write only the validated JSON value,
   indented with two spaces and a trailing newline. Failures preserve an existing
   file and leave an absent file absent. The destination directory must exist.
@@ -63,10 +67,10 @@ with bounded JSON-pointer diagnostics. See [EVENTS.md](../../EVENTS.md) for the 
 No valid result means failure, including missing output and the agent step limit;
 there is no prose fallback. A prose-only finish consumes one attempt and receives
 a reminder to call StructuredOutput while retries remain. Earlier tools are not
-replayed for corrective attempts.
+replayed for corrective turns.
 
 Exit codes: **0** for accepted results, **2** for schema configuration errors,
-**3** for exhausted attempts, missing output or a step limit without a result.
+**3** for exhausted corrective turns, missing output or a step limit without a result.
 Provider failures and stream timeouts retain **1**; SIGINT/SIGTERM retain
 **130**/**143**. Invocations without `--output-schema` keep their existing output.
 

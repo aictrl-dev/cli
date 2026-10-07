@@ -538,9 +538,13 @@ These events are additive in schema version `"1"` and emitted only when
 The schema is validated before any model request, with Ajv defaults and
 `allErrors: true` (draft-07, or Ajv2020 for a declared draft 2020-12). Validation
 does not coerce types, insert defaults or remove extra properties.
+Serialized schemas are limited to 64 KiB, depth 64 and 10,000 nested objects.
+The schema file is trusted instruction input: annotations (`description`, `title`,
+`examples`) are shown to the model in the StructuredOutput tool description.
 
 `--output-schema-retries <n>` permits N additional corrective turns (0–10, default 2).
-Zero permits exactly one model request. A step can contain multiple StructuredOutput
+Zero permits only the initial turn; N permits the initial turn and at most N
+corrective turns. A step can contain multiple StructuredOutput
 calls; every rejected call is reported and counted even after the budget is spent.
 `--output-result <file>` writes only accepted JSON using two-space indentation and
 a trailing newline, with a temporary file in the destination directory followed
@@ -603,7 +607,7 @@ streams restore the budget and captured result; their rejection events remain
 as telemetry. A valid call in a parallel step wins regardless of call order if
 that step started with budget remaining. The attempt count includes every call
 in that step and can exceed `maxAttempts`; the N+1 bound applies to corrective
-turns/requests.
+turns.
 When the budget is spent, the last rejection determines the reason: `missing`
 for a prose-only finish, otherwise `exhausted`. Failure reasons are:
 
