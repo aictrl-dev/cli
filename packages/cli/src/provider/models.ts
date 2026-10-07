@@ -109,15 +109,17 @@ export namespace ModelsDev {
         "User-Agent": Installation.USER_AGENT,
       },
       signal: AbortSignal.timeout(10 * 1000),
-    })
-      .then((response) => (response.ok ? response.text() : undefined))
-      .catch((e) => {
-        log.error("Failed to fetch models.dev", {
-          error: e,
-        })
+    }).catch((e) => {
+      log.error("Failed to fetch models.dev", {
+        error: e,
       })
-    if (result !== undefined) {
-      await Filesystem.write(filepath, result)
+    })
+    if (!result?.ok) return
+    const text = await result.text().catch((error) => {
+      log.error("Failed to read models.dev response", { error })
+    })
+    if (text !== undefined) {
+      await Filesystem.write(filepath, text)
       ModelsDev.Data.reset()
     }
   }
