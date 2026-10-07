@@ -485,20 +485,23 @@ export const RunCommand = cmd({
       return message.slice(0, 50) + (message.length > 50 ? "..." : "")
     }
 
+    function input(id?: string, body?: Record<string, unknown>) {
+      if (!args.attach) return { ...(id ? { sessionID: id } : {}), ...body }
+      return { ...(id ? { path: { id } } : {}), ...(body ? { body } : {}), throwOnError: true }
+    }
+
     async function session(sdk: any) {
       const baseID = args.continue ? (await sdk.session.list()).data?.find((s: any) => !s.parentID)?.id : args.session
 
       if (baseID && args.fork) {
-        const forked = await sdk.session.fork(schema && args.attach ? { path: { id: baseID } } : { sessionID: baseID })
+        const forked = await sdk.session.fork(input(baseID))
         return forked.data?.id
       }
 
       if (baseID) return baseID
 
       const name = title()
-      const result = await sdk.session.create(
-        schema && args.attach ? { body: { title: name, permission: rules } } : { title: name, permission: rules },
-      )
+      const result = await sdk.session.create(input(undefined, { title: name, permission: rules }))
       return result.data?.id
     }
 
@@ -506,14 +509,12 @@ export const RunCommand = cmd({
       const cfg = await sdk.config.get()
       if (!cfg.data) return
       if (cfg.data.share !== "auto" && !args.share) return
-      const res = await sdk.session
-        .share(schema && args.attach ? { path: { id: sessionID } } : { sessionID })
-        .catch((error: any) => {
-          if (error instanceof Error && error.message.includes("disabled")) {
-            UI.println(UI.Style.TEXT_DANGER_BOLD + "!  " + error.message)
-          }
-          return { error }
-        })
+      const res = await sdk.session.share(input(sessionID)).catch((error: any) => {
+        if (error instanceof Error && error.message.includes("disabled")) {
+          UI.println(UI.Style.TEXT_DANGER_BOLD + "!  " + error.message)
+        }
+        return { error }
+      })
       if (!res.error && "data" in res && res.data?.share?.url) {
         UI.println(UI.Style.TEXT_INFO_BOLD + "~  " + res.data.share.url)
       }
@@ -937,7 +938,7 @@ export const RunCommand = cmd({
         if (aborted) return
         aborted = true
         attempt(
-          () => sdk.session.abort(schema && args.attach ? { path: { id: sessionID } } : { sessionID }),
+          () => sdk.session.abort(input(sessionID)),
           () => Log.Default.error("session abort failed"),
         )
       }
@@ -1021,9 +1022,7 @@ export const RunCommand = cmd({
           variant: args.variant,
           ...(schema ? { format: schema.format } : {}),
         }
-        const request = sdk.session.command(
-          schema && args.attach ? { path: { id: sessionID }, body: opts, throwOnError: true } : { sessionID, ...opts },
-        )
+        const request = sdk.session.command(input(sessionID, opts))
         await (schema ? request.catch(reject) : request)
       } else {
         const model = args.model ? Provider.parseModel(args.model) : undefined
@@ -1034,9 +1033,7 @@ export const RunCommand = cmd({
           parts: [...files, { type: "text", text: message }],
           ...(schema ? { format: schema.format } : {}),
         }
-        const request = sdk.session.prompt(
-          schema && args.attach ? { path: { id: sessionID }, body: opts, throwOnError: true } : { sessionID, ...opts },
-        )
+        const request = sdk.session.prompt(input(sessionID, opts))
         await (schema ? request.catch(reject) : request)
       }
 

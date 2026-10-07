@@ -18,6 +18,7 @@ async function run(
     timeout?: boolean
     abort?: boolean
     failure?: boolean
+    attach?: boolean
   } = {},
 ) {
   await using tmp = await tmpdir()
@@ -101,6 +102,65 @@ async function run(
   if (options.existing) await Bun.write(path.join(tmp.path, "result.json"), options.existing)
   const home = path.join(tmp.path, "home")
   await fs.mkdir(home)
+  const attached: { url: string; body: Record<string, unknown> }[] = []
+  // The headless package has no HTTP server; bridge its real session APIs rather
+  // than synthesizing responses or terminal events for the attach regression.
+  const bridge = options.attach
+    ? await (async () => {
+        const { Instance } = await import("../../src/project/instance")
+        const { Session } = await import("../../src/session")
+        const { SessionPrompt } = await import("../../src/session/prompt")
+        const { Config } = await import("../../src/config/config")
+        const { GlobalBus } = await import("../../src/bus/global")
+        return Bun.serve({
+          port: 0,
+          idleTimeout: 0,
+          async fetch(request) {
+            const url = new URL(request.url).pathname
+            if (url === "/event") {
+              const send = (event: { directory?: string; payload: unknown }) => {
+                if (event.directory !== tmp.path) return
+                controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event.payload)}\n\n`))
+              }
+              let controller: ReadableStreamDefaultController<Uint8Array>
+              return new Response(
+                new ReadableStream({
+                  start(value) {
+                    controller = value
+                    GlobalBus.on("event", send)
+                    controller.enqueue(new TextEncoder().encode(": ready\n\n"))
+                  },
+                  cancel() {
+                    GlobalBus.off("event", send)
+                  },
+                }),
+                { headers: { "Content-Type": "text/event-stream" } },
+              )
+            }
+            const body =
+              request.method === "POST" && request.headers.get("content-type")?.includes("json")
+                ? ((await request.json()) as Record<string, unknown>)
+                : {}
+            attached.push({ url, body })
+            return Instance.provide({
+              directory: tmp.path,
+              fn: async () => {
+                if (url === "/config") return Response.json(await Config.get())
+                if (url === "/session") return Response.json(await Session.create(Session.create.schema.parse(body)))
+                const id = url.split("/")[2]
+                if (url.endsWith("/abort")) {
+                  SessionPrompt.cancel(id)
+                  return Response.json(true)
+                }
+                const input = SessionPrompt.PromptInput.safeParse({ ...body, sessionID: id })
+                if (!url.endsWith("/message") || !input.success) return new Response("Invalid prompt", { status: 400 })
+                return Response.json(await SessionPrompt.prompt(input.data))
+              },
+            })
+          },
+        })
+      })()
+    : undefined
   const proc = Bun.spawn(
     [
       "bun",
@@ -108,6 +168,7 @@ async function run(
       "--conditions=browser",
       entry,
       "run",
+      ...(bridge ? ["--attach", bridge.url.origin, "--dir", tmp.path] : []),
       ...(options.json === false ? [] : ["--format", "json"]),
       "--model",
       "alibaba/qwen-plus",
@@ -151,11 +212,16 @@ async function run(
       .split("\n")
       .filter((line) => options.json !== false && line.startsWith("{"))
       .map((line) => JSON.parse(line)) as Record<string, unknown>[]
-    return { stdout, stderr, exit, requests, result, events, files }
+    return { stdout, stderr, exit, requests, attached, result, events, files }
   } finally {
     clearTimeout(timer)
     proc.kill("SIGKILL")
     server.stop(true)
+    bridge?.stop(true)
+    if (bridge) {
+      const { Instance } = await import("../../src/project/instance")
+      await Instance.provide({ directory: tmp.path, fn: () => Instance.dispose() })
+    }
   }
 }
 
@@ -213,6 +279,53 @@ test("repair emits bounded events and writes only validated JSON atomically", as
   )
 }, 25000)
 
+for (const json of [true, false]) {
+  test(`prose finish is repaired through the CLI in ${json ? "JSON" : "formatted"} mode`, async () => {
+    const result = await run({
+      json,
+      inputs: ["prose", '{"result":"accepted"}'],
+      flags: ["--output-schema", "schema.json", "--output-result", "result.json"],
+    })
+    expect(result.exit, result.stderr).toBe(0)
+    expect(result.requests).toHaveLength(2)
+    expect(result.requests.map((request) => request.tool_choice)).toEqual(["required", "required"])
+    expect(JSON.stringify(result.requests[1].messages)).toContain("call StructuredOutput with the final result")
+    expect(result.result).toBe(JSON.stringify({ result: "accepted" }, null, 2) + "\n")
+    if (!json) return
+    expect(result.events.filter((event) => event.type === "structured_output_rejected")).toMatchObject([
+      {
+        attempt: 1,
+        maxAttempts: 3,
+        errors: [{ path: "", keyword: "missing", message: "call StructuredOutput with the final result" }],
+      },
+    ])
+    expect(result.events.filter((event) => event.type === "structured_output")).toMatchObject([
+      { status: "accepted", attempts: 2, value: { result: "accepted" } },
+    ])
+  }, 25000)
+}
+
+test("prose finish with zero retries fails after exactly one CLI provider request", async () => {
+  const result = await run({
+    inputs: ["prose"],
+    flags: ["--output-schema", "schema.json", "--output-schema-retries", "0", "--output-result", "result.json"],
+  })
+  expect(result.exit, result.stderr).toBe(3)
+  expect(result.requests).toHaveLength(1)
+  expect(result.requests[0].tool_choice).toBe("required")
+  expect(result.result).toBeUndefined()
+  expect(result.events.filter((event) => event.type === "structured_output_rejected")).toMatchObject([
+    {
+      attempt: 1,
+      maxAttempts: 1,
+      errors: [{ path: "", keyword: "missing", message: "call StructuredOutput with the final result" }],
+    },
+  ])
+  expect(result.events.filter((event) => event.type === "structured_output")).toMatchObject([
+    { status: "failed", reason: "missing", attempts: 1 },
+  ])
+}, 25000)
+
 for (const existing of [undefined, "untouched"]) {
   test(`exhaustion preserves ${existing ? "existing" : "absent"} result file`, async () => {
     const result = await run({
@@ -249,6 +362,11 @@ for (const [name, options, code, reason] of [
     ])
     expect(result.events.filter((event) => event.type === "structured_output")).toHaveLength(1)
     expect(result.stdout).not.toContain('"status":"accepted"')
+    if (name === "missing") {
+      expect(result.requests).toHaveLength(3)
+      expect(result.events.filter((event) => event.type === "structured_output_rejected")).toHaveLength(3)
+      expect(result.events.find((event) => event.type === "structured_output")).toMatchObject({ attempts: 3 })
+    }
   }, 25000)
 }
 
@@ -274,7 +392,50 @@ test("plain run pins unchanged event types and ordering", async () => {
     "invocation_complete",
   ])
   expect(result.requests).toHaveLength(1)
+  expect(result.requests[0].tool_choice).toBe("auto")
   expect(result.result).toBeUndefined()
+}, 25000)
+
+test("plain attach runs a prompt through the HTTP session boundary", async () => {
+  const result = await run({ attach: true, inputs: ["prose"], flags: [] })
+  expect(result.attached.find((request) => request.url === "/session")?.body.title).toBe("Schema fixture")
+  expect(result.attached.find((request) => request.url === "/session")?.body.permission).toEqual([
+    { permission: "question", action: "deny", pattern: "*" },
+    { permission: "plan_enter", action: "deny", pattern: "*" },
+    { permission: "plan_exit", action: "deny", pattern: "*" },
+  ])
+  expect(result.attached.find((request) => request.url.endsWith("/message"))?.body).toMatchObject({
+    model: { providerID: "alibaba", modelID: "qwen-plus" },
+    parts: [{ type: "text", text: expect.stringContaining("Return a result.") }],
+  })
+  expect(result.exit, result.stderr + result.stdout).toBe(0)
+  expect(result.requests).toHaveLength(1)
+  expect(result.requests[0].tool_choice).toBe("auto")
+  expect(result.events.filter((event) => event.type === "text")).toMatchObject([{ part: { text: "Plain response" } }])
+  expect(result.events.filter((event) => event.type === "structured_output")).toEqual([])
+}, 25000)
+
+test("schema attach repairs a prose finish through the HTTP session boundary", async () => {
+  const result = await run({
+    attach: true,
+    inputs: ["prose", '{"result":"accepted"}'],
+    flags: ["--output-schema", "schema.json", "--output-result", "result.json"],
+  })
+  expect(result.exit, result.stderr + result.stdout).toBe(0)
+  expect(result.attached.find((request) => request.url.endsWith("/message"))?.body.format).toEqual({
+    type: "json_schema",
+    schema,
+    retryCount: 2,
+  })
+  expect(result.requests).toHaveLength(2)
+  expect(result.requests.map((request) => request.tool_choice)).toEqual(["required", "required"])
+  expect(result.result).toBe(JSON.stringify({ result: "accepted" }, null, 2) + "\n")
+  expect(result.events.filter((event) => event.type === "structured_output_rejected")).toMatchObject([
+    { attempt: 1, errors: [{ path: "", keyword: "missing", message: "call StructuredOutput with the final result" }] },
+  ])
+  expect(result.events.filter((event) => event.type === "structured_output")).toMatchObject([
+    { status: "accepted", attempts: 2, value: { result: "accepted" } },
+  ])
 }, 25000)
 
 test("atomic output cancellation cleans temp and preserves destination", async () => {
