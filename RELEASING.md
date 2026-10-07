@@ -36,18 +36,20 @@
    `sandbox` before `main`; verify a sandbox review persists MCP findings and
    a stalled stream reports a timeout rather than waiting for the job limit.
 
-## 0.4.5 candidate
+## 0.4.6 candidate
 
-- MCP tools are discovered once per connection and retained for both the
-  startup catalog and model turns (CLI #127). Tool-list change notifications
-  refresh that catalog; a failed refresh or closed connection stops the next
-  turn with an actionable error, instead of submitting a reduced toolset.
-  A successful later notification or reconnection restores discovery health.
-  Initially unavailable optional MCP servers keep their existing behavior.
-- Release version checks and npm propagation handling address CLI #126.
-- The executor enables the existing five-minute model stream idle guard in
-  application #5891. The CLI retains its generic opt-in default; local tools
-  retain the extended allowance and explicit operator overrides remain valid.
+- `aictrl run --output-schema <file>` enforces a JSON Schema on the final
+  result with bounded corrective retries (`--output-schema-retries`, default 2)
+  and writes only the validated value to `--output-result <file>` (#129).
+  Exit 2 is a schema configuration error; exit 3 is a structured-output failure.
+  New NDJSON events `structured_output_rejected` and a terminal
+  `structured_output` are additive (schema "1"). Runs without a schema are
+  unchanged.
+- `--attach` request shapes are fixed for the legacy SDK client (#129).
+- A stalled models.dev catalog body no longer surfaces as an unhandled
+  `TimeoutError` (#129).
+- Executor adoption (pin bump plus entrypoint flags) is tracked separately in
+  application #5960.
 
 Publication and executor promotion are separate gates. Preparing this candidate
 PR does not publish npm packages or deploy an executor image.
