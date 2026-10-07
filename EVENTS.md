@@ -530,3 +530,68 @@ Emitted when a permission request resolves to `allow` (either by matching an `al
   "input": { "command": "ls" }
 }
 ```
+
+## Structured final results
+
+These events are additive in schema version `"1"` and emitted only when
+`--output-schema <file>` is supplied. Other runs retain their event types and order.
+The schema is validated before any model request, with Ajv defaults and
+`allErrors: true` (draft-07, or Ajv2020 for a declared draft 2020-12). Validation
+does not coerce types, insert defaults or remove extra properties.
+
+`--output-schema-retries <n>` permits N additional corrective attempts (default 2).
+Zero permits exactly one attempt. `--output-result <file>` writes only accepted
+JSON using two-space indentation and a trailing newline, with a temporary file
+in the destination directory followed by an atomic rename. Failures preserve the
+file. Both flags require `--output-schema`; the destination directory must exist.
+Without `--output-result`, formatted mode prints final JSON; NDJSON includes the
+value in the terminal event below.
+
+### `structured_output_rejected`
+
+Emitted once per rejected StructuredOutput attempt, including unparseable JSON:
+
+```json
+{
+  "type": "structured_output_rejected",
+  "attempt": 1,
+  "maxAttempts": 3,
+  "errors": [{ "path": "/count", "keyword": "type", "message": "must be integer" }]
+}
+```
+
+The usual event envelope fields also apply. `attempt` is one-based;
+`maxAttempts` equals `retryCount + 1`. Diagnostics include at most ten errors,
+with bounded JSON-pointer paths, keywords and messages. Their encoded payload
+is under 2 KB and never includes submitted values or raw JSON arguments.
+Feedback goes to the model in the same session through the `invalid` tool.
+Other tools remain usable until a valid final result; their outputs are not final
+results. Provider-compatible tool schemas may be transformed, while local
+validation always uses the canonical schema.
+
+### `structured_output`
+
+Exactly one terminal event per schema-enabled session, before `session_complete`:
+
+```json
+{ "type": "structured_output", "status": "accepted", "attempts": 2, "value": { "result": "ok" } }
+```
+
+or:
+
+```json
+{ "type": "structured_output", "status": "failed", "reason": "exhausted", "attempts": 3 }
+```
+
+`attempts` counts StructuredOutput calls, including rejected/unparseable ones;
+prose and other tool calls do not count. Failure reasons are `exhausted`, `missing`,
+`step_limit`, `aborted`, or `error` (including provider failures and stream idle
+timeouts). Failed events have no `value`. No prose fallback is accepted.
+Configuration failures happen before a session starts and use the existing
+`invocation_error`/`invocation_complete` envelope, with code `OUTPUT_SCHEMA_CONFIG`.
+
+Exit codes are **0** on accepted results, **2** for schema configuration errors,
+**3** for exhausted attempts, missing output and step limits. Provider errors and
+timeouts keep **1**; SIGINT and SIGTERM keep **130** and **143**.
+`StructuredOutputError.data.retries` records the number of corrective
+StructuredOutput attempts used (initial attempt excluded).

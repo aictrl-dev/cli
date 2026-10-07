@@ -1,3 +1,5 @@
+import { outputSchema, outputResult, OUTPUT_CONFIG_EXIT, OUTPUT_FAILED_EXIT } from "./run.output"
+import { OutputSchema } from "../../session/output-schema"
 import type { Argv } from "yargs"
 import path from "path"
 import { pathToFileURL } from "bun"
@@ -347,6 +349,12 @@ export const RunCommand = cmd({
         default: "default",
         describe: "format: default (formatted) or json (raw JSON events)",
       })
+      .option("output-schema", { type: "string", describe: "JSON Schema file for the final result (object root)" })
+      .option("output-schema-retries", { type: "number", describe: "additional corrective attempts (default: 2)" })
+      .option("output-result", {
+        type: "string",
+        describe: "atomically write only the validated JSON result to this file",
+      })
       .option("file", {
         alias: ["f"],
         type: "string",
@@ -382,10 +390,10 @@ export const RunCommand = cmd({
   handler: async (args) => {
     const invocation = createRunInvocation(args.format === "json")
 
-    async function fail(message: string, code: string) {
+    async function fail(message: string, code: string, exit = 1) {
       UI.error(message)
       await invocation.abort(message, code)
-      process.exit(1)
+      process.exit(exit)
     }
 
     let message = [...args.message, ...(args["--"] || [])]
@@ -402,6 +410,19 @@ export const RunCommand = cmd({
         await fail("Failed to change directory to " + args.dir, "INVOCATION_INVALID_DIRECTORY")
       }
     })()
+
+    const schema = await outputSchema({
+      schema: args["output-schema"],
+      retries: args["output-schema-retries"],
+      result: args["output-result"],
+    }).catch(async (error: unknown) => {
+      await fail(
+        error instanceof Error ? error.message : "Invalid output schema",
+        "OUTPUT_SCHEMA_CONFIG",
+        OUTPUT_CONFIG_EXIT,
+      )
+      return undefined
+    })
 
     const files: { type: "file"; url: string; filename: string; mime: string }[] = []
     if (args.file) {
@@ -468,14 +489,16 @@ export const RunCommand = cmd({
       const baseID = args.continue ? (await sdk.session.list()).data?.find((s: any) => !s.parentID)?.id : args.session
 
       if (baseID && args.fork) {
-        const forked = await sdk.session.fork({ sessionID: baseID })
+        const forked = await sdk.session.fork(schema && args.attach ? { path: { id: baseID } } : { sessionID: baseID })
         return forked.data?.id
       }
 
       if (baseID) return baseID
 
       const name = title()
-      const result = await sdk.session.create({ title: name, permission: rules })
+      const result = await sdk.session.create(
+        schema && args.attach ? { body: { title: name, permission: rules } } : { title: name, permission: rules },
+      )
       return result.data?.id
     }
 
@@ -483,12 +506,14 @@ export const RunCommand = cmd({
       const cfg = await sdk.config.get()
       if (!cfg.data) return
       if (cfg.data.share !== "auto" && !args.share) return
-      const res = await sdk.session.share({ sessionID }).catch((error: any) => {
-        if (error instanceof Error && error.message.includes("disabled")) {
-          UI.println(UI.Style.TEXT_DANGER_BOLD + "!  " + error.message)
-        }
-        return { error }
-      })
+      const res = await sdk.session
+        .share(schema && args.attach ? { path: { id: sessionID } } : { sessionID })
+        .catch((error: any) => {
+          if (error instanceof Error && error.message.includes("disabled")) {
+            UI.println(UI.Style.TEXT_DANGER_BOLD + "!  " + error.message)
+          }
+          return { error }
+        })
       if (!res.error && "data" in res && res.data?.share?.url) {
         UI.println(UI.Style.TEXT_INFO_BOLD + "~  " + res.data.share.url)
       }
@@ -551,10 +576,31 @@ export const RunCommand = cmd({
       // Keep every failure path on one ordered, idempotent terminal lifecycle.
       const output = terminal(emit)
 
-      function complete(message = error ?? null) {
+      let structured: OutputSchema.Outcome | undefined
+      let pending: OutputSchema.Outcome | undefined
+      let attempts = 0
+      async function complete(message = error ?? null) {
+        if (schema && !structured) {
+          if (pending?.status === "accepted" && !message && !control.current && schema.validate(pending.value)) {
+            if (args["output-result"]) await outputResult(args["output-result"], pending.value, () => !!control.current)
+            structured = pending
+            if (!emit("structured_output", structured) && !args["output-result"])
+              process.stdout.write(JSON.stringify(structured.value, null, 2) + EOL)
+          } else {
+            structured = control.current
+              ? { status: "failed", reason: "aborted", attempts }
+              : pending?.status === "failed"
+                ? pending
+                : { status: "failed", reason: "error", attempts }
+            emit("structured_output", structured)
+            error ??= `Structured output failed: ${structured.reason}`
+            invocation.error(error)
+            if (!control.current && !process.exitCode) process.exitCode = OUTPUT_FAILED_EXIT
+          }
+        }
         output.complete({
           durationMs: Date.now() - startTime,
-          error: message,
+          error: error ?? message,
         })
       }
 
@@ -566,6 +612,30 @@ export const RunCommand = cmd({
         const toggles = new Map<string, boolean>()
 
         eventsLoop: for await (const event of events.stream) {
+          if (
+            schema &&
+            event.type === "session.structured_output_rejected" &&
+            event.properties.sessionID === sessionID
+          ) {
+            attempts = event.properties.attempt
+            emit("structured_output_rejected", {
+              attempt: attempts,
+              maxAttempts: event.properties.maxAttempts,
+              errors: event.properties.errors,
+            })
+            continue
+          }
+          if (
+            schema &&
+            event.type === "session.structured_output" &&
+            event.properties.sessionID === sessionID &&
+            !structured
+          ) {
+            pending = OutputSchema.Outcome.parse(event.properties.outcome)
+            attempts = pending.attempts
+            continue
+          }
+
           if (event.type === "session.status") {
             const status = event.properties.status
             switch (status.type) {
@@ -730,7 +800,10 @@ export const RunCommand = cmd({
               // to a non-zero exit code so CI wrappers see the failure instead of a
               // spuriously-green job. process.exitCode (not process.exit) lets the
               // loop drain to session.status idle and emit session_complete first.
-              if (!control.current) process.exitCode = 1
+              if (!control.current) {
+                process.exitCode = 1
+                if (props.error.name === "StructuredOutputError") process.exitCode = OUTPUT_FAILED_EXIT
+              }
               invocation.error(props.error)
               const classified = classifySessionError(props.error)
               // Structured session_error is the telemetry/CI channel for the
@@ -864,7 +937,7 @@ export const RunCommand = cmd({
         if (aborted) return
         aborted = true
         attempt(
-          () => sdk.session.abort({ sessionID }),
+          () => sdk.session.abort(schema && args.attach ? { path: { id: sessionID } } : { sessionID }),
           () => Log.Default.error("session abort failed"),
         )
       }
@@ -877,19 +950,19 @@ export const RunCommand = cmd({
       }
 
       async function expire(signal: Signals.Info) {
-        complete(error ?? signal.message)
+        await complete(error ?? signal.message)
         await invocation.abort(signal.message)
         await Shutdown.flush()
       }
 
       using control = signals(interrupt, 5_000, expire)
 
-      function reject(cause: unknown) {
+      async function reject(cause: unknown) {
         const classified = classifySessionError(cause)
         error ??= classified.message
         invocation.error(cause)
         report(classified.reason, classified.code, classified.message)
-        complete(error)
+        await complete(error)
         if (control.current) {
           Log.Default.error("run failed after signal", {
             reason: classified.reason,
@@ -897,7 +970,7 @@ export const RunCommand = cmd({
           })
           return
         }
-        console.error(cause)
+        console.error(schema ? "Structured output run failed" : cause)
         process.exitCode = 1
       }
 
@@ -929,7 +1002,9 @@ export const RunCommand = cmd({
           })
       }
 
-      const loopDone = loop().then(() => complete(), reject)
+      const loopDone = loop()
+        .then(() => complete())
+        .catch(reject)
 
       if (control.current) {
         await loopDone
@@ -938,23 +1013,37 @@ export const RunCommand = cmd({
       }
 
       if (args.command) {
-        await sdk.session.command({
-          sessionID,
+        const opts = {
           agent,
           model: args.model,
           command: args.command,
           arguments: message,
           variant: args.variant,
-        })
+          ...(schema ? { format: schema.format } : {}),
+        }
+        const request = sdk.session.command(
+          schema && args.attach ? { path: { id: sessionID }, body: opts, throwOnError: true } : { sessionID, ...opts },
+        )
+        await (schema ? request.catch(reject) : request)
       } else {
         const model = args.model ? Provider.parseModel(args.model) : undefined
-        await sdk.session.prompt({
-          sessionID,
+        const opts = {
           agent,
           model,
           variant: args.variant,
           parts: [...files, { type: "text", text: message }],
-        })
+          ...(schema ? { format: schema.format } : {}),
+        }
+        const request = sdk.session.prompt(
+          schema && args.attach ? { path: { id: sessionID }, body: opts, throwOnError: true } : { sessionID, ...opts },
+        )
+        await (schema ? request.catch(reject) : request)
+      }
+
+      if (schema && error) {
+        abort()
+        await Shutdown.flush()
+        return
       }
 
       // Race loopDone against promptResult to handle early prompt failures.
@@ -1006,6 +1095,7 @@ export const RunCommand = cmd({
               agent: opts.agent,
               model: opts.model,
               variant: opts.variant,
+              ...(opts.format ? { format: opts.format } : {}),
             })
           },
           async command(opts: any) {
@@ -1016,6 +1106,7 @@ export const RunCommand = cmd({
               agent: opts.agent,
               model: opts.model,
               variant: opts.variant,
+              ...(opts.format ? { format: opts.format } : {}),
             })
           },
         },
