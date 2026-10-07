@@ -549,7 +549,8 @@ value in the terminal event below.
 
 ### `structured_output_rejected`
 
-Emitted once per rejected StructuredOutput attempt, including unparseable JSON:
+Emitted once per rejected StructuredOutput attempt, including unparseable JSON
+and a model turn that finishes in prose without a final tool call:
 
 ```json
 {
@@ -564,7 +565,10 @@ The usual event envelope fields also apply. `attempt` is one-based;
 `maxAttempts` equals `retryCount + 1`. Diagnostics include at most ten errors,
 with bounded JSON-pointer paths, keywords and messages. Their encoded payload
 is under 2 KB and never includes submitted values or raw JSON arguments.
-Feedback goes to the model in the same session through the `invalid` tool.
+Validation feedback goes to the model in the same session through the `invalid` tool.
+A prose-only finish emits the fixed diagnostic
+`{ "path": "", "keyword": "missing", "message": "call StructuredOutput with the final result" }`
+and receives an ephemeral reminder before the next turn while budget remains.
 Other tools remain usable until a valid final result; their outputs are not final
 results. Provider-compatible tool schemas may be transformed, while local
 validation always uses the canonical schema.
@@ -583,8 +587,10 @@ or:
 { "type": "structured_output", "status": "failed", "reason": "exhausted", "attempts": 3 }
 ```
 
-`attempts` counts StructuredOutput calls, including rejected/unparseable ones;
-prose and other tool calls do not count. Failure reasons are `exhausted`, `missing`,
+`attempts` counts StructuredOutput calls, including rejected/unparseable ones,
+and prose-only finishes without a final call. Other tool calls do not count.
+When the budget is spent, the last rejection determines the reason: `missing`
+for a prose-only finish, otherwise `exhausted`. Failure reasons are `exhausted`, `missing`,
 `step_limit`, `aborted`, or `error` (including provider failures and stream idle
 timeouts). Failed events have no `value`. No prose fallback is accepted.
 Configuration failures happen before a session starts and use the existing
@@ -594,4 +600,4 @@ Exit codes are **0** on accepted results, **2** for schema configuration errors,
 **3** for exhausted attempts, missing output and step limits. Provider errors and
 timeouts keep **1**; SIGINT and SIGTERM keep **130** and **143**.
 `StructuredOutputError.data.retries` records the number of corrective
-StructuredOutput attempts used (initial attempt excluded).
+attempts used (initial attempt excluded), including prose-only corrective turns.

@@ -255,10 +255,20 @@ test("valid StructuredOutput wins when another tool is called in the same step",
 }, 15_000)
 
 test("model finish without StructuredOutput has an explicit missing outcome", async () => {
-  const result = await run(["prose"])
+  const result = await run(["prose"], 0)
+  expect(result.requests).toHaveLength(1)
+  expect(result.requests[0].tool_choice).toBe("required")
+  expect(result.rejected).toEqual([
+    {
+      sessionID: result.info.sessionID,
+      attempt: 1,
+      maxAttempts: 1,
+      errors: [{ path: "", keyword: "missing", message: "call StructuredOutput with the final result" }],
+    },
+  ])
   expect(result.info.structured).toBeUndefined()
   expect(result.info.error).toMatchObject({ name: "StructuredOutputError", data: { retries: 0 } })
-  expect(result.outcomes).toEqual([{ status: "failed", reason: "missing", attempts: 0 }])
+  expect(result.outcomes).toEqual([{ status: "failed", reason: "missing", attempts: 1 }])
 }, 15_000)
 
 test("step cap without a valid result has an explicit failure", async () => {
@@ -290,6 +300,7 @@ test("plain session keeps prose and emits no structured events", async () => {
   expect(result.outcomes).toEqual([])
   expect(result.rejected).toEqual([])
   expect(result.requests).toHaveLength(1)
+  expect(result.requests[0].tool_choice).toBe("auto")
 }, 15_000)
 
 test("Ajv verdict parity across hostile corpus without mutating values", () => {
@@ -332,8 +343,10 @@ test("draft 2020-12 declaration with a fragment uses the same validator dialect"
 test("missing result after rejections reports corrective attempts truthfully", async () => {
   const result = await run(["{}", "{}", "prose"])
   expect(result.info.structured).toBeUndefined()
-  expect(result.info.error).toMatchObject({ name: "StructuredOutputError", data: { retries: 1 } })
-  expect(result.outcomes).toEqual([{ status: "failed", reason: "missing", attempts: 2 }])
+  expect(result.info.error).toMatchObject({ name: "StructuredOutputError", data: { retries: 2 } })
+  expect(result.requests).toHaveLength(3)
+  expect(result.rejected).toHaveLength(3)
+  expect(result.outcomes).toEqual([{ status: "failed", reason: "missing", attempts: 3 }])
 }, 15_000)
 
 test("Gemini tool schema is transformed but canonical numeric enum remains authoritative", async () => {
@@ -346,4 +359,41 @@ test("Gemini tool schema is transformed but canonical numeric enum remains autho
     properties: { result: { type: "string", enum: ["1", "2"] } },
   })
   expect(canonical.properties.result).toEqual({ type: "integer", enum: [1, 2] })
+}, 15_000)
+
+test("prose-only finish is a counted corrective attempt before a valid result", async () => {
+  const result = await run(["prose", '{"result":"repaired"}'], 1)
+  expect(result.requests).toHaveLength(2)
+  result.requests.forEach((request) => expect(request.tool_choice).toBe("required"))
+  expect(result.info.structured).toEqual({ result: "repaired" })
+  expect(result.info.error).toBeUndefined()
+  expect(result.rejected).toEqual([
+    {
+      sessionID: result.info.sessionID,
+      attempt: 1,
+      maxAttempts: 2,
+      errors: [{ path: "", keyword: "missing", message: "call StructuredOutput with the final result" }],
+    },
+  ])
+  expect(JSON.stringify(result.requests[1].messages)).toContain("call StructuredOutput with the final result")
+  expect(result.outcomes).toEqual([{ status: "accepted", attempts: 2, value: { result: "repaired" } }])
+}, 15_000)
+
+test("a final validation rejection after a missing turn reports exhausted", async () => {
+  const result = await run(["prose", "{}"], 1)
+  expect(result.requests).toHaveLength(2)
+  expect(result.info.structured).toBeUndefined()
+  expect(result.info.error).toMatchObject({ name: "StructuredOutputError", data: { retries: 1 } })
+  expect(result.rejected.map((event) => event.errors[0].keyword)).toEqual(["missing", "required"])
+  expect(result.outcomes).toEqual([{ status: "failed", reason: "exhausted", attempts: 2 }])
+}, 15_000)
+
+test("repeated prose-only finishes spend the configured corrective budget", async () => {
+  const result = await run(["prose"], 2)
+  expect(result.requests).toHaveLength(3)
+  expect(result.rejected.map((event) => event.attempt)).toEqual([1, 2, 3])
+  expect(result.rejected.every((event) => event.errors[0].keyword === "missing")).toBe(true)
+  expect(result.info.structured).toBeUndefined()
+  expect(result.info.error).toMatchObject({ name: "StructuredOutputError", data: { retries: 2 } })
+  expect(result.outcomes).toEqual([{ status: "failed", reason: "missing", attempts: 3 }])
 }, 15_000)

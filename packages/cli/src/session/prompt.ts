@@ -330,6 +330,7 @@ export namespace SessionPrompt {
     let structuredOutput: unknown | undefined
     let attempts = 0
     let rejected = 0
+    let reminder = false
     let contract:
       | {
           id: string
@@ -369,6 +370,7 @@ export namespace SessionPrompt {
         contract = { id: lastUser.id, format: lastUser.format, validate: OutputSchema.compile(lastUser.format.schema) }
         attempts = 0
         rejected = 0
+        reminder = false
         structuredOutput = undefined
       }
       const lastAssistantMsg = msgs.findLast((msg) => msg.info.id === lastAssistant?.id)
@@ -376,7 +378,8 @@ export namespace SessionPrompt {
         lastAssistant &&
         isModelFinished(lastAssistant.finish) &&
         !hasToolCalls(lastAssistantMsg?.parts ?? []) &&
-        lastUser.id < lastAssistant.id
+        lastUser.id < lastAssistant.id &&
+        !reminder
       ) {
         log.info("exiting loop", { sessionID })
         break
@@ -703,9 +706,9 @@ export namespace SessionPrompt {
         messages: msgs,
       })
 
-      const reject = async (input: string) => {
+      const reject = async (input: string | OutputSchema.Diagnostic[]) => {
         if (!contract) throw new Error("Missing output schema")
-        const errors = OutputSchema.parse(input, contract.validate)
+        const errors = typeof input === "string" ? OutputSchema.parse(input, contract.validate) : input
         if (attempts < contract.format.retryCount + 1) {
           attempts++
           rejected++
@@ -780,6 +783,14 @@ export namespace SessionPrompt {
         system,
         messages: [
           ...MessageV2.toModelMessages(msgs, model),
+          ...(reminder
+            ? [
+                {
+                  role: "user" as const,
+                  content: "<system-reminder>call StructuredOutput with the final result</system-reminder>",
+                },
+              ]
+            : []),
           ...(isLastStep
             ? [
                 {
@@ -791,6 +802,7 @@ export namespace SessionPrompt {
         ],
         tools,
         model,
+        toolChoice: contract ? "required" : undefined,
         structured: contract ? { reject } : undefined,
       })
 
@@ -808,31 +820,28 @@ export namespace SessionPrompt {
         outcome = { status: "accepted", attempts, value: structuredOutput }
         break
       }
+      structuredOutput = undefined
+
+      reminder =
+        !!contract && (await missingStructuredOutput(processor.message, () => MessageV2.parts(processor.message.id)))
+      if (reminder) {
+        await reject([{ path: "", keyword: "missing", message: "call StructuredOutput with the final result" }])
+      }
 
       if (contract && !processor.message.error && rejected > contract.format.retryCount) {
         processor.message.error = new MessageV2.StructuredOutputError({
-          message: "Structured output corrective attempts exhausted",
+          message: reminder
+            ? "Model did not produce structured output"
+            : "Structured output corrective attempts exhausted",
           retries: Math.max(0, attempts - 1),
         }).toObject()
         await Session.updateMessage(processor.message)
         await Bus.publish(Session.Event.Error, { sessionID, error: processor.message.error })
-        outcome = { status: "failed", reason: "exhausted", attempts }
+        outcome = { status: "failed", reason: reminder ? "missing" : "exhausted", attempts }
         break
       }
 
-      if (
-        format.type === "json_schema" &&
-        (await missingStructuredOutput(processor.message, () => MessageV2.parts(processor.message.id)))
-      ) {
-        processor.message.error = new MessageV2.StructuredOutputError({
-          message: "Model did not produce structured output",
-          retries: Math.max(0, attempts - 1),
-        }).toObject()
-        await Session.updateMessage(processor.message)
-        await Bus.publish(Session.Event.Error, { sessionID, error: processor.message.error })
-        outcome = { status: "failed", reason: "missing", attempts }
-        break
-      }
+      if (reminder) continue
 
       if (result === "stop") break
       if (result === "compact") {

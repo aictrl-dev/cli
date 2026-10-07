@@ -52,7 +52,9 @@ formatted mode prints validated JSON at the end; `--format json` emits it in a
 terminal `structured_output` event. Rejections emit `structured_output_rejected`
 with bounded JSON-pointer diagnostics. See [EVENTS.md](../../EVENTS.md) for the contract.
 No valid result means failure, including missing output and the agent step limit;
-there is no prose fallback. Earlier tools are not replayed for corrective attempts.
+there is no prose fallback. A prose-only finish consumes one attempt and receives
+a reminder to call StructuredOutput while retries remain. Earlier tools are not
+replayed for corrective attempts.
 
 Exit codes: **0** for accepted results, **2** for schema configuration errors,
 **3** for exhausted attempts, missing output or a step limit without a result.
