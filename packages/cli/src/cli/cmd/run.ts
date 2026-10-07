@@ -1158,13 +1158,16 @@ export const RunCommand = cmd({
               resolve?.()
             }
             GlobalBus.on("event", handler)
-            const stop = () => resolve?.()
+            const stop = () => {
+              GlobalBus.off("event", handler)
+              resolve?.()
+            }
             opts.signal.addEventListener("abort", stop)
 
             const stream = (async function* () {
               try {
-                while (!opts.signal.aborted) {
-                  while (queue.length > 0 && !opts.signal.aborted) {
+                while (true) {
+                  while (queue.length > 0) {
                     yield queue.shift()
                   }
                   if (opts.signal.aborted) break

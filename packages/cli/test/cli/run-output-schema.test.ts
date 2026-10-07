@@ -18,6 +18,7 @@ async function run(
     timeout?: boolean
     abort?: boolean
     failure?: boolean
+    queued?: boolean
     attach?: boolean
     locked?: boolean
     denied?: boolean
@@ -107,6 +108,26 @@ async function run(
   if (options.existing) await Bun.write(path.join(tmp.path, "result.json"), options.existing)
   const home = path.join(tmp.path, "home")
   await fs.mkdir(home)
+  if (options.queued) {
+    // Inject a synchronous provider failure after a burst of real bus events so
+    // the local subscription still has a rejection queued when it is aborted.
+    await Bun.write(
+      path.join(tmp.path, "failure.ts"),
+      `import { SessionPrompt } from ${JSON.stringify(path.resolve(import.meta.dir, "../../src/session/prompt.ts"))}
+import { GlobalBus } from ${JSON.stringify(path.resolve(import.meta.dir, "../../src/bus/global.ts"))}
+import { MessageV2 } from ${JSON.stringify(path.resolve(import.meta.dir, "../../src/session/message-v2.ts"))}
+SessionPrompt.prompt = async (input) => {
+  for (let n = 0; n < 32; n++) GlobalBus.emit("event", { payload: { type: "fixture.queued", properties: {} } })
+  GlobalBus.emit("event", { payload: {
+    type: "session.structured_output_rejected",
+    properties: { sessionID: input.sessionID, attempt: 1, maxAttempts: 3,
+      errors: [{ path: "", keyword: "required", message: "must have required property 'result'" }] }
+  } })
+  throw new MessageV2.APIError({ message: "Fixture provider failed", statusCode: 400, isRetryable: false })
+}
+`,
+    )
+  }
   const attached: { url: string; body: Record<string, unknown> }[] = []
   // The headless package has no HTTP server; bridge its real session APIs rather
   // than synthesizing responses or terminal events for the attach regression.
@@ -171,6 +192,7 @@ async function run(
       "bun",
       "run",
       "--conditions=browser",
+      ...(options.queued ? ["--preload", path.join(tmp.path, "failure.ts")] : []),
       entry,
       "run",
       ...(bridge ? ["--attach", bridge.url.origin, "--dir", tmp.path] : []),
@@ -736,4 +758,22 @@ test("schema config NDJSON clips the specific compilation cause", async () => {
   // The reason leads so the 300-char clip removes path text, never the cause.
   expect(event?.message).toStartWith("strict mode: unknown keyword:")
   expect((event?.message as string).length).toBe(300)
+}, 25000)
+
+test("local abort drains rejection queued immediately before provider failure", async () => {
+  const result = await run({ queued: true })
+  expect(result.exit, result.stderr + result.stdout).toBe(1)
+  expect(result.events.filter((event) => event.type === "structured_output_rejected")).toMatchObject([
+    { attempt: 1, maxAttempts: 3, errors: [{ keyword: "required" }] },
+  ])
+  expect(result.events.filter((event) => event.type === "structured_output")).toMatchObject([
+    { status: "failed", reason: "error", attempts: 1 },
+  ])
+  expect(result.events.filter((event) => event.type === "structured_output")).toHaveLength(1)
+  expect(result.events.filter((event) => event.type === "session_complete")).toHaveLength(1)
+  expect(result.stderr.split("\n").filter((line) => line.startsWith("{") && line.includes('"reason":'))).toHaveLength(1)
+  const types = result.events.map((event) => event.type)
+  expect(types.indexOf("structured_output_rejected")).toBeLessThan(types.indexOf("structured_output"))
+  expect(types.indexOf("structured_output")).toBeLessThan(types.indexOf("session_complete"))
+  expect(types.at(-1)).toBe("invocation_complete")
 }, 25000)

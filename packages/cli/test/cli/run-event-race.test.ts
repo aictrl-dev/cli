@@ -10,7 +10,9 @@ describe("run.ts GlobalBus listener race (OPS-05)", () => {
     const subscribeIdx = source.indexOf("async subscribe(")
     expect(subscribeIdx).toBeGreaterThan(-1)
     // Extract the subscribe method body
-    const subscribeBody = source.slice(subscribeIdx, source.indexOf("return { stream }", subscribeIdx))
+    const end = source.indexOf("return { stream }", subscribeIdx)
+    expect(end).toBeGreaterThan(-1)
+    const subscribeBody = source.slice(subscribeIdx, end)
     // GlobalBus.on must appear BEFORE the generator definition
     const onIdx = subscribeBody.indexOf('GlobalBus.on("event"')
     const generatorIdx = subscribeBody.indexOf("(async function* ()")
@@ -23,7 +25,9 @@ describe("run.ts GlobalBus listener race (OPS-05)", () => {
     const source = await Bun.file(RUN_SRC).text()
     const subscribeIdx = source.indexOf("async subscribe(")
     expect(subscribeIdx).toBeGreaterThan(-1)
-    const subscribeBody = source.slice(subscribeIdx, source.indexOf("return { stream }", subscribeIdx))
+    const end = source.indexOf("return { stream }", subscribeIdx)
+    expect(end).toBeGreaterThan(-1)
+    const subscribeBody = source.slice(subscribeIdx, end)
     // Generator must still have finally with GlobalBus.off
     expect(subscribeBody).toContain("finally")
     expect(subscribeBody).toMatch(/GlobalBus\.off\("event"/)
