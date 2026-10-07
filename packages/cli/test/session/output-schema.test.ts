@@ -491,7 +491,8 @@ test("Gemini tool schema is transformed but canonical numeric enum remains autho
 test("prose-only finish is a counted corrective attempt before a valid result", async () => {
   const result = await run(["prose", '{"result":"repaired"}'], 1)
   expect(result.requests).toHaveLength(2)
-  result.requests.forEach((request) => expect(request.tool_choice).toBe("required"))
+  expect(result.requests[0].tool_choice).toBe("required")
+  expect(result.requests[1].tool_choice).toEqual({ type: "function", function: { name: "StructuredOutput" } })
   expect(result.info.structured).toEqual({ result: "repaired" })
   expect(result.info.error).toBeUndefined()
   expect(result.rejected).toEqual([
@@ -677,4 +678,25 @@ test("every parallel rejection is counted after the corrective budget is spent",
     { attempt: 3, maxAttempts: 1 },
   ])
   expect(result.outcomes).toEqual([{ status: "failed", reason: "exhausted", attempts: 3 }])
+})
+
+test("provider tool description includes canonical pattern constraints", async () => {
+  const canonical = {
+    type: "object",
+    properties: { result: { type: "string", pattern: "^OK-[0-9]{4}$" } },
+    required: ["result"],
+    additionalProperties: false,
+  }
+  const result = await run(['{"result":"OK-1234"}'], 0, { schema: canonical, gemini: true })
+  const tools = result.requests[0].tools as { function: { name: string; description: string } }[]
+  expect(tools.find((tool) => tool.function.name === "StructuredOutput")?.function.description).toContain(
+    JSON.stringify(canonical),
+  )
+})
+
+test("tool description caps the canonical schema at 8 KiB and explains truncation", () => {
+  const canonical = { type: "object", description: "x".repeat(9 * 1024) }
+  const tool = SessionPrompt.createStructuredOutputTool({ schema: canonical, onSuccess() {} })
+  expect(tool.description).toContain("truncated; the validator enforces the full schema")
+  expect(tool.description?.split(": ").at(-1)).toBe(JSON.stringify(canonical).slice(0, 8 * 1024))
 })

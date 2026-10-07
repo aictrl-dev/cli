@@ -821,7 +821,7 @@ export namespace SessionPrompt {
         ],
         tools,
         model,
-        toolChoice: contract ? "required" : undefined,
+        toolChoice: contract ? (reminder ? { type: "tool", toolName: "StructuredOutput" } : "required") : undefined,
         structured: contract
           ? {
               reject,
@@ -1125,8 +1125,14 @@ export namespace SessionPrompt {
   }): AITool & { id: "StructuredOutput" } {
     const validate = input.validate ?? OutputSchema.compile(input.schema)
     const schema = Object.fromEntries(Object.entries(input.schema).filter(([key]) => key !== "$schema"))
+    const canonical = JSON.stringify(input.schema)
+    const bytes = Buffer.from(canonical)
+    const description =
+      bytes.length <= 8 * 1024
+        ? `Canonical JSON Schema: ${canonical}`
+        : `Canonical JSON Schema (truncated; the validator enforces the full schema): ${new TextDecoder().decode(bytes.subarray(0, 8 * 1024), { stream: true })}`
     const result = tool({
-      description: STRUCTURED_OUTPUT_DESCRIPTION,
+      description: `${STRUCTURED_OUTPUT_DESCRIPTION}\n\n${description}`,
       inputSchema: jsonSchema(input.model ? ProviderTransform.schema(input.model, schema) : schema, {
         validate(value) {
           return validate(value)

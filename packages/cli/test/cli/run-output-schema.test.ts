@@ -337,7 +337,10 @@ for (const json of [true, false]) {
     })
     expect(result.exit, result.stderr).toBe(0)
     expect(result.requests).toHaveLength(2)
-    expect(result.requests.map((request) => request.tool_choice)).toEqual(["required", "required"])
+    expect(result.requests.map((request) => request.tool_choice)).toEqual([
+      "required",
+      { type: "function", function: { name: "StructuredOutput" } },
+    ])
     expect(JSON.stringify(result.requests[1].messages)).toContain("call StructuredOutput with the final result")
     expect(result.result).toBe(JSON.stringify({ result: "accepted" }, null, 2) + "\n")
     if (!json) return
@@ -477,7 +480,10 @@ test("schema attach repairs a prose finish through the HTTP session boundary", a
     retryCount: 2,
   })
   expect(result.requests).toHaveLength(2)
-  expect(result.requests.map((request) => request.tool_choice)).toEqual(["required", "required"])
+  expect(result.requests.map((request) => request.tool_choice)).toEqual([
+    "required",
+    { type: "function", function: { name: "StructuredOutput" } },
+  ])
   expect(result.result).toBe(JSON.stringify({ result: "accepted" }, null, 2) + "\n")
   expect(result.events.filter((event) => event.type === "structured_output_rejected")).toMatchObject([
     { attempt: 1, errors: [{ path: "", keyword: "missing", message: "call StructuredOutput with the final result" }] },
