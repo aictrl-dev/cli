@@ -725,16 +725,14 @@ export namespace SessionPrompt {
 
       const rejection = async (errors: OutputSchema.Diagnostic[]) => {
         if (!contract) throw new Error("Missing output schema")
-        if (attempts < contract.format.retryCount + 1) {
-          attempts++
-          rejected++
-          await Bus.publish(Session.Event.StructuredOutputRejected, {
-            sessionID,
-            attempt: attempts,
-            maxAttempts: contract.format.retryCount + 1,
-            errors,
-          })
-        }
+        attempts++
+        rejected++
+        await Bus.publish(Session.Event.StructuredOutputRejected, {
+          sessionID,
+          attempt: attempts,
+          maxAttempts: contract.format.retryCount + 1,
+          errors,
+        })
         return OutputSchema.error(errors).message
       }
 
@@ -753,7 +751,7 @@ export namespace SessionPrompt {
           async onSuccess(output) {
             if (structuredOutput !== undefined) return
             if (!available) throw new Error("StructuredOutput attempt budget exhausted")
-            attempts = Math.min(attempts + 1, format.retryCount + 1)
+            attempts++
             structuredOutput = output
           },
         })

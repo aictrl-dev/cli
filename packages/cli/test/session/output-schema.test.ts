@@ -583,7 +583,8 @@ for (const parallel of [
     expect(result.requests).toHaveLength(1)
     expect(result.info.error).toBeUndefined()
     expect(result.info.structured).toEqual({ result: "accepted" })
-    expect(result.outcomes).toEqual([{ status: "accepted", attempts: 1, value: { result: "accepted" } }])
+    expect(result.outcomes).toEqual([{ status: "accepted", attempts: 2, value: { result: "accepted" } }])
+    expect(result.rejected).toMatchObject([{ attempt: parallel[0] === "{}" ? 1 : 2, maxAttempts: 1 }])
   }, 15000)
 }
 
@@ -665,4 +666,15 @@ test("prompt path rejects an oversized schema before any provider request", asyn
 test("retryCount accepts the upper bound and rejects values above ten", () => {
   expect(MessageV2.OutputFormatJsonSchema.parse({ type: "json_schema", schema, retryCount: 10 }).retryCount).toBe(10)
   expect(() => MessageV2.OutputFormatJsonSchema.parse({ type: "json_schema", schema, retryCount: 11 })).toThrow()
+})
+
+test("every parallel rejection is counted after the corrective budget is spent", async () => {
+  const result = await run(["unused"], 0, { parallel: ["{}", "{}", "{}"] })
+  expect(result.requests).toHaveLength(1)
+  expect(result.rejected).toMatchObject([
+    { attempt: 1, maxAttempts: 1 },
+    { attempt: 2, maxAttempts: 1 },
+    { attempt: 3, maxAttempts: 1 },
+  ])
+  expect(result.outcomes).toEqual([{ status: "failed", reason: "exhausted", attempts: 3 }])
 })

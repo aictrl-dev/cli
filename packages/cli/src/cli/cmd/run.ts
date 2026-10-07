@@ -350,7 +350,7 @@ export const RunCommand = cmd({
         describe: "format: default (formatted) or json (raw JSON events)",
       })
       .option("output-schema", { type: "string", describe: "JSON Schema file for the final result (object root)" })
-      .option("output-schema-retries", { type: "number", describe: "additional corrective attempts (default: 2)" })
+      .option("output-schema-retries", { type: "number", describe: "additional corrective turns (0-10, default: 2)" })
       .option("output-result", {
         type: "string",
         describe: "atomically write only the validated JSON result to this file",
@@ -561,7 +561,8 @@ export const RunCommand = cmd({
         return false
       }
 
-      const events = await sdk.event.subscribe()
+      const subscription = new AbortController()
+      const events = await sdk.event.subscribe({ signal: subscription.signal })
       let error: string | undefined
       const startTime = Date.now()
       const childSessions = new Set<string>()
@@ -1014,12 +1015,21 @@ export const RunCommand = cmd({
           })
       }
 
-      const loopDone = loop()
-        .then(() => complete())
-        .catch(reject)
+      const loopDone = loop().then(
+        () => ({ ok: true as const }),
+        (cause: unknown) => ({ ok: false as const, cause }),
+      )
+      const finish = async (result: Awaited<typeof loopDone>) => {
+        if (result.ok) return complete()
+        return reject(result.cause)
+      }
+      let failure: { cause: unknown } | undefined
+      const failed = (cause: unknown) => {
+        failure = { cause }
+      }
 
       if (control.current) {
-        await loopDone
+        await finish(await loopDone)
         await Shutdown.flush()
         return
       }
@@ -1034,7 +1044,7 @@ export const RunCommand = cmd({
           ...(schema ? { format: schema.format } : {}),
         }
         const request = sdk.session.command(input(sessionID, opts))
-        await (schema ? request.catch(reject) : request)
+        await (schema ? request.catch(failed) : request)
       } else {
         const model = args.model ? Provider.parseModel(args.model) : undefined
         const opts = {
@@ -1045,11 +1055,15 @@ export const RunCommand = cmd({
           ...(schema ? { format: schema.format } : {}),
         }
         const request = sdk.session.prompt(input(sessionID, opts))
-        await (schema ? request.catch(reject) : request)
+        await (schema ? request.catch(failed) : request)
       }
 
-      if (schema && error) {
+      if (schema && (failure || error)) {
         abort()
+        subscription.abort()
+        const result = await loopDone
+        if (failure) await reject(failure.cause)
+        if (!failure) await finish(result)
         await Shutdown.flush()
         return
       }
@@ -1059,7 +1073,19 @@ export const RunCommand = cmd({
       // (e.g., Session.get() fails, model not found), no session.status idle event
       // is emitted, so loopDone would hang forever. Racing ensures we surface
       // the error and exit.
-      await Promise.race([loopDone, promptResult.then(() => loopDone, reject)])
+      const result = await Promise.race([
+        loopDone,
+        promptResult.then(
+          () => loopDone,
+          (cause: unknown) => ({ ok: false as const, cause }),
+        ),
+      ])
+      if (schema && !result.ok) {
+        abort()
+        subscription.abort()
+        await loopDone
+      }
+      await finish(result)
       await Shutdown.flush()
     }
 
@@ -1124,7 +1150,7 @@ export const RunCommand = cmd({
           },
         },
         event: {
-          async subscribe() {
+          async subscribe(opts: { signal: AbortSignal }) {
             const queue: any[] = []
             let resolve: (() => void) | null = null
             const handler = (event: { payload: any }) => {
@@ -1132,19 +1158,23 @@ export const RunCommand = cmd({
               resolve?.()
             }
             GlobalBus.on("event", handler)
+            const stop = () => resolve?.()
+            opts.signal.addEventListener("abort", stop)
 
             const stream = (async function* () {
               try {
-                while (true) {
-                  while (queue.length > 0) {
+                while (!opts.signal.aborted) {
+                  while (queue.length > 0 && !opts.signal.aborted) {
                     yield queue.shift()
                   }
+                  if (opts.signal.aborted) break
                   await new Promise<void>((r) => {
                     resolve = r
                   })
                 }
               } finally {
                 GlobalBus.off("event", handler)
+                opts.signal.removeEventListener("abort", stop)
               }
             })()
             return { stream }

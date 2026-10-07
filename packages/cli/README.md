@@ -41,8 +41,9 @@ aictrl run --output-schema result.schema.json --output-schema-retries 2 \
 ```
 
 - `--output-schema <file>`: JSON Schema file, forwarded in local and `--attach` runs.
-- `--output-schema-retries <n>`: additional corrective attempts, integer >= 0,
-  default 2. Zero permits one attempt; N permits at most N+1 attempts.
+- `--output-schema-retries <n>`: additional corrective turns, integer from 0 to 10,
+  default 2. Zero permits one model request; N permits at most N+1 corrective
+  requests. Each rejected call is counted, including multiple calls in one step.
 - `--output-result <file>`: atomically write only the validated JSON value,
   indented with two spaces and a trailing newline. Failures preserve an existing
   file and leave an absent file absent. The destination directory must exist.
@@ -53,7 +54,8 @@ The result parent directory must exist and be writable at configuration time.
 
 The retries and result flags require `--output-schema`. Without a result file,
 formatted mode prints validated JSON at the end; `--format json` emits it in a
-terminal `structured_output` event. Rejections emit `structured_output_rejected`
+terminal `structured_output` event, exactly one per prompt run. A headless
+`aictrl run` has one prompt run. Rejections emit `structured_output_rejected`
 with bounded JSON-pointer diagnostics. See [EVENTS.md](../../EVENTS.md) for the contract.
 No valid result means failure, including missing output and the agent step limit;
 there is no prose fallback. A prose-only finish consumes one attempt and receives

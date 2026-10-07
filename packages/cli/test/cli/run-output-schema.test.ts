@@ -503,12 +503,17 @@ for (const [name, value, failure, code] of [
   ["malformed outcome", { result: "attached" }, false, 3],
   ["structured failure followed by loop rejection", {}, false, 3],
   ["provider rejection", { result: "submitted-secret" }, false, 1],
+  ["provider rejection after loop failure", { result: "submitted-secret" }, false, 1],
 ] as const) {
   test(`attach ${name} forwards the canonical schema and validates final acceptance`, async () => {
     await using tmp = await tmpdir()
     await Bun.write(path.join(tmp.path, "schema.json"), JSON.stringify(schema))
+    const rejection = name.startsWith("provider rejection")
     const requests: { url: string; body: Record<string, unknown> }[] = []
-    let controller: ReadableStreamDefaultController<Uint8Array> | undefined
+    let ready: (value: ReadableStreamDefaultController<Uint8Array>) => void = () => {}
+    const connected = new Promise<ReadableStreamDefaultController<Uint8Array>>((resolve) => {
+      ready = resolve
+    })
     const server = Bun.serve({
       port: 0,
       idleTimeout: 0,
@@ -518,8 +523,8 @@ for (const [name, value, failure, code] of [
           return new Response(
             new ReadableStream({
               start(value) {
-                controller = value
-                controller.enqueue(new TextEncoder().encode(": ready\n\n"))
+                value.enqueue(new TextEncoder().encode(": ready\n\n"))
+                ready(value)
               },
             }),
             { headers: { "Content-Type": "text/event-stream" } },
@@ -530,10 +535,13 @@ for (const [name, value, failure, code] of [
         requests.push({ url, body })
         if (url === "/session") return Response.json({ id: "ses_fixture" })
         if (url === "/session/ses_fixture/message") {
+          const controller = await connected
           // Provider rejection answers before any SSE event, the ordering that
           // once let a stale exit code 3 survive a genuine provider failure.
-          for (const event of name === "provider rejection"
-            ? []
+          for (const event of rejection
+            ? name === "provider rejection after loop failure"
+              ? [{ type: "session.status", properties: { sessionID: "ses_fixture", status: null } }]
+              : []
             : [
                 {
                   type: "session.structured_output_rejected",
@@ -585,12 +593,14 @@ for (const [name, value, failure, code] of [
                     ]
                   : [{ type: "session.status", properties: { sessionID: "ses_fixture", status: { type: "idle" } } }]),
               ])
-            controller!.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`))
-          if (name === "provider rejection")
+            controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`))
+          if (rejection) {
+            if (name === "provider rejection after loop failure") await Bun.sleep(25)
             return Response.json(
               { name: "APIError", data: { message: "Fixture provider failed", statusCode: 400, isRetryable: false } },
               { status: 400 },
             )
+          }
           return Response.json({})
         }
         return new Response("unexpected request", { status: 400 })
@@ -631,8 +641,9 @@ for (const [name, value, failure, code] of [
         proc.exited,
       ])
       expect(exit, stderr + stdout).toBe(code)
-      if (name === "provider rejection") {
-        expect(stderr).toContain('"code":"400"')
+      if (rejection) {
+        expect(stderr.split("\n").filter((line) => line.startsWith("{") && line.includes('"reason":'))).toHaveLength(1)
+        expect(stderr.split("\n").filter((line) => line.includes('"code":"400"'))).toHaveLength(1)
         expect(stderr).toContain('"reason":"unknown"')
         expect(stdout + stderr).not.toContain("submitted-secret")
       }
@@ -653,7 +664,7 @@ for (const [name, value, failure, code] of [
           : {
               status: "failed",
               reason: "error",
-              attempts: name === "malformed outcome" ? 1 : name === "provider rejection" ? 0 : 2,
+              attempts: name === "malformed outcome" ? 1 : rejection ? 0 : 2,
             },
       ])
       expect(events.filter((event) => event.type === "structured_output")).toHaveLength(1)
