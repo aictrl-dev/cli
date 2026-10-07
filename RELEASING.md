@@ -36,20 +36,16 @@
    `sandbox` before `main`; verify a sandbox review persists MCP findings and
    a stalled stream reports a timeout rather than waiting for the job limit.
 
-## 0.4.6 candidate
+## 0.4.7 candidate
 
-- `aictrl run --output-schema <file>` enforces a JSON Schema on the final
-  result with bounded corrective retries (`--output-schema-retries`, default 2)
-  and writes only the validated value to `--output-result <file>` (#129).
-  Exit 2 is a schema configuration error; exit 3 is a structured-output failure.
-  New NDJSON events `structured_output_rejected` and a terminal
-  `structured_output` are additive (schema "1"). Runs without a schema are
-  unchanged.
-- `--attach` request shapes are fixed for the legacy SDK client (#129).
-- A stalled models.dev catalog body no longer surfaces as an unhandled
-  `TimeoutError` (#129).
-- Executor adoption (pin bump plus entrypoint flags) is tracked separately in
-  application #5960.
+- Output-schema review follow-ups (#134):
+  - schemas are bounded by bytes (64 KiB) and structure (depth 64, 10,000 nested objects), on every path;
+  - configuration errors lead with the reason and name the resolved path;
+  - every rejected attempt is reported and counted;
+  - `retryCount` is capped at 10 (wire values clamp; the flag rejects above 10);
+  - queued telemetry drains before terminal failure, and failures settle in a single terminal path.
+- Provider hints (#134): the StructuredOutput tool description embeds the canonical schema (constraints that the Vertex adapter drops); the corrective turn after a prose-only finish forces StructuredOutput by name (GLM).
+- Executor adoption: bump the aictrl `docker/executor/Dockerfile` pin (application #5960 follow-up).
 
 Publication and executor promotion are separate gates. Preparing this candidate
 PR does not publish npm packages or deploy an executor image.
