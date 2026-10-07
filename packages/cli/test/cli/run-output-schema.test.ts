@@ -269,22 +269,30 @@ for (const [name, options, reason] of [
     "schema",
   ],
 ] as const) {
-  test(`configuration error ${name} happens before any model request`, async () => {
-    const result = await run({ ...options, flags: "flags" in options ? [...options.flags] : undefined })
-    expect(result.exit, result.stderr).toBe(2)
-    expect(result.stderr).toContain(reason)
-    const event = result.events.find((event) => event.type === "invocation_error")
-    expect((event!.message as string).length).toBeLessThanOrEqual(300)
-    expect(event).toMatchObject({ code: "OUTPUT_SCHEMA_CONFIG", message: expect.stringContaining(reason) })
-    if ("content" in options) expect(result.stderr).toContain("schema.json")
-    expect(result.requests).toEqual([])
-    expect(result.result).toBeUndefined()
-    expect(result.events.map((event) => event.type)).toEqual([
-      "invocation_start",
-      "invocation_error",
-      "invocation_complete",
-    ])
-  }, 25000)
+  // Root ignores directory mode bits, so it cannot exercise this permission failure.
+  const check = name === "unwritable result parent" && process.getuid?.() === 0 ? test.skip : test
+  check(
+    `configuration error ${name} happens before any model request`,
+    async () => {
+      const result = await run({ ...options, flags: "flags" in options ? [...options.flags] : undefined })
+      expect(result.exit, result.stderr).toBe(2)
+      expect(result.stderr).toContain(reason)
+      const event = result.events.find((event) => event.type === "invocation_error")
+      expect((event!.message as string).length).toBeLessThanOrEqual(300)
+      if (name === "negative retries" || name === "fractional retries")
+        expect(event?.message).toBe("--output-schema-retries must be an integer >= 0")
+      expect(event).toMatchObject({ code: "OUTPUT_SCHEMA_CONFIG", message: expect.stringContaining(reason) })
+      if ("content" in options) expect(result.stderr).toContain("schema.json")
+      expect(result.requests).toEqual([])
+      expect(result.result).toBeUndefined()
+      expect(result.events.map((event) => event.type)).toEqual([
+        "invocation_start",
+        "invocation_error",
+        "invocation_complete",
+      ])
+    },
+    25000,
+  )
 }
 
 test("repair emits bounded events and writes only validated JSON atomically", async () => {
@@ -479,6 +487,9 @@ for (const [name, value, failure, code] of [
   ["accepted", { result: "attached" }, false, 0],
   ["invalid remote result", {}, false, 3],
   ["late session failure", { result: "attached" }, true, 1],
+  ["malformed outcome", { result: "attached" }, false, 3],
+  ["structured failure followed by loop rejection", {}, false, 3],
+  ["provider rejection", { result: "submitted-secret" }, false, 1],
 ] as const) {
   test(`attach ${name} forwards the canonical schema and validates final acceptance`, async () => {
     await using tmp = await tmpdir()
@@ -487,6 +498,7 @@ for (const [name, value, failure, code] of [
     let controller: ReadableStreamDefaultController<Uint8Array> | undefined
     const server = Bun.serve({
       port: 0,
+      idleTimeout: 0,
       async fetch(request) {
         const url = new URL(request.url).pathname
         if (url === "/event")
@@ -519,23 +531,52 @@ for (const [name, value, failure, code] of [
               type: "session.structured_output",
               properties: {
                 sessionID: "ses_fixture",
-                outcome: { status: "accepted", attempts: 2, value },
+                outcome:
+                  name === "malformed outcome"
+                    ? { status: "unexpected", attempts: "bad", value }
+                    : { status: "accepted", attempts: 2, value },
               },
             },
-            ...(failure
+            ...(failure || name === "provider rejection"
               ? [
                   {
                     type: "session.error",
                     properties: {
                       sessionID: "ses_fixture",
-                      error: { name: "APIError", data: { message: "Late provider failure", isRetryable: false } },
+                      error: {
+                        name: "APIError",
+                        data: {
+                          message: "Late provider failure",
+                          isRetryable: false,
+                          ...(name === "provider rejection" ? { statusCode: 400 } : {}),
+                        },
+                      },
                     },
                   },
                 ]
               : []),
-            { type: "session.status", properties: { sessionID: "ses_fixture", status: { type: "idle" } } },
+            ...(name === "structured failure followed by loop rejection"
+              ? [
+                  {
+                    type: "session.error",
+                    properties: {
+                      sessionID: "ses_fixture",
+                      error: { name: "StructuredOutputError", data: { message: "No valid result", retries: 1 } },
+                    },
+                  },
+                  // A malformed later event forces the CLI event loop to reject.
+                  { type: "session.status", properties: { sessionID: "ses_fixture", status: null } },
+                ]
+              : name === "provider rejection"
+                ? []
+                : [{ type: "session.status", properties: { sessionID: "ses_fixture", status: { type: "idle" } } }]),
           ])
             controller!.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`))
+          if (name === "provider rejection")
+            return Response.json(
+              { name: "APIError", data: { message: "Fixture provider failed", statusCode: 400, isRetryable: false } },
+              { status: 400 },
+            )
           return Response.json({})
         }
         return new Response("unexpected request", { status: 400 })
@@ -576,6 +617,11 @@ for (const [name, value, failure, code] of [
         proc.exited,
       ])
       expect(exit, stderr + stdout).toBe(code)
+      if (name === "provider rejection") {
+        expect(stderr).toContain('"code":"400"')
+        expect(stderr).toContain('"reason":"unknown"')
+        expect(stdout + stderr).not.toContain("submitted-secret")
+      }
       expect(requests.find((request) => request.url.endsWith("/message"))?.body.format).toEqual({
         type: "json_schema",
         schema,
@@ -588,9 +634,13 @@ for (const [name, value, failure, code] of [
         .filter((line) => line.startsWith("{"))
         .map((line) => JSON.parse(line))
       expect(events.filter((event) => event.type === "structured_output")).toMatchObject([
-        code === 0 ? { status: "accepted", attempts: 2, value } : { status: "failed", reason: "error", attempts: 2 },
+        code === 0
+          ? { status: "accepted", attempts: 2, value }
+          : { status: "failed", reason: "error", attempts: name === "malformed outcome" ? 1 : 2 },
       ])
       expect(events.filter((event) => event.type === "structured_output")).toHaveLength(1)
+      expect(events.filter((event) => event.type === "session_complete")).toHaveLength(1)
+      if (name === "malformed outcome") expect(events.filter((event) => event.type === "session_error")).toEqual([])
     } finally {
       clearTimeout(timer)
       proc.kill("SIGKILL")
@@ -632,4 +682,4 @@ test("schema config NDJSON clips the specific compilation cause", async () => {
   expect(event?.code).toBe("OUTPUT_SCHEMA_CONFIG")
   expect(event?.message).toStartWith("schema.json: strict mode: unknown keyword:")
   expect((event?.message as string).length).toBe(300)
-})
+}, 25000)

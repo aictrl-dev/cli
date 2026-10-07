@@ -723,9 +723,8 @@ export namespace SessionPrompt {
         messages: msgs,
       })
 
-      const reject = async (input: string | OutputSchema.Diagnostic[]) => {
+      const rejection = async (errors: OutputSchema.Diagnostic[]) => {
         if (!contract) throw new Error("Missing output schema")
-        const errors = typeof input === "string" ? OutputSchema.parse(input, contract.validate) : input
         if (attempts < contract.format.retryCount + 1) {
           attempts++
           rejected++
@@ -739,16 +738,22 @@ export namespace SessionPrompt {
         return OutputSchema.error(errors).message
       }
 
+      const reject = (raw: string) => {
+        if (!contract) throw new Error("Missing output schema")
+        return rejection(OutputSchema.parse(raw, contract.validate))
+      }
+
       const available = !!contract && attempts < contract.format.retryCount + 1
       if (contract) {
+        const format = contract.format
         tools["StructuredOutput"] = createStructuredOutputTool({
-          schema: contract.format.schema,
+          schema: format.schema,
           validate: contract.validate,
           model,
           async onSuccess(output) {
             if (structuredOutput !== undefined) return
             if (!available) throw new Error("StructuredOutput attempt budget exhausted")
-            attempts = Math.min(attempts + 1, contract!.format.retryCount + 1)
+            attempts = Math.min(attempts + 1, format.retryCount + 1)
             structuredOutput = output
           },
         })
@@ -822,6 +827,7 @@ export namespace SessionPrompt {
         structured: contract
           ? {
               reject,
+              repairs: new Set<string>(),
               checkpoint() {
                 const before = { attempts, rejected, structuredOutput }
                 return () => {
@@ -865,7 +871,7 @@ export namespace SessionPrompt {
       reminder =
         !!contract && (await missingStructuredOutput(processor.message, () => MessageV2.parts(processor.message.id)))
       if (reminder) {
-        await reject([{ path: "", keyword: "missing", message: "call StructuredOutput with the final result" }])
+        await rejection([{ path: "", keyword: "missing", message: "call StructuredOutput with the final result" }])
       }
 
       if (contract && !processor.message.error && rejected > contract.format.retryCount) {

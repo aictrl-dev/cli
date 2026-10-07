@@ -1,7 +1,8 @@
 import path from "path"
 import fs from "fs/promises"
-import { OutputSchema } from "../../session/output-schema"
+import { OutputSchema } from "@/session/output-schema"
 
+export const OUTPUT_SCHEMA_CONFIG = "OUTPUT_SCHEMA_CONFIG"
 export const OUTPUT_CONFIG_EXIT = 2
 export const OUTPUT_FAILED_EXIT = 3
 
@@ -12,7 +13,7 @@ export async function outputSchema(input: { schema?: string; retries?: number; r
     return
   }
   if (input.retries !== undefined && (!Number.isSafeInteger(input.retries) || input.retries < 0))
-    throw new Error(`${input.schema}: --output-schema-retries must be an integer >= 0`)
+    throw new Error("--output-schema-retries must be an integer >= 0")
   const text = await Bun.file(input.schema)
     .text()
     .catch(() => {

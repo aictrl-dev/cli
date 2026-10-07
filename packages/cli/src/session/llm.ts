@@ -1,6 +1,7 @@
 import { Installation } from "@/installation"
 import { Provider } from "@/provider/provider"
 import { Log } from "@/util/log"
+import { OutputSchema } from "./output-schema"
 import {
   streamText,
   wrapLanguageModel,
@@ -40,7 +41,7 @@ export namespace LLM {
     tools: Record<string, Tool>
     retries?: number
     toolChoice?: "auto" | "required" | "none"
-    structured?: { reject: (input: string) => Promise<string>; checkpoint: () => () => void }
+    structured?: { reject: (input: string) => Promise<string>; checkpoint: () => () => void; repairs: Set<string> }
   }
 
   export type StreamOutput = StreamTextResult<ToolSet, unknown>
@@ -174,11 +175,12 @@ export namespace LLM {
     return streamText({
       onError(error) {
         l.error("stream error", {
-          error: input.structured ? "Structured output stream failed" : error,
+          error: input.structured ? OutputSchema.summary(error.error) : error,
         })
       },
       async experimental_repairToolCall(failed) {
         if (failed.toolCall.toolName === "StructuredOutput" && input.structured) {
+          input.structured.repairs.add(failed.toolCall.toolCallId)
           return {
             ...failed.toolCall,
             toolName: "invalid",

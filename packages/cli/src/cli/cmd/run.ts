@@ -1,5 +1,5 @@
-import { outputSchema, outputResult, OUTPUT_CONFIG_EXIT, OUTPUT_FAILED_EXIT } from "./run.output"
-import { OutputSchema } from "../../session/output-schema"
+import { outputSchema, outputResult, OUTPUT_SCHEMA_CONFIG, OUTPUT_CONFIG_EXIT, OUTPUT_FAILED_EXIT } from "./run.output"
+import { OutputSchema } from "@/session/output-schema"
 import type { Argv } from "yargs"
 import path from "path"
 import { pathToFileURL } from "bun"
@@ -390,7 +390,7 @@ export const RunCommand = cmd({
   handler: async (args) => {
     const invocation = createRunInvocation(args.format === "json")
 
-    async function fail(message: string, code: string, exit = 1) {
+    async function fail(message: string, code: string, exit = 1): Promise<never> {
       UI.error(message)
       await invocation.abort(message, code)
       process.exit(exit)
@@ -415,13 +415,12 @@ export const RunCommand = cmd({
       schema: args["output-schema"],
       retries: args["output-schema-retries"],
       result: args["output-result"],
-    }).catch(async (error: unknown) => {
-      await fail(
+    }).catch((error: unknown): Promise<never> => {
+      return fail(
         error instanceof Error ? error.message : "Invalid output schema",
-        "OUTPUT_SCHEMA_CONFIG",
+        OUTPUT_SCHEMA_CONFIG,
         OUTPUT_CONFIG_EXIT,
       )
-      return undefined
     })
 
     const files: { type: "file"; url: string; filename: string; mime: string }[] = []
@@ -636,7 +635,8 @@ export const RunCommand = cmd({
             event.properties.sessionID === sessionID &&
             !structured
           ) {
-            pending = OutputSchema.Outcome.parse(event.properties.outcome)
+            const outcome = OutputSchema.Outcome.safeParse(event.properties.outcome)
+            pending = outcome.success ? outcome.data : { status: "failed", reason: "error", attempts }
             attempts = pending.attempts
             continue
           }
@@ -975,8 +975,8 @@ export const RunCommand = cmd({
           })
           return
         }
-        console.error(schema ? "Structured output run failed" : cause)
-        process.exitCode = 1
+        console.error(schema ? JSON.stringify(classified) : cause)
+        if (process.exitCode !== OUTPUT_FAILED_EXIT) process.exitCode = 1
       }
 
       // Emit the resolved tool catalog (builtin + MCP tools) and available

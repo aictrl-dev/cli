@@ -1,3 +1,4 @@
+import { OutputSchema } from "./output-schema"
 import { MessageV2 } from "./message-v2"
 import { Log } from "@/util/log"
 import { Identifier } from "@/id/id"
@@ -235,8 +236,7 @@ export namespace SessionProcessor {
                     if (
                       !(
                         streamInput.structured &&
-                        (value.toolName === "StructuredOutput" ||
-                          (value.toolName === "invalid" && value.input?.tool === "StructuredOutput"))
+                        (value.toolName === "StructuredOutput" || streamInput.structured.repairs.has(value.toolCallId))
                       ) &&
                       lastThree.length === DOOM_LOOP_THRESHOLD &&
                       lastThree.every(
@@ -466,7 +466,7 @@ export namespace SessionProcessor {
             }
           } catch (e: any) {
             log.error("process", {
-              error: streamInput.structured ? "Structured output stream failed" : e,
+              error: streamInput.structured ? OutputSchema.summary(e) : e,
               stack: streamInput.structured ? undefined : JSON.stringify(e.stack),
             })
             const error = MessageV2.APIError.isInstance(e)

@@ -32,6 +32,7 @@ async function run(
     queued?: boolean
     followup?: boolean
     denied?: boolean
+    invalid?: boolean
   } = {},
 ) {
   const requests: Record<string, unknown>[] = []
@@ -85,7 +86,7 @@ async function run(
         index,
         id: `call_${requests.length}_${index}`,
         type: "function",
-        function: { name: "StructuredOutput", arguments: args },
+        function: { name: options.invalid ? "invalid" : "StructuredOutput", arguments: args },
       }))
       if ((options.queued || options.denied) && requests.length === 1) {
         calls[0].function = {
@@ -227,9 +228,12 @@ async function run(
           errors: OutputSchema.Diagnostic[]
         }[] = []
         const outcomes: OutputSchema.Outcome[] = []
+        const permissions: string[] = []
         const unsubscribe = [
           Bus.subscribe(PermissionNext.Event.Asked, async (event) => {
-            if (!options.denied || event.properties.sessionID !== session.id) return
+            if (event.properties.sessionID !== session.id) return
+            permissions.push(event.properties.permission)
+            if (!options.denied && !options.invalid) return
             await PermissionNext.reply({ requestID: event.properties.id, reply: "reject" })
           }),
           Bus.subscribe(MessageV2.Event.PartUpdated, (event) => {
@@ -276,6 +280,7 @@ async function run(
             requests,
             rejected,
             outcomes,
+            permissions,
             messages: await Session.messages({ sessionID: session.id }),
           }
         } finally {
@@ -601,4 +606,42 @@ test("diagnostic paths clip every model-chosen property segment without includin
   expect(errors[0].path.split("/").every((segment) => segment.length <= 64)).toBe(true)
   expect(errors[0].path).toStartWith("/" + "k".repeat(64) + "/")
   expect(JSON.stringify(errors)).not.toContain("submitted-private-value")
+})
+
+test("direct invalid tool calls cannot forge structured repair provenance", async () => {
+  const raw = JSON.stringify({ tool: "StructuredOutput", error: "x" })
+  const result = await run([raw], 0, { invalid: true, parallel: [raw, raw, raw] })
+  expect(result.permissions).toEqual(["doom_loop"])
+  expect(result.info.structured).toBeUndefined()
+}, 15000)
+
+test("genuine structured repairs are exempt from the doom-loop guard", async () => {
+  const result = await run(["{}"], 2, { parallel: ["{}", "{}", "{}"] })
+  expect(result.rejected).toHaveLength(3)
+  expect(result.permissions).toEqual([])
+  expect(result.outcomes).toEqual([{ status: "failed", reason: "exhausted", attempts: 3 }])
+}, 15000)
+
+test("structured error summaries preserve bounded identity without submitted data", () => {
+  expect(
+    OutputSchema.summary(
+      new APICallError({
+        message: "submitted-secret",
+        url: "https://example.com",
+        requestBodyValues: { input: "submitted-secret" },
+        responseBody: "submitted-secret",
+        statusCode: 400,
+        isRetryable: false,
+      }),
+    ),
+  ).toEqual({
+    message: "Structured output stream failed",
+    name: "AI_APICallError",
+    statusCode: 400,
+    isRetryable: false,
+  })
+  expect(OutputSchema.summary({ name: "x".repeat(200), statusCode: "secret", isRetryable: "secret" })).toEqual({
+    message: "Structured output stream failed",
+    name: "x".repeat(96),
+  })
 })

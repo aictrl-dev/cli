@@ -1,5 +1,6 @@
 import { Stdout } from "../stdout"
 import { SCHEMA_VERSION } from "./run.errors"
+import { OUTPUT_SCHEMA_CONFIG } from "./run.output"
 
 export type RunInvocationPhase = "validation" | "stdin" | "bootstrap" | "session"
 
@@ -35,7 +36,7 @@ export function createRunInvocation(enabled: boolean) {
       phase,
       code,
       message:
-        code === "OUTPUT_SCHEMA_CONFIG"
+        code === OUTPUT_SCHEMA_CONFIG
           ? (cause instanceof Error ? cause.message : String(cause)).slice(0, 300)
           : `Invocation failed during ${phase}`,
     })

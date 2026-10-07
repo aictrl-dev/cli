@@ -62,6 +62,18 @@ export namespace OutputSchema {
     }
   }
 
+  export function summary(error: unknown) {
+    const value = error && typeof error === "object" ? error : {}
+    return {
+      message: "Structured output stream failed",
+      ...("name" in value && typeof value.name === "string" ? { name: value.name.slice(0, 96) } : {}),
+      ...("statusCode" in value && typeof value.statusCode === "number" && Number.isFinite(value.statusCode)
+        ? { statusCode: value.statusCode }
+        : {}),
+      ...("isRetryable" in value && typeof value.isRetryable === "boolean" ? { isRetryable: value.isRetryable } : {}),
+    }
+  }
+
   export function error(errors: Diagnostic[]) {
     return new Error(`StructuredOutput rejected: ${JSON.stringify(errors)}`)
   }
