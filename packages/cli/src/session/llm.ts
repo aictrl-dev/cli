@@ -40,7 +40,7 @@ export namespace LLM {
     tools: Record<string, Tool>
     retries?: number
     toolChoice?: "auto" | "required" | "none"
-    structured?: { reject: (input: string) => Promise<string> }
+    structured?: { reject: (input: string) => Promise<string>; checkpoint: () => () => void }
   }
 
   export type StreamOutput = StreamTextResult<ToolSet, unknown>

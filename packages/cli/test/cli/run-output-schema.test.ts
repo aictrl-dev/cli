@@ -19,6 +19,8 @@ async function run(
     abort?: boolean
     failure?: boolean
     attach?: boolean
+    locked?: boolean
+    denied?: boolean
   } = {},
 ) {
   await using tmp = await tmpdir()
@@ -68,7 +70,9 @@ async function run(
                           index: 0,
                           id: `call_${requests.length}`,
                           type: "function",
-                          function: { name: "StructuredOutput", arguments: args },
+                          function: options.denied
+                            ? { name: "read", arguments: JSON.stringify({ filePath: "/outside-fixture.txt" }) }
+                            : { name: "StructuredOutput", arguments: args },
                         },
                       ],
                     },
@@ -77,7 +81,7 @@ async function run(
           ],
         },
         {
-          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+          choices: [{ index: 0, delta: {}, finish_reason: options.denied ? "tool-calls" : "stop" }],
           usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
         },
       ]
@@ -99,6 +103,7 @@ async function run(
     }),
   )
   await Bun.write(path.join(tmp.path, "schema.json"), options.content ?? JSON.stringify(schema))
+  if (options.locked) await fs.mkdir(path.join(tmp.path, "locked"), { mode: 0o555 })
   if (options.existing) await Bun.write(path.join(tmp.path, "result.json"), options.existing)
   const home = path.join(tmp.path, "home")
   await fs.mkdir(home)
@@ -230,6 +235,26 @@ for (const [name, options, reason] of [
   ["invalid JSON", { content: "{broken" }, "invalid JSON"],
   ["uncompilable", { content: '{"type":"object","unknownKeyword":true}' }, "strict mode"],
   ["non-object root", { content: '{"type":"array"}' }, "object"],
+  [
+    "unknown format",
+    { content: '{"type":"object","properties":{"result":{"type":"string","format":"date-time"}}}' },
+    "unknown format",
+  ],
+  [
+    "missing result parent",
+    { flags: ["--output-schema", "schema.json", "--output-result", "absent/result.json"] },
+    "parent directory must exist and be writable",
+  ],
+  [
+    "file as result parent",
+    { flags: ["--output-schema", "schema.json", "--output-result", "schema.json/result.json"] },
+    "parent directory must exist and be writable",
+  ],
+  [
+    "unwritable result parent",
+    { locked: true, flags: ["--output-schema", "schema.json", "--output-result", "locked/result.json"] },
+    "parent directory must exist and be writable",
+  ],
   ["retries without schema", { flags: ["--output-schema-retries", "1"] }, "require --output-schema"],
   ["result without schema", { flags: ["--output-result", "result.json"] }, "require --output-schema"],
   ["negative retries", { flags: ["--output-schema", "schema.json", "--output-schema-retries", "-1"] }, "integer >= 0"],
@@ -248,6 +273,9 @@ for (const [name, options, reason] of [
     const result = await run({ ...options, flags: "flags" in options ? [...options.flags] : undefined })
     expect(result.exit, result.stderr).toBe(2)
     expect(result.stderr).toContain(reason)
+    const event = result.events.find((event) => event.type === "invocation_error")
+    expect((event!.message as string).length).toBeLessThanOrEqual(300)
+    expect(event).toMatchObject({ code: "OUTPUT_SCHEMA_CONFIG", message: expect.stringContaining(reason) })
     if ("content" in options) expect(result.stderr).toContain("schema.json")
     expect(result.requests).toEqual([])
     expect(result.result).toBeUndefined()
@@ -579,3 +607,29 @@ test("JSON mode without output-result carries the accepted value only in termina
     { status: "accepted", attempts: 1, value: { result: "accepted" } },
   ])
 }, 25000)
+
+test("headless permission rejection reports missing output with no session error", async () => {
+  const result = await run({
+    denied: true,
+    existing: "untouched",
+    flags: ["--output-schema", "schema.json", "--output-result", "result.json"],
+  })
+  expect(result.exit, result.stderr + result.stdout).toBe(3)
+  expect(result.requests).toHaveLength(1)
+  expect(result.result).toBe("untouched")
+  expect(result.events.filter((event) => event.type === "permission_rejected")).toHaveLength(1)
+  expect(result.events.filter((event) => event.type === "session_error")).toEqual([])
+  expect(result.events.filter((event) => event.type === "structured_output")).toMatchObject([
+    { status: "failed", reason: "missing", attempts: 0 },
+  ])
+}, 25000)
+
+test("schema config NDJSON clips the specific compilation cause", async () => {
+  const result = await run({ content: JSON.stringify({ type: "object", ["unknown".repeat(100)]: true }) })
+  expect(result.exit).toBe(2)
+  expect(result.requests).toEqual([])
+  const event = result.events.find((event) => event.type === "invocation_error")
+  expect(event?.code).toBe("OUTPUT_SCHEMA_CONFIG")
+  expect(event?.message).toStartWith("schema.json: strict mode: unknown keyword:")
+  expect((event?.message as string).length).toBe(300)
+})

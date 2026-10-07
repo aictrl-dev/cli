@@ -1,10 +1,14 @@
-import { expect, test } from "bun:test"
+import { expect, spyOn, test } from "bun:test"
+import { APICallError } from "ai"
+import { LLM } from "../../src/session/llm"
+import { PermissionNext } from "../../src/permission/next"
 import Ajv from "ajv"
 import Ajv2020 from "ajv/dist/2020"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import { SessionPrompt } from "../../src/session/prompt"
 import { Bus } from "../../src/bus"
+import { MessageV2 } from "../../src/session/message-v2"
 import { OutputSchema } from "../../src/session/output-schema"
 import { tmpdir } from "../fixture/fixture"
 import { schema, corpus } from "../fixture/output-schema"
@@ -22,9 +26,21 @@ async function run(
     other?: boolean
     plain?: boolean
     gemini?: boolean
+    compact?: boolean
+    parallel?: string[]
+    retry?: boolean
+    queued?: boolean
+    followup?: boolean
+    denied?: boolean
   } = {},
 ) {
   const requests: Record<string, unknown>[] = []
+  let directory = ""
+  let sessionID = ""
+  let notify: () => void = () => {}
+  const delivered = new Promise<void>((resolve) => {
+    notify = resolve
+  })
   const server = Bun.serve({
     port: 0,
     async fetch(request) {
@@ -51,15 +67,32 @@ async function run(
           }),
           { headers: { "Content-Type": "text/event-stream" } },
         )
+      if (options.queued && requests.length === 1) {
+        // Persist a genuine new user message while the current model turn runs.
+        await Instance.provide({
+          directory,
+          fn: () =>
+            SessionPrompt.prompt({
+              sessionID,
+              noReply: true,
+              model: { providerID: "alibaba", modelID: "qwen-plus" },
+              parts: [{ type: "text", text: "A plain follow-up." }],
+            }),
+        })
+      }
       const args = inputs[Math.min(requests.length - 1, inputs.length - 1)]
-      const calls = [
-        {
-          index: 0,
-          id: `call_${requests.length}`,
-          type: "function",
-          function: { name: "StructuredOutput", arguments: args },
-        },
-      ]
+      const calls = (options.parallel ?? [args]).map((args, index) => ({
+        index,
+        id: `call_${requests.length}_${index}`,
+        type: "function",
+        function: { name: "StructuredOutput", arguments: args },
+      }))
+      if ((options.queued || options.denied) && requests.length === 1) {
+        calls[0].function = {
+          name: "read",
+          arguments: JSON.stringify({ filePath: options.denied ? "/outside-fixture.txt" : "aictrl.json" }),
+        }
+      }
       const chunks = [
         { choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }] },
         {
@@ -67,7 +100,7 @@ async function run(
             {
               index: 0,
               delta:
-                args === "prose"
+                args === "prose" && !((options.queued || options.denied) && requests.length === 1)
                   ? { content: "No final tool call" }
                   : {
                       tool_calls: options.other
@@ -87,10 +120,40 @@ async function run(
           ],
         },
         {
-          choices: [{ index: 0, delta: {}, finish_reason: options.finish ?? "stop" }],
-          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+          choices: [
+            {
+              index: 0,
+              delta: {},
+              finish_reason:
+                (options.queued || options.denied) && requests.length === 1 ? "tool-calls" : (options.finish ?? "stop"),
+            },
+          ],
+          usage: {
+            prompt_tokens: options.compact && requests.length === 1 ? 1000000 : 1,
+            completion_tokens: 1,
+            total_tokens: options.compact && requests.length === 1 ? 1000001 : 2,
+          },
         },
       ]
+      if (options.retry && requests.length === 1) {
+        return new Response(
+          new ReadableStream({
+            async start(controller) {
+              chunks
+                .slice(0, 2)
+                .forEach((chunk) => controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(chunk)}\n\n`)))
+              await delivered
+              controller.enqueue(
+                new TextEncoder().encode(
+                  `data: ${JSON.stringify({ error: { message: JSON.stringify({ type: "error", error: { type: "too_many_requests" } }) } })}\n\ndata: [DONE]\n\n`,
+                ),
+              )
+              controller.close()
+            },
+          }),
+          { headers: { "Content-Type": "text/event-stream" } },
+        )
+      }
       return new Response(
         chunks
           .map((chunk) => `data: ${JSON.stringify(chunk)}`)
@@ -100,10 +163,45 @@ async function run(
       )
     },
   })
+  // SSE errors are text; convert just the fixture's error into the typed
+  // retryable failure a provider throws after partially delivering a stream.
+  const original = LLM.stream
+  const stream = options.retry
+    ? spyOn(LLM, "stream").mockImplementation(async (input) => {
+        const result = await original(input)
+        return new Proxy(result, {
+          get(target, key, receiver) {
+            if (key !== "fullStream") return Reflect.get(target, key, receiver)
+            return target.fullStream.pipeThrough(
+              new TransformStream({
+                transform(chunk, controller) {
+                  controller.enqueue(
+                    chunk.type === "error"
+                      ? {
+                          type: "error",
+                          error: new APICallError({
+                            message: "Fixture stream interrupted",
+                            url: server.url.href,
+                            requestBodyValues: {},
+                            statusCode: 503,
+                            isRetryable: true,
+                            responseHeaders: { "retry-after-ms": "1" },
+                          }),
+                        }
+                      : chunk,
+                  )
+                },
+              }),
+            )
+          },
+        })
+      })
+    : undefined
   try {
     await using tmp = await tmpdir({
       config: {
         ...(options.steps ? { agent: { build: { steps: options.steps } } } : {}),
+        ...(options.compact ? { compaction: { auto: true } } : {}),
         enabled_providers: options.gemini ? ["fixture"] : ["alibaba"],
         provider: options.gemini
           ? {
@@ -119,7 +217,9 @@ async function run(
     return await Instance.provide({
       directory: tmp.path,
       fn: async () => {
+        directory = tmp.path
         const session = await Session.create({ title: "Schema boundary fixture" })
+        sessionID = session.id
         const rejected: {
           sessionID: string
           attempt: number
@@ -128,6 +228,19 @@ async function run(
         }[] = []
         const outcomes: OutputSchema.Outcome[] = []
         const unsubscribe = [
+          Bus.subscribe(PermissionNext.Event.Asked, async (event) => {
+            if (!options.denied || event.properties.sessionID !== session.id) return
+            await PermissionNext.reply({ requestID: event.properties.id, reply: "reject" })
+          }),
+          Bus.subscribe(MessageV2.Event.PartUpdated, (event) => {
+            const part = event.properties.part
+            if (
+              part.sessionID === session.id &&
+              part.type === "tool" &&
+              (part.state.status === "completed" || part.state.status === "error")
+            )
+              notify()
+          }),
           Bus.subscribe(Session.Event.StructuredOutputRejected, (event) => {
             rejected.push(event.properties)
           }),
@@ -149,9 +262,17 @@ async function run(
               ? {}
               : { format: { type: "json_schema" as const, schema: options.schema ?? schema, retryCount } }),
           })
+          const followup = options.followup
+            ? await SessionPrompt.prompt({
+                sessionID: session.id,
+                model: { providerID: "alibaba", modelID: "qwen-plus" },
+                parts: [{ type: "text", text: "A plain follow-up." }],
+              })
+            : undefined
           if (result.info.role !== "assistant") throw new Error("Expected assistant")
           return {
             info: result.info,
+            followup,
             requests,
             rejected,
             outcomes,
@@ -166,6 +287,7 @@ async function run(
       },
     })
   } finally {
+    stream?.mockRestore()
     server.stop(true)
   }
 }
@@ -397,3 +519,86 @@ test("repeated prose-only finishes spend the configured corrective budget", asyn
   expect(result.info.error).toMatchObject({ name: "StructuredOutputError", data: { retries: 2 } })
   expect(result.outcomes).toEqual([{ status: "failed", reason: "missing", attempts: 3 }])
 }, 15_000)
+
+test("compaction precedes missing reminders and preserves the schema contract", async () => {
+  const result = await run(["prose", "prose", '{"result":"accepted"}'], 0, { compact: true })
+  expect(
+    result.requests,
+    JSON.stringify({ requests: result.requests, messages: result.messages, outcomes: result.outcomes }),
+  ).toHaveLength(3)
+  expect(result.messages.some((message) => message.parts.some((part) => part.type === "compaction"))).toBe(true)
+  expect(result.requests[1].tools).toBeUndefined()
+  expect(result.requests[2].tool_choice).toBe("required")
+  expect(JSON.stringify(result.requests[2].tools)).toContain("StructuredOutput")
+  expect(JSON.stringify(result.requests[2].messages)).toContain("The user has requested structured output")
+  expect(result.rejected).toEqual([])
+  expect(result.outcomes).toEqual([{ status: "accepted", attempts: 1, value: { result: "accepted" } }])
+}, 15000)
+
+for (const queued of [false, true]) {
+  test(`plain follow-up clears the schema contract ${queued ? "during" : "after"} a run`, async () => {
+    const result = await run([queued ? "prose" : '{"result":"accepted"}', "prose"], 0, { queued, followup: !queued })
+    expect(result.requests, JSON.stringify(result.info)).toHaveLength(2)
+    expect(result.requests[0].tool_choice).toBe("required")
+    expect(result.requests[1].tool_choice).toBe("auto")
+    expect(JSON.stringify(result.requests[1].tools)).not.toContain("StructuredOutput")
+    // The old schema instruction can remain in history only as ordinary conversation.
+    const messages = result.requests[1].messages as { role: string; content: unknown }[]
+    expect(JSON.stringify(messages.filter((message) => message.role === "system"))).not.toContain(
+      "The user has requested structured output",
+    )
+    expect(result.rejected).toEqual([])
+  }, 15000)
+}
+
+for (const input of ["{}", '{"result":"discarded"}']) {
+  test(`provider stream retry restores ${input === "{}" ? "rejected budget" : "captured result"}`, async () => {
+    const invalid = input === "{}"
+    const result = await run(
+      invalid ? [input, "{}", '{"result":"accepted"}'] : [input, '{"result":"accepted"}'],
+      invalid ? 1 : 0,
+      { retry: true },
+    )
+    expect(result.requests, JSON.stringify(result.info)).toHaveLength(invalid ? 3 : 2)
+    expect(result.info.error).toBeUndefined()
+    expect(result.info.structured).toEqual({ result: "accepted" })
+    expect(result.outcomes).toEqual([{ status: "accepted", attempts: invalid ? 2 : 1, value: { result: "accepted" } }])
+    // Discarded rejections stay as telemetry, while the clean stream starts at attempt 1.
+    expect(result.rejected.map((event) => event.attempt)).toEqual(invalid ? [1, 1] : [])
+    expect(JSON.stringify(result.requests[1])).not.toContain("discarded")
+  }, 15000)
+}
+
+for (const parallel of [
+  ["{}", '{"result":"accepted"}'],
+  ['{"result":"accepted"}', "{}"],
+]) {
+  test(`valid parallel call wins with zero retries: ${parallel[0] === "{}" ? "invalid first" : "valid first"}`, async () => {
+    const result = await run(["unused"], 0, { parallel })
+    expect(result.requests).toHaveLength(1)
+    expect(result.info.error).toBeUndefined()
+    expect(result.info.structured).toEqual({ result: "accepted" })
+    expect(result.outcomes).toEqual([{ status: "accepted", attempts: 1, value: { result: "accepted" } }])
+  }, 15000)
+}
+
+test("permission denial without a provider error reports missing output", async () => {
+  const result = await run(["unused"], 0, { denied: true })
+  expect(result.requests, JSON.stringify(result.info)).toHaveLength(1)
+  expect(result.info.error).toBeUndefined()
+  expect(result.info.structured).toBeUndefined()
+  expect(result.outcomes).toEqual([{ status: "failed", reason: "missing", attempts: 0 }])
+}, 15000)
+
+test("diagnostic paths clip every model-chosen property segment without including values", () => {
+  const validate = OutputSchema.compile({
+    type: "object",
+    additionalProperties: { type: "object", additionalProperties: { type: "integer" } },
+  })
+  const key = "k".repeat(100)
+  expect(validate({ [key]: { [key]: "submitted-private-value" } })).toBe(false)
+  const errors = OutputSchema.diagnostics(validate.errors)
+  expect(errors[0].path.split("/").every((segment) => segment.length <= 64)).toBe(true)
+  expect(errors[0].path).toStartWith("/" + "k".repeat(64) + "/")
+  expect(JSON.stringify(errors)).not.toContain("submitted-private-value")
+})

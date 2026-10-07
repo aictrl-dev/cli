@@ -543,7 +543,7 @@ does not coerce types, insert defaults or remove extra properties.
 Zero permits exactly one attempt. `--output-result <file>` writes only accepted
 JSON using two-space indentation and a trailing newline, with a temporary file
 in the destination directory followed by an atomic rename. Failures preserve the
-file. Both flags require `--output-schema`; the destination directory must exist.
+file. Both flags require `--output-schema`; the destination directory must exist and be writable at configuration time.
 Without `--output-result`, formatted mode prints final JSON; NDJSON includes the
 value in the terminal event below.
 
@@ -564,7 +564,10 @@ and a model turn that finishes in prose without a final tool call:
 The usual event envelope fields also apply. `attempt` is one-based;
 `maxAttempts` equals `retryCount + 1`. Diagnostics include at most ten errors,
 with bounded JSON-pointer paths, keywords and messages. Their encoded payload
-is under 2 KB and never includes submitted values or raw JSON arguments.
+is under 2 KB and never includes submitted values or raw JSON arguments. A `path`
+can contain property names submitted by the model (for example, in map or
+`patternProperties` schemas), never their values. Each path segment is clipped
+to 64 characters; paths also have an overall length bound.
 Validation feedback goes to the model in the same session through the `invalid` tool.
 A prose-only finish emits the fixed diagnostic
 `{ "path": "", "keyword": "missing", "message": "call StructuredOutput with the final result" }`
@@ -589,12 +592,25 @@ or:
 
 `attempts` counts StructuredOutput calls, including rejected/unparseable ones,
 and prose-only finishes without a final call. Other tool calls do not count.
+Compaction turns do not consume a missing-result attempt. Discarded provider
+streams restore the budget and captured result; their rejection events remain
+as telemetry. A valid call in a parallel step wins regardless of call order if
+that step started with budget remaining, and its attempt count stays within the
+configured maximum.
 When the budget is spent, the last rejection determines the reason: `missing`
-for a prose-only finish, otherwise `exhausted`. Failure reasons are `exhausted`, `missing`,
-`step_limit`, `aborted`, or `error` (including provider failures and stream idle
-timeouts). Failed events have no `value`. No prose fallback is accepted.
+for a prose-only finish, otherwise `exhausted`. Failure reasons are:
+
+- `exhausted`: invalid or unparseable calls spent the corrective budget.
+- `missing`: prose finishes spent the budget, or the session ended normally
+  without an accepted result (including headless permission rejection).
+- `step_limit`: the agent reached its configured step cap without a result.
+- `aborted`: the invocation was cancelled, including SIGINT/SIGTERM.
+- `error`: a provider or session error, including stream idle timeout or an
+  invalid accepted result received from a remote session.
+
+Failed events have no `value`. No prose fallback is accepted.
 Configuration failures happen before a session starts and use the existing
-`invocation_error`/`invocation_complete` envelope, with code `OUTPUT_SCHEMA_CONFIG`.
+`invocation_error`/`invocation_complete` envelope, with code `OUTPUT_SCHEMA_CONFIG` and the specific cause clipped to 300 characters.
 
 Exit codes are **0** on accepted results, **2** for schema configuration errors,
 **3** for exhausted attempts, missing output and step limits. Provider errors and

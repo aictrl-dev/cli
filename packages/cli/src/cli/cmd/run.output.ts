@@ -35,6 +35,18 @@ export async function outputSchema(input: { schema?: string; retries?: number; r
       throw new Error(`${input.schema}: ${error instanceof Error ? error.message : "cannot compile schema"}`)
     }
   })()
+  if (input.result) {
+    const directory = path.dirname(input.result)
+    const writable = await fs
+      .stat(directory)
+      .then(async (stat) => {
+        if (!stat.isDirectory()) return false
+        await fs.access(directory, fs.constants.W_OK | fs.constants.X_OK)
+        return true
+      })
+      .catch(() => false)
+    if (!writable) throw new Error(`${input.result}: output-result parent directory must exist and be writable`)
+  }
   return { format: { type: "json_schema" as const, schema: canonical, retryCount: input.retries ?? 2 }, validate }
 }
 

@@ -592,7 +592,11 @@ export const RunCommand = cmd({
               ? { status: "failed", reason: "aborted", attempts }
               : pending?.status === "failed"
                 ? pending
-                : { status: "failed", reason: "error", attempts }
+                : {
+                    status: "failed",
+                    reason: message || pending?.status === "accepted" ? "error" : "missing",
+                    attempts,
+                  }
             emit("structured_output", structured)
             error ??= `Structured output failed: ${structured.reason}`
             invocation.error(error)

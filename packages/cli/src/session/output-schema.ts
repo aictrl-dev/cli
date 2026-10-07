@@ -38,7 +38,11 @@ export namespace OutputSchema {
   export function diagnostics(errors?: ErrorObject[] | null): Diagnostic[] {
     return (errors ?? []).slice(0, 10).reduce<Diagnostic[]>((result, error) => {
       const item = {
-        path: error.instancePath.slice(0, 96),
+        path: error.instancePath
+          .split("/")
+          .map((segment) => segment.slice(0, 64))
+          .join("/")
+          .slice(0, 96),
         keyword: error.keyword.slice(0, 32),
         message: (error.message ?? "invalid value").slice(0, 96),
       }

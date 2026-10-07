@@ -27,14 +27,17 @@ export function createRunInvocation(enabled: boolean) {
 
   emit("invocation_start")
 
-  function error(_error: unknown, code = `INVOCATION_${phase.toUpperCase()}_FAILED`) {
+  function error(cause: unknown, code = `INVOCATION_${phase.toUpperCase()}_FAILED`) {
     if (!id || failed || completed) return
     failed = true
     if (sessionID) return
     emit("invocation_error", {
       phase,
       code,
-      message: `Invocation failed during ${phase}`,
+      message:
+        code === "OUTPUT_SCHEMA_CONFIG"
+          ? (cause instanceof Error ? cause.message : String(cause)).slice(0, 300)
+          : `Invocation failed during ${phase}`,
     })
   }
 

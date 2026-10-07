@@ -331,14 +331,15 @@ export namespace SessionPrompt {
     let attempts = 0
     let rejected = 0
     let reminder = false
+    let user: string | undefined
     let contract:
       | {
-          id: string
           format: MessageV2.OutputFormat & { type: "json_schema" }
           validate: ReturnType<typeof OutputSchema.compile>
         }
       | undefined
     let outcome: OutputSchema.Outcome | undefined
+    let failed = false
 
     let step = 0
     const session = await Session.get(sessionID)
@@ -366,8 +367,21 @@ export namespace SessionPrompt {
       }
 
       if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
-      if (lastUser.format?.type === "json_schema" && contract?.id !== lastUser.id) {
-        contract = { id: lastUser.id, format: lastUser.format, validate: OutputSchema.compile(lastUser.format.schema) }
+      const request = msgs.findLast(
+        (msg) =>
+          msg.info.role === "user" &&
+          (!msg.parts.length ||
+            !msg.parts.every(
+              (part) =>
+                part.type === "compaction" || part.type === "subtask" || (part.type === "text" && part.synthetic),
+            )),
+      )?.info as MessageV2.User | undefined
+      if (request && user !== request.id) {
+        user = request.id
+        contract =
+          request.format?.type === "json_schema"
+            ? { format: request.format, validate: OutputSchema.compile(request.format.schema) }
+            : undefined
         attempts = 0
         rejected = 0
         reminder = false
@@ -632,7 +646,10 @@ export namespace SessionPrompt {
           sessionID,
           auto: task.auto,
         })
-        if (result === "stop") break
+        if (result === "stop") {
+          failed = true
+          break
+        }
         continue
       }
 
@@ -722,6 +739,7 @@ export namespace SessionPrompt {
         return OutputSchema.error(errors).message
       }
 
+      const available = !!contract && attempts < contract.format.retryCount + 1
       if (contract) {
         tools["StructuredOutput"] = createStructuredOutputTool({
           schema: contract.format.schema,
@@ -729,9 +747,8 @@ export namespace SessionPrompt {
           model,
           async onSuccess(output) {
             if (structuredOutput !== undefined) return
-            if (attempts >= contract!.format.retryCount + 1)
-              throw new Error("StructuredOutput attempt budget exhausted")
-            attempts++
+            if (!available) throw new Error("StructuredOutput attempt budget exhausted")
+            attempts = Math.min(attempts + 1, contract!.format.retryCount + 1)
             structuredOutput = output
           },
         })
@@ -770,8 +787,7 @@ export namespace SessionPrompt {
       // Build system prompt, adding structured output instruction if needed
       const system = [...(await SystemPrompt.environment(model)), ...(await InstructionPrompt.system())]
 
-      const format = lastUser.format ?? { type: "text" }
-      if (format.type === "json_schema") {
+      if (contract) {
         system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
       }
 
@@ -803,8 +819,22 @@ export namespace SessionPrompt {
         tools,
         model,
         toolChoice: contract ? "required" : undefined,
-        structured: contract ? { reject } : undefined,
+        structured: contract
+          ? {
+              reject,
+              checkpoint() {
+                const before = { attempts, rejected, structuredOutput }
+                return () => {
+                  attempts = before.attempts
+                  rejected = before.rejected
+                  structuredOutput = before.structuredOutput
+                }
+              },
+            }
+          : undefined,
       })
+
+      failed = !!processor.message.error
 
       // If structured output was captured, save it and exit immediately
       // This takes priority because the StructuredOutput tool was called successfully
@@ -821,6 +851,16 @@ export namespace SessionPrompt {
         break
       }
       structuredOutput = undefined
+
+      if (result === "compact") {
+        await SessionCompaction.create({
+          sessionID,
+          agent: lastUser.agent,
+          model: lastUser.model,
+          auto: true,
+        })
+        continue
+      }
 
       reminder =
         !!contract && (await missingStructuredOutput(processor.message, () => MessageV2.parts(processor.message.id)))
@@ -844,21 +884,17 @@ export namespace SessionPrompt {
       if (reminder) continue
 
       if (result === "stop") break
-      if (result === "compact") {
-        await SessionCompaction.create({
-          sessionID,
-          agent: lastUser.agent,
-          model: lastUser.model,
-          auto: true,
-        })
-      }
       continue
     }
     await SessionCompaction.prune({ sessionID })
     if (contract) {
       await Bus.publish(Session.Event.StructuredOutput, {
         sessionID,
-        outcome: outcome ?? { status: "failed", reason: abort.aborted ? "aborted" : "error", attempts },
+        outcome: outcome ?? {
+          status: "failed",
+          reason: abort.aborted ? "aborted" : failed ? "error" : "missing",
+          attempts,
+        },
       })
     }
     for await (const item of MessageV2.stream(sessionID)) {
@@ -1082,10 +1118,10 @@ export namespace SessionPrompt {
     validate?: ReturnType<typeof OutputSchema.compile>
     model?: Provider.Model
     onSuccess: (output: unknown) => void | Promise<void>
-  }): AITool {
+  }): AITool & { id: "StructuredOutput" } {
     const validate = input.validate ?? OutputSchema.compile(input.schema)
     const schema = Object.fromEntries(Object.entries(input.schema).filter(([key]) => key !== "$schema"))
-    return tool({
+    const result = tool({
       description: STRUCTURED_OUTPUT_DESCRIPTION,
       inputSchema: jsonSchema(input.model ? ProviderTransform.schema(input.model, schema) : schema, {
         validate(value) {
@@ -1106,9 +1142,9 @@ export namespace SessionPrompt {
       toModelOutput(result) {
         return { type: "text", value: result.output }
       },
-      // Retain the internal identifier used by tool consumers.
-      ...{ id: "StructuredOutput" },
     })
+    // Retain the internal identifier used by tool consumers.
+    return Object.assign(result, { id: "StructuredOutput" as const })
   }
 
   async function createUserMessage(input: PromptInput) {

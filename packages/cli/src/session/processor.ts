@@ -82,6 +82,7 @@ export namespace SessionProcessor {
         needsCompaction = false
         const shouldBreak = (await Config.get()).experimental?.continue_loop_on_deny !== true
         while (true) {
+          const reset = streamInput.structured?.checkpoint()
           const parts = new Set<string>()
           const texts: MessageV2.TextPart[] = []
           const delivered = new Set<string>()
@@ -477,6 +478,7 @@ export namespace SessionProcessor {
             }
             const retry = SessionRetry.retryable(error)
             if (retry !== undefined) {
+              reset?.()
               // Keep the failed attempt's file changes available to revert tooling.
               await patch()
               retried.push(

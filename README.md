@@ -68,6 +68,10 @@ aictrl run --output-schema result.schema.json --output-schema-retries 2 \
   indented with two spaces and a trailing newline. Failures preserve an existing
   file and leave an absent file absent. The destination directory must exist.
 
+Ajv strict mode rejects unknown schema keywords and unregistered `format`
+values such as `date-time` and `uri` as configuration errors (exit **2**).
+The result parent directory must exist and be writable at configuration time.
+
 The retries and result flags require `--output-schema`. Without a result file,
 formatted mode prints validated JSON at the end; `--format json` emits it in a
 terminal `structured_output` event. Rejections emit `structured_output_rejected`
