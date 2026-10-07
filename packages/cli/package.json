@@ -102,6 +102,7 @@
     "@standard-schema/spec": "1.0.0",
     "@zip.js/zip.js": "2.7.62",
     "ai": "catalog:",
+    "ajv": "^8",
     "decimal.js": "10.5.0",
     "diff": "catalog:",
     "drizzle-orm": "1.0.0-beta.12-a5629fb",

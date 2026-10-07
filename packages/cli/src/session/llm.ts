@@ -40,6 +40,7 @@ export namespace LLM {
     tools: Record<string, Tool>
     retries?: number
     toolChoice?: "auto" | "required" | "none"
+    structured?: { reject: (input: string) => Promise<string> }
   }
 
   export type StreamOutput = StreamTextResult<ToolSet, unknown>
@@ -173,10 +174,20 @@ export namespace LLM {
     return streamText({
       onError(error) {
         l.error("stream error", {
-          error,
+          error: input.structured ? "Structured output stream failed" : error,
         })
       },
       async experimental_repairToolCall(failed) {
+        if (failed.toolCall.toolName === "StructuredOutput" && input.structured) {
+          return {
+            ...failed.toolCall,
+            toolName: "invalid",
+            input: JSON.stringify({
+              tool: "StructuredOutput",
+              error: await input.structured.reject(failed.toolCall.input),
+            }),
+          }
+        }
         const lower = failed.toolCall.toolName.toLowerCase()
         if (lower !== failed.toolCall.toolName && tools[lower]) {
           l.info("repairing tool call", {

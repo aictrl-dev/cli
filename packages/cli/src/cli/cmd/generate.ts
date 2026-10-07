@@ -1,6 +1,7 @@
 import type { CommandModule } from "yargs"
 import z from "zod"
 import { MessageV2 } from "@/session/message-v2"
+import { Session } from "@/session"
 import { ProviderTermination } from "@/provider/termination"
 
 export const GenerateCommand = {
@@ -10,9 +11,26 @@ export const GenerateCommand = {
     const registry = z.registry<{ id: string }>()
     registry.add(MessageV2.StepFinishPart, { id: "StepFinishPart" })
     registry.add(ProviderTermination.Info, { id: "ProviderTermination" })
+    registry.add(MessageV2.Format, { id: "OutputFormat" })
+    registry.add(MessageV2.Assistant, { id: "AssistantMessage" })
+    registry.add(
+      z.object({
+        type: z.literal(Session.Event.StructuredOutput.type),
+        properties: Session.Event.StructuredOutput.properties,
+      }),
+      { id: "EventSessionStructuredOutput" },
+    )
+    registry.add(
+      z.object({
+        type: z.literal(Session.Event.StructuredOutputRejected.type),
+        properties: Session.Event.StructuredOutputRejected.properties,
+      }),
+      { id: "EventSessionStructuredOutputRejected" },
+    )
     const components = z.toJSONSchema(registry, {
       metadata: z.registry(),
       target: "draft-2020-12",
+      io: "input",
       uri: (id) => `#/components/schemas/${id}`,
     })
     // Component JSON pointers are references, not standalone schema resource IDs.

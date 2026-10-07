@@ -1,3 +1,4 @@
+import { OutputSchema } from "./output-schema"
 import { Slug } from "@aictrl/util/slug"
 import path from "path"
 import { BusEvent } from "@/bus/bus-event"
@@ -178,6 +179,19 @@ export namespace Session {
   export type GlobalInfo = z.output<typeof GlobalInfo>
 
   export const Event = {
+    StructuredOutputRejected: BusEvent.define(
+      "session.structured_output_rejected",
+      z.object({
+        sessionID: z.string(),
+        attempt: z.number(),
+        maxAttempts: z.number(),
+        errors: OutputSchema.Diagnostic.array(),
+      }),
+    ),
+    StructuredOutput: BusEvent.define(
+      "session.structured_output",
+      z.object({ sessionID: z.string(), outcome: OutputSchema.Outcome }),
+    ),
     Created: BusEvent.define(
       "session.created",
       z.object({

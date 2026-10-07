@@ -45,3 +45,144 @@ export type ProviderTermination = {
     truncated: boolean
   }
 }
+
+export type OutputFormat =
+  | {
+      type: "text"
+    }
+  | {
+      type: "json_schema"
+      schema: {
+        [key: string]: unknown
+      }
+      retryCount?: number
+    }
+
+export type AssistantMessage = {
+  id: string
+  sessionID: string
+  role: "assistant"
+  time: {
+    created: number
+    completed?: number
+  }
+  error?:
+    | {
+        name: "ProviderAuthError"
+        data: {
+          providerID: string
+          message: string
+        }
+      }
+    | {
+        name: "UnknownError"
+        data: {
+          message: string
+        }
+      }
+    | {
+        name: "MessageOutputLengthError"
+        data: {
+          [key: string]: unknown
+        }
+      }
+    | {
+        name: "MessageAbortedError"
+        data: {
+          message: string
+        }
+      }
+    | {
+        name: "StreamIdleTimeoutError"
+        data: {
+          message: string
+          timeout: number
+        }
+      }
+    | {
+        name: "StructuredOutputError"
+        data: {
+          message: string
+          retries: number
+        }
+      }
+    | {
+        name: "ContextOverflowError"
+        data: {
+          message: string
+          responseBody?: string
+        }
+      }
+    | {
+        name: "APIError"
+        data: {
+          message: string
+          statusCode?: number
+          isRetryable: boolean
+          responseHeaders?: {
+            [key: string]: string
+          }
+          responseBody?: string
+          metadata?: {
+            [key: string]: string
+          }
+        }
+      }
+  parentID: string
+  modelID: string
+  providerID: string
+  mode: string
+  agent: string
+  path: {
+    cwd: string
+    root: string
+  }
+  summary?: boolean
+  cost: number
+  tokens: {
+    total?: number
+    input: number
+    output: number
+    reasoning: number
+    cache: {
+      read: number
+      write: number
+    }
+  }
+  usageStatus?: "reported" | "missing" | "estimated"
+  structured?: unknown
+  variant?: string
+  finish?: string
+}
+
+export type EventSessionStructuredOutput = {
+  type: "session.structured_output"
+  properties: {
+    sessionID: string
+    outcome:
+      | {
+          status: "accepted"
+          attempts: number
+          value: unknown
+        }
+      | {
+          status: "failed"
+          reason: "exhausted" | "missing" | "step_limit" | "aborted" | "error"
+          attempts: number
+        }
+  }
+}
+
+export type EventSessionStructuredOutputRejected = {
+  type: "session.structured_output_rejected"
+  properties: {
+    sessionID: string
+    attempt: number
+    maxAttempts: number
+    errors: Array<{
+      path: string
+      keyword: string
+      message: string
+    }>
+  }
+}

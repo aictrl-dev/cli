@@ -117,42 +117,7 @@ export type ApiError = {
   }
 }
 
-export type AssistantMessage = {
-  id: string
-  sessionID: string
-  role: "assistant"
-  time: {
-    created: number
-    completed?: number
-  }
-  error?:
-    | ProviderAuthError
-    | UnknownError
-    | MessageOutputLengthError
-    | MessageAbortedError
-    | StreamIdleTimeoutError
-    | ApiError
-  parentID: string
-  modelID: string
-  providerID: string
-  mode: string
-  path: {
-    cwd: string
-    root: string
-  }
-  summary?: boolean
-  cost: number
-  tokens: {
-    input: number
-    output: number
-    reasoning: number
-    cache: {
-      read: number
-      write: number
-    }
-  }
-  finish?: string
-}
+export type AssistantMessage = import("../v2/gen/types.gen.js").AssistantMessage
 
 export type Message = UserMessage | AssistantMessage
 
@@ -706,6 +671,8 @@ export type EventServerConnected = {
 }
 
 export type Event =
+  | EventSessionStructuredOutput
+  | EventSessionStructuredOutputRejected
   | EventServerInstanceDisposed
   | EventInstallationUpdated
   | EventInstallationUpdateAvailable
@@ -2588,6 +2555,7 @@ export type SessionMessagesResponse = SessionMessagesResponses[keyof SessionMess
 
 export type SessionPromptData = {
   body?: {
+    format?: OutputFormat
     messageID?: string
     model?: {
       providerID: string
@@ -2683,6 +2651,7 @@ export type SessionMessageResponse = SessionMessageResponses[keyof SessionMessag
 
 export type SessionPromptAsyncData = {
   body?: {
+    format?: OutputFormat
     messageID?: string
     model?: {
       providerID: string
@@ -2732,6 +2701,7 @@ export type SessionPromptAsyncResponse = SessionPromptAsyncResponses[keyof Sessi
 
 export type SessionCommandData = {
   body?: {
+    format?: OutputFormat
     messageID?: string
     agent?: string
     model?: string
@@ -3906,3 +3876,9 @@ export type EventSubscribeResponse = EventSubscribeResponses[keyof EventSubscrib
 export type ClientOptions = {
   baseUrl: `${string}://${string}` | (string & {})
 }
+
+export type OutputFormat = import("../v2/gen/types.gen.js").OutputFormat
+
+export type EventSessionStructuredOutput = import("../v2/gen/types.gen.js").EventSessionStructuredOutput
+
+export type EventSessionStructuredOutputRejected = import("../v2/gen/types.gen.js").EventSessionStructuredOutputRejected

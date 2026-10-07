@@ -38,17 +38,39 @@ await createClient({
   ],
 })
 
-// The headless generator writes v2 types; the legacy SDK client still refers to
-// src/gen/types.gen.ts. Bridge this shared part to its canonical generated type
-// so event unions in both SDK versions retain the same termination contract.
+// The headless generator writes canonical v2 schemas. Keep the legacy HTTP
+// client's shared types aligned without regenerating its existing endpoints.
 const legacy = Bun.file("./src/gen/types.gen.ts")
-const source = await legacy.text()
-const pattern =
-  /^export type StepFinishPart = (?:\{[\s\S]*?^\}|import\("\.\.\/v2\/gen\/types\.gen\.js"\)\.StepFinishPart)$/m
-if (!pattern.test(source)) throw new Error("Legacy StepFinishPart declaration not found; update the SDK schema bridge")
-await legacy.write(
-  source.replace(pattern, 'export type StepFinishPart = import("../v2/gen/types.gen.js").StepFinishPart'),
-)
+let source = await legacy.text()
+for (const name of [
+  "StepFinishPart",
+  "AssistantMessage",
+  "OutputFormat",
+  "EventSessionStructuredOutput",
+  "EventSessionStructuredOutputRejected",
+]) {
+  const pattern = new RegExp(
+    `^export type ${name} = (?:\\{[\\s\\S]*?^\\}|import\\("\\.\\.\\/v2\\/gen\\/types\\.gen\\.js"\\)\\.${name})$`,
+    "m",
+  )
+  const declaration = `export type ${name} = import("../v2/gen/types.gen.js").${name}`
+  source = pattern.test(source) ? source.replace(pattern, declaration) : source + "\n" + declaration + "\n"
+}
+for (const name of ["SessionPromptData", "SessionPromptAsyncData", "SessionCommandData"]) {
+  const start = source.indexOf(`export type ${name} = {`)
+  const end = source.indexOf("\n  path:", start)
+  if (start < 0 || end < 0) throw new Error(`Legacy ${name} declaration not found`)
+  const body = source.slice(start, end)
+  if (!body.includes("format?: OutputFormat"))
+    source =
+      source.slice(0, start) + body.replace("  body?: {", "  body?: {\n    format?: OutputFormat") + source.slice(end)
+}
+if (!source.includes("  | EventSessionStructuredOutput\n"))
+  source = source.replace(
+    "export type Event =\n",
+    "export type Event =\n  | EventSessionStructuredOutput\n  | EventSessionStructuredOutputRejected\n",
+  )
+await legacy.write(source)
 
 await $`bun prettier --write src/gen`
 await $`bun prettier --write src/v2`

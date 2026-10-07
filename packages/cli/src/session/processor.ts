@@ -232,6 +232,11 @@ export namespace SessionProcessor {
                     const lastThree = history.slice(-DOOM_LOOP_THRESHOLD)
 
                     if (
+                      !(
+                        streamInput.structured &&
+                        (value.toolName === "StructuredOutput" ||
+                          (value.toolName === "invalid" && value.input?.tool === "StructuredOutput"))
+                      ) &&
                       lastThree.length === DOOM_LOOP_THRESHOLD &&
                       lastThree.every(
                         (p) =>
@@ -460,8 +465,8 @@ export namespace SessionProcessor {
             }
           } catch (e: any) {
             log.error("process", {
-              error: e,
-              stack: JSON.stringify(e.stack),
+              error: streamInput.structured ? "Structured output stream failed" : e,
+              stack: streamInput.structured ? undefined : JSON.stringify(e.stack),
             })
             const error = MessageV2.APIError.isInstance(e)
               ? e

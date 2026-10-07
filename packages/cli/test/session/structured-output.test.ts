@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { asSchema } from "ai"
 import { MessageV2 } from "../../src/session/message-v2"
 import { SessionPrompt } from "../../src/session/prompt"
 
@@ -237,48 +238,28 @@ describe("structured-output.createStructuredOutputTool", () => {
     expect(result.metadata.valid).toBe(true)
   })
 
-  test("AI SDK validates schema before execute - missing required field", async () => {
-    // Note: The AI SDK validates the input against the schema BEFORE calling execute()
-    // So invalid inputs never reach the tool's execute function
-    // This test documents the expected schema behavior
+  test("AI SDK boundary rejects missing required fields", async () => {
     const tool = SessionPrompt.createStructuredOutputTool({
       schema: {
         type: "object",
-        properties: {
-          name: { type: "string" },
-          age: { type: "number" },
-        },
+        properties: { name: { type: "string" }, age: { type: "number" } },
         required: ["name", "age"],
       },
-      onSuccess: () => {},
+      onSuccess: () => {
+        throw new Error("Invalid input captured")
+      },
     })
-
-    // The schema requires both 'name' and 'age'
-    expect(tool.inputSchema).toBeDefined()
-    const inputSchema = tool.inputSchema as any
-    expect(inputSchema.jsonSchema?.required).toContain("name")
-    expect(inputSchema.jsonSchema?.required).toContain("age")
+    expect(await asSchema(tool.inputSchema).validate!({})).toMatchObject({ success: false })
   })
 
-  test("AI SDK validates schema types before execute - wrong type", async () => {
-    // Note: The AI SDK validates the input against the schema BEFORE calling execute()
-    // So invalid inputs never reach the tool's execute function
-    // This test documents the expected schema behavior
+  test("AI SDK boundary rejects wrong scalar types", async () => {
     const tool = SessionPrompt.createStructuredOutputTool({
-      schema: {
-        type: "object",
-        properties: {
-          count: { type: "number" },
-        },
-        required: ["count"],
+      schema: { type: "object", properties: { count: { type: "number" } }, required: ["count"] },
+      onSuccess: () => {
+        throw new Error("Invalid input captured")
       },
-      onSuccess: () => {},
     })
-
-    // The schema defines 'count' as a number
-    expect(tool.inputSchema).toBeDefined()
-    const inputSchema = tool.inputSchema as any
-    expect(inputSchema.jsonSchema?.properties?.count?.type).toBe("number")
+    expect(await asSchema(tool.inputSchema).validate!({ count: "wrong" })).toMatchObject({ success: false })
   })
 
   test("execute handles nested objects", async () => {
@@ -379,7 +360,6 @@ describe("structured-output.createStructuredOutputTool", () => {
     expect(modelOutput.value).toBe("Test output")
   })
 
-  // Note: Retry behavior is handled by the AI SDK and the prompt loop, not the tool itself
-  // The tool simply calls onSuccess when execute() is called with valid args
-  // See prompt.ts loop() for actual retry logic
+  // The prompt loop owns the corrective attempt budget; this tool enforces the
+  // canonical validator before capture, including direct execute() calls.
 })
