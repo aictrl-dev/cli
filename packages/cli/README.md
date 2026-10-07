@@ -78,7 +78,6 @@ aictrl github install
 ```
 
 This adds a GitHub Action that can:
-
 1. Commmit and push code changes.
 2. Create and update PRs.
 3. Respond to issue comments.
@@ -91,7 +90,6 @@ This adds a GitHub Action that can:
 ```bash
 aictrl pr <number>
 ```
-
 Automatically fetches the PR branch and imports the agent session used to create it.
 
 ## Configuration
@@ -100,11 +98,11 @@ Aictrl reads config from `.aictrl/` (project) or `~/.config/aictrl/` (global).
 
 ### Models
 
-| Provider   | Env Var              |
-| ---------- | -------------------- |
-| Anthropic  | `ANTHROPIC_API_KEY`  |
-| OpenAI     | `OPENAI_API_KEY`     |
-| Google     | `GOOGLE_API_KEY`     |
+| Provider | Env Var |
+|----------|---------|
+| Anthropic | `ANTHROPIC_API_KEY` |
+| OpenAI | `OPENAI_API_KEY` |
+| Google | `GOOGLE_API_KEY` |
 | OpenRouter | `OPENROUTER_API_KEY` |
 
 Use `--variant` to select provider-specific reasoning effort. For OpenAI-compatible
