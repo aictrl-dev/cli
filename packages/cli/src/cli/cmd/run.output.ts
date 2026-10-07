@@ -1,4 +1,5 @@
 import path from "path"
+// Bun content I/O preserves createPath: false; fs/promises supplies metadata and atomic rename/removal.
 import fs from "fs/promises"
 import { OutputSchema } from "@/session/output-schema"
 
@@ -12,8 +13,8 @@ export async function outputSchema(input: { schema?: string; retries?: number; r
       throw new Error("--output-schema-retries and --output-result require --output-schema")
     return
   }
-  if (input.retries !== undefined && (!Number.isSafeInteger(input.retries) || input.retries < 0))
-    throw new Error("--output-schema-retries must be an integer >= 0")
+  if (input.retries !== undefined && (!Number.isSafeInteger(input.retries) || input.retries < 0 || input.retries > 10))
+    throw new Error("--output-schema-retries must be an integer between 0 and 10")
   const text = await Bun.file(input.schema)
     .text()
     .catch(() => {
@@ -27,7 +28,7 @@ export async function outputSchema(input: { schema?: string; retries?: number; r
     }
   })()
   if (!schema || typeof schema !== "object" || Array.isArray(schema))
-    throw new Error(`${input.schema}: schema root must have type "object"`)
+    throw new Error(`${input.schema}: schema root must be a JSON object`)
   const canonical = schema as Record<string, unknown>
   const validate = (() => {
     try {

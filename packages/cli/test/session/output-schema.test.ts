@@ -645,3 +645,24 @@ test("structured error summaries preserve bounded identity without submitted dat
     name: "x".repeat(96),
   })
 })
+
+test("serialized schema limit counts bytes and accepts exactly 64 KiB", () => {
+  const schema = { type: "object", description: "" }
+  const size = Buffer.byteLength(JSON.stringify(schema))
+  schema.description = "x".repeat(64 * 1024 - size)
+  expect(OutputSchema.compile(schema)({})).toBe(true)
+  expect(() => OutputSchema.compile({ ...schema, description: schema.description + "x" })).toThrow("64 KiB")
+  expect(() => OutputSchema.compile({ ...schema, description: "é".repeat(33 * 1024) })).toThrow("64 KiB")
+  expect(OutputSchema.compile(schema)).toBe(OutputSchema.compile(JSON.parse(JSON.stringify(schema))))
+})
+
+test("prompt path rejects an oversized schema before any provider request", async () => {
+  await expect(run(["unused"], 0, { schema: { type: "object", description: "x".repeat(64 * 1024) } })).rejects.toThrow(
+    "64 KiB",
+  )
+})
+
+test("retryCount accepts the upper bound and rejects values above ten", () => {
+  expect(MessageV2.OutputFormatJsonSchema.parse({ type: "json_schema", schema, retryCount: 10 }).retryCount).toBe(10)
+  expect(() => MessageV2.OutputFormatJsonSchema.parse({ type: "json_schema", schema, retryCount: 11 })).toThrow()
+})

@@ -29,7 +29,13 @@ test("model catalog refresh handles a timeout while reading the response body", 
       stderr: "pipe",
     },
   )
-  using cleanup = { [Symbol.dispose]: () => proc.kill() }
+  const timer = setTimeout(() => proc.kill("SIGKILL"), 20000)
+  using cleanup = {
+    [Symbol.dispose]() {
+      clearTimeout(timer)
+      proc.kill("SIGKILL")
+    },
+  }
   const [stdout, stderr, exit] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),

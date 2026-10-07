@@ -1,6 +1,7 @@
 import Ajv, { type ErrorObject } from "ajv"
 import Ajv2020 from "ajv/dist/2020"
 import z from "zod"
+import { createHash } from "crypto"
 
 export namespace OutputSchema {
   export const Diagnostic = z.object({ path: z.string(), keyword: z.string(), message: z.string() })
@@ -21,7 +22,9 @@ export namespace OutputSchema {
 
   export function compile(schema: Record<string, unknown>) {
     if (schema.type !== "object") throw new Error('schema root must have type "object"')
-    const key = JSON.stringify(schema)
+    const text = JSON.stringify(schema)
+    if (Buffer.byteLength(text) > 64 * 1024) throw new Error("serialized schema must not exceed 64 KiB")
+    const key = createHash("sha256").update(text).digest("hex")
     const cached = cache.get(key)
     if (cached) return cached
     const ajv =

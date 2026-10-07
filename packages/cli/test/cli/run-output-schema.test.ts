@@ -234,7 +234,11 @@ for (const [name, options, reason] of [
   ["unreadable", { flags: ["--output-schema", "absent.json"] }, "cannot read"],
   ["invalid JSON", { content: "{broken" }, "invalid JSON"],
   ["uncompilable", { content: '{"type":"object","unknownKeyword":true}' }, "strict mode"],
-  ["non-object root", { content: '{"type":"array"}' }, "object"],
+  ["non-object root", { content: '{"type":"array"}' }, 'schema root must have type "object"'],
+  ["array JSON root", { content: "[]" }, "schema root must be a JSON object"],
+  ["null JSON root", { content: "null" }, "schema root must be a JSON object"],
+  ["scalar JSON root", { content: '"schema"' }, "schema root must be a JSON object"],
+  ["oversized schema", { content: JSON.stringify({ type: "object", description: "x".repeat(64 * 1024) }) }, "64 KiB"],
   [
     "unknown format",
     { content: '{"type":"object","properties":{"result":{"type":"string","format":"date-time"}}}' },
@@ -257,11 +261,20 @@ for (const [name, options, reason] of [
   ],
   ["retries without schema", { flags: ["--output-schema-retries", "1"] }, "require --output-schema"],
   ["result without schema", { flags: ["--output-result", "result.json"] }, "require --output-schema"],
-  ["negative retries", { flags: ["--output-schema", "schema.json", "--output-schema-retries", "-1"] }, "integer >= 0"],
+  [
+    "excessive retries",
+    { flags: ["--output-schema", "schema.json", "--output-schema-retries", "11"] },
+    "integer between 0 and 10",
+  ],
+  [
+    "negative retries",
+    { flags: ["--output-schema", "schema.json", "--output-schema-retries", "-1"] },
+    "integer between 0 and 10",
+  ],
   [
     "fractional retries",
     { flags: ["--output-schema", "schema.json", "--output-schema-retries", "1.5"] },
-    "integer >= 0",
+    "integer between 0 and 10",
   ],
   [
     "unsupported draft",
@@ -279,8 +292,8 @@ for (const [name, options, reason] of [
       expect(result.stderr).toContain(reason)
       const event = result.events.find((event) => event.type === "invocation_error")
       expect((event!.message as string).length).toBeLessThanOrEqual(300)
-      if (name === "negative retries" || name === "fractional retries")
-        expect(event?.message).toBe("--output-schema-retries must be an integer >= 0")
+      if (name === "negative retries" || name === "fractional retries" || name === "excessive retries")
+        expect(event?.message).toBe("--output-schema-retries must be an integer between 0 and 10")
       expect(event).toMatchObject({ code: "OUTPUT_SCHEMA_CONFIG", message: expect.stringContaining(reason) })
       if ("content" in options) expect(result.stderr).toContain("schema.json")
       expect(result.requests).toEqual([])
