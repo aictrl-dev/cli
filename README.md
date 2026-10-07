@@ -49,6 +49,16 @@ For programmatic consumption, use `--format json` to get raw events.
 aictrl run --format json "review this PR" | jq '.type'
 ```
 
+### Validated Final Results
+
+`aictrl run --output-schema <file>` validates the final JSON result.
+Use `--output-schema-retries <n>` for additional corrective attempts (default 2)
+and `--output-result <file>` to atomically write the accepted value.
+Exit codes: **0** accepted, **2** configuration error, **3** missing or invalid result;
+provider failures and stream timeouts use **1**, signals use **130**/**143**.
+See the [full contract](packages/cli/README.md#validated-final-results)
+and [JSON event reference](EVENTS.md).
+
 ### Non-Interactive Execution
 
 In headless mode, Aictrl automatically rejects all interactive permission requests (like `question` or `plan_enter`), ensuring your pipelines never hang.

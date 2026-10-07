@@ -114,8 +114,12 @@ export namespace ModelsDev {
         error: e,
       })
     })
-    if (result && result.ok) {
-      await Filesystem.write(filepath, await result.text())
+    if (!result?.ok) return
+    const text = await result.text().catch((error) => {
+      log.error("Failed to read models.dev response", { error })
+    })
+    if (text !== undefined) {
+      await Filesystem.write(filepath, text)
       ModelsDev.Data.reset()
     }
   }

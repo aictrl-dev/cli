@@ -530,3 +530,90 @@ Emitted when a permission request resolves to `allow` (either by matching an `al
   "input": { "command": "ls" }
 }
 ```
+
+## Structured final results
+
+These events are additive in schema version `"1"` and emitted only when
+`--output-schema <file>` is supplied. Other runs retain their event types and order.
+The schema is validated before any model request, with Ajv defaults and
+`allErrors: true` (draft-07, or Ajv2020 for a declared draft 2020-12). Validation
+does not coerce types, insert defaults or remove extra properties.
+
+`--output-schema-retries <n>` permits N additional corrective attempts (default 2).
+Zero permits exactly one attempt. `--output-result <file>` writes only accepted
+JSON using two-space indentation and a trailing newline, with a temporary file
+in the destination directory followed by an atomic rename. Failures preserve the
+file. Both flags require `--output-schema`; the destination directory must exist and be writable at configuration time.
+Without `--output-result`, formatted mode prints final JSON; NDJSON includes the
+value in the terminal event below.
+
+### `structured_output_rejected`
+
+Emitted once per rejected StructuredOutput attempt, including unparseable JSON
+and a model turn that finishes in prose without a final tool call:
+
+```json
+{
+  "type": "structured_output_rejected",
+  "attempt": 1,
+  "maxAttempts": 3,
+  "errors": [{ "path": "/count", "keyword": "type", "message": "must be integer" }]
+}
+```
+
+The usual event envelope fields also apply. `attempt` is one-based;
+`maxAttempts` equals `retryCount + 1`. Diagnostics include at most ten errors,
+with bounded JSON-pointer paths, keywords and messages. Their encoded payload
+is under 2 KB and never includes submitted values or raw JSON arguments. A `path`
+can contain property names submitted by the model (for example, in map or
+`patternProperties` schemas), never their values. Each path segment is clipped
+to 64 characters; paths also have an overall length bound.
+Validation feedback goes to the model in the same session through the `invalid` tool.
+A prose-only finish emits the fixed diagnostic
+`{ "path": "", "keyword": "missing", "message": "call StructuredOutput with the final result" }`
+and receives an ephemeral reminder before the next turn while budget remains.
+Other tools remain usable until a valid final result; their outputs are not final
+results. Provider-compatible tool schemas may be transformed, while local
+validation always uses the canonical schema.
+
+### `structured_output`
+
+Exactly one terminal event per schema-enabled session, before `session_complete`:
+
+```json
+{ "type": "structured_output", "status": "accepted", "attempts": 2, "value": { "result": "ok" } }
+```
+
+or:
+
+```json
+{ "type": "structured_output", "status": "failed", "reason": "exhausted", "attempts": 3 }
+```
+
+`attempts` counts StructuredOutput calls, including rejected/unparseable ones,
+and prose-only finishes without a final call. Other tool calls do not count.
+Compaction turns do not consume a missing-result attempt. Discarded provider
+streams restore the budget and captured result; their rejection events remain
+as telemetry. A valid call in a parallel step wins regardless of call order if
+that step started with budget remaining, and its attempt count stays within the
+configured maximum.
+When the budget is spent, the last rejection determines the reason: `missing`
+for a prose-only finish, otherwise `exhausted`. Failure reasons are:
+
+- `exhausted`: invalid or unparseable calls spent the corrective budget.
+- `missing`: prose finishes spent the budget, or the session ended normally
+  without an accepted result (including headless permission rejection).
+- `step_limit`: the agent reached its configured step cap without a result.
+- `aborted`: the invocation was cancelled, including SIGINT/SIGTERM.
+- `error`: a provider or session error, including stream idle timeout or an
+  invalid accepted result received from a remote session.
+
+Failed events have no `value`. No prose fallback is accepted.
+Configuration failures happen before a session starts and use the existing
+`invocation_error`/`invocation_complete` envelope, with code `OUTPUT_SCHEMA_CONFIG` and the specific cause clipped to 300 characters.
+
+Exit codes are **0** on accepted results, **2** for schema configuration errors,
+**3** for exhausted attempts, missing output and step limits. Provider errors and
+timeouts keep **1**; SIGINT and SIGTERM keep **130** and **143**.
+`StructuredOutputError.data.retries` records the number of corrective
+attempts used (initial attempt excluded), including prose-only corrective turns.

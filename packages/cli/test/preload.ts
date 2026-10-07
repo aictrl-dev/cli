@@ -33,6 +33,8 @@ process.env["XDG_CACHE_HOME"] = path.join(dir, "cache")
 process.env["XDG_CONFIG_HOME"] = path.join(dir, "config")
 process.env["XDG_STATE_HOME"] = path.join(dir, "state")
 process.env["AICTRL_MODELS_PATH"] = path.join(import.meta.dir, "tool", "fixtures", "models-api.json")
+// Use the fixture catalog without starting a detached live refresh in the test process.
+process.env["AICTRL_DISABLE_MODELS_FETCH"] = "true"
 
 // Set test home directory to isolate tests from user's actual home directory
 // This prevents tests from picking up real user configs/skills from ~/.claude/skills

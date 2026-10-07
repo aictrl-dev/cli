@@ -1,3 +1,4 @@
+import { OutputSchema } from "./output-schema"
 import { MessageV2 } from "./message-v2"
 import { Log } from "@/util/log"
 import { Identifier } from "@/id/id"
@@ -82,6 +83,7 @@ export namespace SessionProcessor {
         needsCompaction = false
         const shouldBreak = (await Config.get()).experimental?.continue_loop_on_deny !== true
         while (true) {
+          const reset = streamInput.structured?.checkpoint()
           const parts = new Set<string>()
           const texts: MessageV2.TextPart[] = []
           const delivered = new Set<string>()
@@ -232,6 +234,10 @@ export namespace SessionProcessor {
                     const lastThree = history.slice(-DOOM_LOOP_THRESHOLD)
 
                     if (
+                      !(
+                        streamInput.structured &&
+                        (value.toolName === "StructuredOutput" || streamInput.structured.repairs.has(value.toolCallId))
+                      ) &&
                       lastThree.length === DOOM_LOOP_THRESHOLD &&
                       lastThree.every(
                         (p) =>
@@ -460,8 +466,8 @@ export namespace SessionProcessor {
             }
           } catch (e: any) {
             log.error("process", {
-              error: e,
-              stack: JSON.stringify(e.stack),
+              error: streamInput.structured ? OutputSchema.summary(e) : e,
+              stack: streamInput.structured ? undefined : JSON.stringify(e.stack),
             })
             const error = MessageV2.APIError.isInstance(e)
               ? e
@@ -472,6 +478,7 @@ export namespace SessionProcessor {
             }
             const retry = SessionRetry.retryable(error)
             if (retry !== undefined) {
+              reset?.()
               // Keep the failed attempt's file changes available to revert tooling.
               await patch()
               retried.push(

@@ -38,17 +38,46 @@ await createClient({
   ],
 })
 
-// The headless generator writes v2 types; the legacy SDK client still refers to
-// src/gen/types.gen.ts. Bridge this shared part to its canonical generated type
-// so event unions in both SDK versions retain the same termination contract.
+// The headless OpenAPI has no paths, so it cannot regenerate legacy endpoints.
+// Keep the legacy HTTP client's shared types aligned with canonical v2 schemas.
 const legacy = Bun.file("./src/gen/types.gen.ts")
-const source = await legacy.text()
-const pattern =
-  /^export type StepFinishPart = (?:\{[\s\S]*?^\}|import\("\.\.\/v2\/gen\/types\.gen\.js"\)\.StepFinishPart)$/m
-if (!pattern.test(source)) throw new Error("Legacy StepFinishPart declaration not found; update the SDK schema bridge")
-await legacy.write(
-  source.replace(pattern, 'export type StepFinishPart = import("../v2/gen/types.gen.js").StepFinishPart'),
-)
+let source = await legacy.text()
+for (const name of [
+  "StepFinishPart",
+  "AssistantMessage",
+  "OutputFormat",
+  "EventSessionStructuredOutput",
+  "EventSessionStructuredOutputRejected",
+]) {
+  const pattern = new RegExp(
+    `^export type ${name} = (?:\\{[\\s\\S]*?^\\}|import\\("\\.\\.\\/v2\\/gen\\/types\\.gen\\.js"\\)\\.${name})$`,
+    "m",
+  )
+  const declaration = `export type ${name} = import("../v2/gen/types.gen.js").${name}`
+  if (!pattern.test(source)) throw new Error(`Legacy ${name} declaration not found; update the SDK schema bridge`)
+  source = source.replace(pattern, declaration)
+}
+for (const name of ["SessionPromptData", "SessionPromptAsyncData", "SessionCommandData"]) {
+  const start = source.indexOf(`export type ${name} = {`)
+  const end = source.indexOf("\n  path:", start)
+  const next = source.indexOf("\nexport type ", start)
+  if (start < 0 || end < 0 || (next >= 0 && end >= next))
+    throw new Error(`Legacy ${name} declaration not found; update the SDK schema bridge`)
+  const body = source.slice(start, end)
+  if (!body.includes("format?: OutputFormat")) {
+    if (!body.includes("  body?: {"))
+      throw new Error(`Legacy ${name} body anchor not found; update the SDK schema bridge`)
+    source =
+      source.slice(0, start) + body.replace("  body?: {", "  body?: {\n    format?: OutputFormat") + source.slice(end)
+  }
+}
+for (const name of ["EventSessionStructuredOutput", "EventSessionStructuredOutputRejected"]) {
+  if (source.includes(`  | ${name}\n`)) continue
+  if (!source.includes("export type Event =\n"))
+    throw new Error("Legacy Event declaration not found; update the SDK schema bridge")
+  source = source.replace("export type Event =\n", `export type Event =\n  | ${name}\n`)
+}
+await legacy.write(source)
 
 await $`bun prettier --write src/gen`
 await $`bun prettier --write src/v2`

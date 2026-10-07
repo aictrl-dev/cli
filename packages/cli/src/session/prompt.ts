@@ -1,3 +1,4 @@
+import { OutputSchema } from "./output-schema"
 import path from "path"
 import os from "os"
 import fs from "fs/promises"
@@ -52,7 +53,7 @@ globalThis.AI_SDK_LOG_WARNINGS = false
 const STRUCTURED_OUTPUT_DESCRIPTION = `Use this tool to return your final response in the requested structured format.
 
 IMPORTANT:
-- You MUST call this tool exactly once at the end of your response
+- Call this tool at the end of your response; repair rejected arguments within the allowed budget
 - The input must be valid JSON matching the required schema
 - Complete all necessary research and tool calls BEFORE calling this tool
 - This tool provides your final answer - no further actions are taken after calling it`
@@ -182,6 +183,7 @@ export namespace SessionPrompt {
   export type PromptInput = z.infer<typeof PromptInput>
 
   export const prompt = fn(PromptInput, async (input) => {
+    if (input.format?.type === "json_schema") OutputSchema.compile(input.format.schema)
     const session = await Session.get(input.sessionID)
     await SessionRevert.cleanup(session)
 
@@ -326,6 +328,18 @@ export namespace SessionPrompt {
     // Note: On session resumption, state is reset but outputFormat is preserved
     // on the user message and will be retrieved from lastUser below
     let structuredOutput: unknown | undefined
+    let attempts = 0
+    let rejected = 0
+    let reminder = false
+    let user: string | undefined
+    let contract:
+      | {
+          format: MessageV2.OutputFormat & { type: "json_schema" }
+          validate: ReturnType<typeof OutputSchema.compile>
+        }
+      | undefined
+    let outcome: OutputSchema.Outcome | undefined
+    let failed = false
 
     let step = 0
     const session = await Session.get(sessionID)
@@ -353,12 +367,33 @@ export namespace SessionPrompt {
       }
 
       if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
+      const request = msgs.findLast(
+        (msg) =>
+          msg.info.role === "user" &&
+          (!msg.parts.length ||
+            !msg.parts.every(
+              (part) =>
+                part.type === "compaction" || part.type === "subtask" || (part.type === "text" && part.synthetic),
+            )),
+      )?.info as MessageV2.User | undefined
+      if (request && user !== request.id) {
+        user = request.id
+        contract =
+          request.format?.type === "json_schema"
+            ? { format: request.format, validate: OutputSchema.compile(request.format.schema) }
+            : undefined
+        attempts = 0
+        rejected = 0
+        reminder = false
+        structuredOutput = undefined
+      }
       const lastAssistantMsg = msgs.findLast((msg) => msg.info.id === lastAssistant?.id)
       if (
         lastAssistant &&
         isModelFinished(lastAssistant.finish) &&
         !hasToolCalls(lastAssistantMsg?.parts ?? []) &&
-        lastUser.id < lastAssistant.id
+        lastUser.id < lastAssistant.id &&
+        !reminder
       ) {
         log.info("exiting loop", { sessionID })
         break
@@ -368,10 +403,24 @@ export namespace SessionPrompt {
       const agent = await Agent.get(lastUser.agent)
       const maxSteps = agent.steps ?? Infinity
       if (step > maxSteps) {
-        const error = new MessageV2.APIError({
-          message: `Agent step limit (${maxSteps}) reached before a final response.`,
-          isRetryable: false,
-        }).toObject()
+        const error = contract
+          ? new MessageV2.StructuredOutputError({
+              message: "Agent step limit reached without structured output",
+              retries: Math.max(0, attempts - 1),
+            }).toObject()
+          : new MessageV2.APIError({
+              message: `Agent step limit (${maxSteps}) reached before a final response.`,
+              isRetryable: false,
+            }).toObject()
+        if (contract) {
+          outcome = { status: "failed", reason: "step_limit", attempts }
+          if (lastAssistant) {
+            delete lastAssistant.structured
+            lastAssistant.error = error
+            lastAssistant.time.completed = Date.now()
+            await Session.updateMessage(lastAssistant)
+          }
+        }
         if (
           lastAssistant &&
           (lastAssistant.finish === "tool-calls" || lastAssistant.finish === "unknown") &&
@@ -597,7 +646,10 @@ export namespace SessionPrompt {
           sessionID,
           auto: task.auto,
         })
-        if (result === "stop") break
+        if (result === "stop") {
+          failed = true
+          break
+        }
         continue
       }
 
@@ -671,11 +723,37 @@ export namespace SessionPrompt {
         messages: msgs,
       })
 
-      // Inject StructuredOutput tool if JSON schema mode enabled
-      if (lastUser.format?.type === "json_schema") {
+      const rejection = async (errors: OutputSchema.Diagnostic[]) => {
+        if (!contract) throw new Error("Missing output schema")
+        if (attempts < contract.format.retryCount + 1) {
+          attempts++
+          rejected++
+          await Bus.publish(Session.Event.StructuredOutputRejected, {
+            sessionID,
+            attempt: attempts,
+            maxAttempts: contract.format.retryCount + 1,
+            errors,
+          })
+        }
+        return OutputSchema.error(errors).message
+      }
+
+      const reject = (raw: string) => {
+        if (!contract) throw new Error("Missing output schema")
+        return rejection(OutputSchema.parse(raw, contract.validate))
+      }
+
+      const available = !!contract && attempts < contract.format.retryCount + 1
+      if (contract) {
+        const format = contract.format
         tools["StructuredOutput"] = createStructuredOutputTool({
-          schema: lastUser.format.schema,
-          onSuccess(output) {
+          schema: format.schema,
+          validate: contract.validate,
+          model,
+          async onSuccess(output) {
+            if (structuredOutput !== undefined) return
+            if (!available) throw new Error("StructuredOutput attempt budget exhausted")
+            attempts = Math.min(attempts + 1, format.retryCount + 1)
             structuredOutput = output
           },
         })
@@ -714,8 +792,7 @@ export namespace SessionPrompt {
       // Build system prompt, adding structured output instruction if needed
       const system = [...(await SystemPrompt.environment(model)), ...(await InstructionPrompt.system())]
 
-      const format = lastUser.format ?? { type: "text" }
-      if (format.type === "json_schema") {
+      if (contract) {
         system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
       }
 
@@ -727,6 +804,14 @@ export namespace SessionPrompt {
         system,
         messages: [
           ...MessageV2.toModelMessages(msgs, model),
+          ...(reminder
+            ? [
+                {
+                  role: "user" as const,
+                  content: "<system-reminder>call StructuredOutput with the final result</system-reminder>",
+                },
+              ]
+            : []),
           ...(isLastStep
             ? [
                 {
@@ -738,31 +823,41 @@ export namespace SessionPrompt {
         ],
         tools,
         model,
-        toolChoice: format.type === "json_schema" ? "required" : undefined,
+        toolChoice: contract ? "required" : undefined,
+        structured: contract
+          ? {
+              reject,
+              repairs: new Set<string>(),
+              checkpoint() {
+                const before = { attempts, rejected, structuredOutput }
+                return () => {
+                  attempts = before.attempts
+                  rejected = before.rejected
+                  structuredOutput = before.structuredOutput
+                }
+              },
+            }
+          : undefined,
       })
+
+      failed = !!processor.message.error
 
       // If structured output was captured, save it and exit immediately
       // This takes priority because the StructuredOutput tool was called successfully
-      if (structuredOutput !== undefined) {
+      if (
+        structuredOutput !== undefined &&
+        !processor.message.error &&
+        !abort.aborted &&
+        contract?.validate(structuredOutput)
+      ) {
         processor.message.structured = structuredOutput
         processor.message.finish = processor.message.finish ?? "stop"
         await Session.updateMessage(processor.message)
+        outcome = { status: "accepted", attempts, value: structuredOutput }
         break
       }
+      structuredOutput = undefined
 
-      if (
-        format.type === "json_schema" &&
-        (await missingStructuredOutput(processor.message, () => MessageV2.parts(processor.message.id)))
-      ) {
-        processor.message.error = new MessageV2.StructuredOutputError({
-          message: "Model did not produce structured output",
-          retries: 0,
-        }).toObject()
-        await Session.updateMessage(processor.message)
-        break
-      }
-
-      if (result === "stop") break
       if (result === "compact") {
         await SessionCompaction.create({
           sessionID,
@@ -770,10 +865,44 @@ export namespace SessionPrompt {
           model: lastUser.model,
           auto: true,
         })
+        continue
       }
+
+      reminder =
+        !!contract && (await missingStructuredOutput(processor.message, () => MessageV2.parts(processor.message.id)))
+      if (reminder) {
+        await rejection([{ path: "", keyword: "missing", message: "call StructuredOutput with the final result" }])
+      }
+
+      if (contract && !processor.message.error && rejected > contract.format.retryCount) {
+        processor.message.error = new MessageV2.StructuredOutputError({
+          message: reminder
+            ? "Model did not produce structured output"
+            : "Structured output corrective attempts exhausted",
+          retries: Math.max(0, attempts - 1),
+        }).toObject()
+        await Session.updateMessage(processor.message)
+        await Bus.publish(Session.Event.Error, { sessionID, error: processor.message.error })
+        outcome = { status: "failed", reason: reminder ? "missing" : "exhausted", attempts }
+        break
+      }
+
+      if (reminder) continue
+
+      if (result === "stop") break
       continue
     }
     await SessionCompaction.prune({ sessionID })
+    if (contract) {
+      await Bus.publish(Session.Event.StructuredOutput, {
+        sessionID,
+        outcome: outcome ?? {
+          status: "failed",
+          reason: abort.aborted ? "aborted" : failed ? "error" : "missing",
+          attempts,
+        },
+      })
+    }
     for await (const item of MessageV2.stream(sessionID)) {
       if (item.info.role === "user") continue
       const queued = state()[sessionID]?.callbacks ?? []
@@ -991,19 +1120,25 @@ export namespace SessionPrompt {
 
   /** @internal Exported for testing */
   export function createStructuredOutputTool(input: {
-    schema: Record<string, any>
-    onSuccess: (output: unknown) => void
-  }): AITool {
-    // Remove $schema property if present (not needed for tool input)
-    const { $schema, ...toolSchema } = input.schema
-
-    return tool({
-      id: "StructuredOutput" as any,
+    schema: Record<string, unknown>
+    validate?: ReturnType<typeof OutputSchema.compile>
+    model?: Provider.Model
+    onSuccess: (output: unknown) => void | Promise<void>
+  }): AITool & { id: "StructuredOutput" } {
+    const validate = input.validate ?? OutputSchema.compile(input.schema)
+    const schema = Object.fromEntries(Object.entries(input.schema).filter(([key]) => key !== "$schema"))
+    const result = tool({
       description: STRUCTURED_OUTPUT_DESCRIPTION,
-      inputSchema: jsonSchema(toolSchema as any),
+      inputSchema: jsonSchema(input.model ? ProviderTransform.schema(input.model, schema) : schema, {
+        validate(value) {
+          return validate(value)
+            ? { success: true, value }
+            : { success: false, error: OutputSchema.error(OutputSchema.diagnostics(validate.errors)) }
+        },
+      }),
       async execute(args) {
-        // AI SDK validates args against inputSchema before calling execute()
-        input.onSuccess(args)
+        if (!validate(args)) throw OutputSchema.error(OutputSchema.diagnostics(validate.errors))
+        await input.onSuccess(args)
         return {
           output: "Structured output captured successfully.",
           title: "Structured Output",
@@ -1011,12 +1146,11 @@ export namespace SessionPrompt {
         }
       },
       toModelOutput(result) {
-        return {
-          type: "text",
-          value: result.output,
-        }
+        return { type: "text", value: result.output }
       },
     })
+    // Retain the internal identifier used by tool consumers.
+    return Object.assign(result, { id: "StructuredOutput" as const })
   }
 
   async function createUserMessage(input: PromptInput) {
@@ -1786,6 +1920,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     model: z.string().optional(),
     arguments: z.string(),
     command: z.string(),
+    format: MessageV2.Format.optional(),
     variant: z.string().optional(),
     parts: z
       .array(
@@ -1943,6 +2078,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       model: userModel,
       agent: userAgent,
       parts,
+      format: input.format,
       variant: input.variant,
     })) as MessageV2.WithParts
 
