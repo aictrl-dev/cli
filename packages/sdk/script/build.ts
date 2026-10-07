@@ -54,27 +54,28 @@ for (const name of [
     "m",
   )
   const declaration = `export type ${name} = import("../v2/gen/types.gen.js").${name}`
-  if (!pattern.test(source)) throw new Error(`Legacy ${name} declaration not found`)
+  if (!pattern.test(source)) throw new Error(`Legacy ${name} declaration not found; update the SDK schema bridge`)
   source = source.replace(pattern, declaration)
 }
 for (const name of ["SessionPromptData", "SessionPromptAsyncData", "SessionCommandData"]) {
   const start = source.indexOf(`export type ${name} = {`)
   const end = source.indexOf("\n  path:", start)
   const next = source.indexOf("\nexport type ", start)
-  if (start < 0 || end < 0 || (next >= 0 && end >= next)) throw new Error(`Legacy ${name} declaration not found`)
+  if (start < 0 || end < 0 || (next >= 0 && end >= next))
+    throw new Error(`Legacy ${name} declaration not found; update the SDK schema bridge`)
   const body = source.slice(start, end)
   if (!body.includes("format?: OutputFormat")) {
-    if (!body.includes("  body?: {")) throw new Error(`Legacy ${name} body anchor not found`)
+    if (!body.includes("  body?: {"))
+      throw new Error(`Legacy ${name} body anchor not found; update the SDK schema bridge`)
     source =
       source.slice(0, start) + body.replace("  body?: {", "  body?: {\n    format?: OutputFormat") + source.slice(end)
   }
 }
-if (!source.includes("  | EventSessionStructuredOutput\n")) {
-  if (!source.includes("export type Event =\n")) throw new Error("Legacy Event declaration not found")
-  source = source.replace(
-    "export type Event =\n",
-    "export type Event =\n  | EventSessionStructuredOutput\n  | EventSessionStructuredOutputRejected\n",
-  )
+for (const name of ["EventSessionStructuredOutput", "EventSessionStructuredOutputRejected"]) {
+  if (source.includes(`  | ${name}\n`)) continue
+  if (!source.includes("export type Event =\n"))
+    throw new Error("Legacy Event declaration not found; update the SDK schema bridge")
+  source = source.replace("export type Event =\n", `export type Event =\n  | ${name}\n`)
 }
 await legacy.write(source)
 
