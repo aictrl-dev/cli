@@ -2,6 +2,8 @@ import Ajv, { type ErrorObject } from "ajv"
 import Ajv2020 from "ajv/dist/2020"
 import z from "zod"
 import { createHash } from "crypto"
+import path from "path"
+import fs from "fs/promises"
 
 export namespace OutputSchema {
   export const Diagnostic = z.object({ path: z.string(), keyword: z.string(), message: z.string() })
@@ -85,6 +87,93 @@ export namespace OutputSchema {
     } catch {
       // JSON parser errors can echo the entire submitted input.
       return [{ path: "", keyword: "parse", message: "arguments must be complete, valid JSON" }]
+    }
+  }
+
+  // Path form (#140): the model writes its result to a file and passes the path, so the
+  // published value is the file it validated, never a provider-schema-constrained re-emission.
+  export const PATH_SCHEMA: Record<string, unknown> = {
+    type: "object",
+    properties: {
+      path: {
+        type: "string",
+        maxLength: 1024,
+        description: "Path of the JSON result file in the working directory (relative, or absolute inside it)",
+      },
+    },
+    required: ["path"],
+    additionalProperties: false,
+  }
+  export const shape = compile(PATH_SCHEMA)
+  const MAX_FILE_BYTES = 2 * 1024 * 1024
+  const OUTSIDE = "path must stay inside the working directory"
+  // POSIX only; Windows defines neither flag. There, containment rests on the post-open
+  // inode re-check below, and named pipes live outside the filesystem (\\.\pipe\), so an
+  // in-directory path cannot open one.
+  const NOFOLLOW = fs.constants.O_NOFOLLOW ?? 0
+  const NONBLOCK = fs.constants.O_NONBLOCK ?? 0
+
+  function contains(base: string, target: string) {
+    const relative = path.relative(base, target)
+    return relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative)
+  }
+
+  // Reads at most buffer.length bytes, however much the file grows while it is read.
+  async function fill(handle: fs.FileHandle, buffer: Buffer, offset = 0): Promise<number> {
+    if (offset === buffer.length) return offset
+    const read = await handle.read(buffer, offset, buffer.length - offset, offset)
+    if (!read.bytesRead) return offset
+    return fill(handle, buffer, offset + read.bytesRead)
+  }
+
+  // Every failure is a fixed diagnostic, so it counts as a rejection and never echoes OS error text.
+  export async function file(
+    root: string,
+    input: string,
+    validate: ReturnType<typeof compile>,
+  ): Promise<{ value: unknown } | { errors: Diagnostic[] }> {
+    const fail = (keyword: string, message: string) => ({ errors: [{ path: "", keyword, message }] })
+    const base = await fs.realpath(root).catch(() => undefined)
+    if (!base) return fail("file", "working directory unavailable")
+    // realpath follows symlinks, so a link pointing outside the root is rejected too.
+    const target = await fs.realpath(path.resolve(base, input)).catch(() => undefined)
+    if (!target) return fail("file", "file not found")
+    if (!contains(base, target)) return fail("file", OUTSIDE)
+    // O_NOFOLLOW refuses a final component swapped for a symlink after the check (ELOOP).
+    // O_NONBLOCK makes opening a FIFO return at once; fstat then rejects it as non-regular.
+    const handle = await fs
+      .open(target, fs.constants.O_RDONLY | NOFOLLOW | NONBLOCK)
+      .catch((error: NodeJS.ErrnoException) => (error.code === "ELOOP" ? OUTSIDE : "file not readable"))
+    if (typeof handle === "string") return fail("file", handle)
+    try {
+      // One handle for stat and read, so the checked file is the file read.
+      const stat = await handle.stat().catch(() => undefined)
+      if (!stat) return fail("file", "file not readable")
+      if (!stat.isFile()) return fail("file", "path must be a regular file")
+      // A parent directory swapped for a symlink after the check is followed by open, so the
+      // opened file must still be the file the path resolves to inside the working directory.
+      const again = await fs.realpath(target).catch(() => undefined)
+      const current = again && contains(base, again) ? await fs.stat(again).catch(() => undefined) : undefined
+      if (!current || current.dev !== stat.dev || current.ino !== stat.ino) return fail("file", OUTSIDE)
+      const size = `file must not exceed ${MAX_FILE_BYTES} bytes`
+      if (stat.size > MAX_FILE_BYTES) return fail("file", size)
+      // Unzeroed per call: only the filled prefix is parsed, and calls never share a buffer.
+      const buffer = Buffer.allocUnsafe(MAX_FILE_BYTES + 1)
+      const length = await fill(handle, buffer).catch(() => undefined)
+      if (length === undefined) return fail("file", "file not readable")
+      if (length > MAX_FILE_BYTES) return fail("file", size)
+      const value = (() => {
+        try {
+          return { parsed: JSON.parse(buffer.subarray(0, length).toString("utf8")) as unknown }
+        } catch {
+          return undefined
+        }
+      })()
+      if (!value) return fail("parse", "file must contain complete, valid JSON")
+      if (!validate(value.parsed)) return { errors: diagnostics(validate.errors) }
+      return { value: value.parsed }
+    } finally {
+      await handle.close().catch(() => undefined)
     }
   }
 

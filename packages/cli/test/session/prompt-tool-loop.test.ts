@@ -145,7 +145,7 @@ describe("session prompt tool-call continuation", () => {
       async fetch(request) {
         requests.push((await request.json()) as Record<string, unknown>)
         const call = requests.length === 1 ? "read" : "StructuredOutput"
-        const args = requests.length === 1 ? { filePath: "aictrl.json" } : { result: "follow-up reached" }
+        const args = requests.length === 1 ? { filePath: "aictrl.json" } : { path: "result.json" }
         return stream([
           {
             id: `chatcmpl-${requests.length}`,
@@ -185,6 +185,7 @@ describe("session prompt tool-call continuation", () => {
     try {
       await using tmp = await tmpdir({
         init: async (dir) => {
+          await Bun.write(path.join(dir, "result.json"), JSON.stringify({ result: "follow-up reached" }))
           await Bun.write(
             path.join(dir, "aictrl.json"),
             JSON.stringify({

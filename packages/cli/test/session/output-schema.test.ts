@@ -4,6 +4,7 @@ import { LLM } from "../../src/session/llm"
 import { PermissionNext } from "../../src/permission/next"
 import Ajv from "ajv"
 import Ajv2020 from "ajv/dist/2020"
+import path from "path"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import { SessionPrompt } from "../../src/session/prompt"
@@ -11,7 +12,7 @@ import { Bus } from "../../src/bus"
 import { MessageV2 } from "../../src/session/message-v2"
 import { OutputSchema } from "../../src/session/output-schema"
 import { tmpdir } from "../fixture/fixture"
-import { schema, corpus } from "../fixture/output-schema"
+import { schema, corpus, pathArgs } from "../fixture/output-schema"
 
 async function run(
   inputs: string[],
@@ -86,7 +87,9 @@ async function run(
         index,
         id: `call_${requests.length}_${index}`,
         type: "function",
-        function: { name: options.invalid ? "invalid" : "StructuredOutput", arguments: args },
+        function: options.invalid
+          ? { name: "invalid", arguments: args }
+          : { name: "StructuredOutput", arguments: pathArgs(directory, args, `so_${requests.length}_${index}.json`) },
       }))
       if ((options.queued || options.denied) && requests.length === 1) {
         calls[0].function = {
@@ -331,7 +334,7 @@ test("truncated arguments are a counted rejected attempt", async () => {
       sessionID: result.info.sessionID,
       attempt: 1,
       maxAttempts: 3,
-      errors: [{ path: "", keyword: "parse", message: "arguments must be complete, valid JSON" }],
+      errors: [{ path: "", keyword: "parse", message: "file must contain complete, valid JSON" }],
     },
   ])
 }, 15_000)
@@ -363,13 +366,8 @@ test("repair diagnostics sent to model are bounded and never echo submitted valu
     .map((message) => JSON.stringify(message.content))
     .join("")
   expect(Buffer.byteLength(feedback)).toBeLessThan(2048)
-  const calls = (request.messages as { tool_calls?: { function: { name: string; arguments: string } }[] }[])
-    .flatMap((message) => message.tool_calls ?? [])
-    .filter((call) => call.function.name === "invalid")
-  expect(calls.length).toBeGreaterThan(0)
-  calls.forEach((call) => {
-    expect(Buffer.byteLength(call.function.arguments)).toBeLessThan(2048)
-  })
+  // Path form: file content errors return as the StructuredOutput tool error, not an `invalid` repair call.
+  expect(feedback).toContain('Fix the file at \\\"so_1_0.json\\\"')
   expect(JSON.stringify(request)).not.toContain("submitted-secret-")
   expect(feedback).toContain("additionalProperties")
   expect(result.info.structured).toEqual({ result: "repaired" })
@@ -390,7 +388,14 @@ test("model finish without StructuredOutput has an explicit missing outcome", as
       sessionID: result.info.sessionID,
       attempt: 1,
       maxAttempts: 1,
-      errors: [{ path: "", keyword: "missing", message: "call StructuredOutput with the final result" }],
+      errors: [
+        {
+          path: "",
+          keyword: "missing",
+          message:
+            "write the final result as JSON to a file in the working directory, then call StructuredOutput with its path",
+        },
+      ],
     },
   ])
   expect(result.info.structured).toBeUndefined()
@@ -448,15 +453,21 @@ test("draft 2020-12 uses Ajv2020 with default strict validation", () => {
   for (const value of corpus) expect(validate(value)).toBe(reference(value))
 })
 
-test("execute defence in depth rejects invalid input before capture", async () => {
+test("execute defence in depth rejects an invalid result file before capture", async () => {
+  await using tmp = await tmpdir()
+  await Bun.write(path.join(tmp.path, "result.json"), "{}")
   const captured: unknown[] = []
   const tool = SessionPrompt.createStructuredOutputTool({
     schema,
+    root: tmp.path,
+    onReject: async (errors) => OutputSchema.error(errors).message,
     onSuccess: (value) => {
       captured.push(value)
     },
   })
-  await expect(tool.execute!({}, { toolCallId: "fixture", messages: [] })).rejects.toThrow("StructuredOutput rejected")
+  await expect(tool.execute!({ path: "result.json" }, { toolCallId: "fixture", messages: [] })).rejects.toThrow(
+    "StructuredOutput rejected",
+  )
   expect(captured).toEqual([])
 })
 
@@ -482,9 +493,10 @@ test("Gemini tool schema is transformed but canonical numeric enum remains autho
   expect(result.info.structured).toEqual({ result: 1 })
   expect(result.rejected).toHaveLength(1)
   const tools = result.requests[0].tools as { function: { name: string; parameters: unknown } }[]
-  expect(tools.find((tool) => tool.function.name === "StructuredOutput")?.function.parameters).toMatchObject({
-    properties: { result: { type: "string", enum: ["1", "2"] } },
-  })
+  // Path form: only {path} reaches the provider; the canonical schema is enforced on the file.
+  const parameters = tools.find((tool) => tool.function.name === "StructuredOutput")?.function.parameters
+  expect(parameters).toMatchObject({ properties: { path: { type: "string" } }, required: ["path"] })
+  expect(Object.keys((parameters as { properties: object }).properties)).toEqual(["path"])
   expect(canonical.properties.result).toEqual({ type: "integer", enum: [1, 2] })
 }, 15_000)
 
@@ -500,10 +512,19 @@ test("prose-only finish is a counted corrective attempt before a valid result", 
       sessionID: result.info.sessionID,
       attempt: 1,
       maxAttempts: 2,
-      errors: [{ path: "", keyword: "missing", message: "call StructuredOutput with the final result" }],
+      errors: [
+        {
+          path: "",
+          keyword: "missing",
+          message:
+            "write the final result as JSON to a file in the working directory, then call StructuredOutput with its path",
+        },
+      ],
     },
   ])
-  expect(JSON.stringify(result.requests[1].messages)).toContain("call StructuredOutput with the final result")
+  expect(JSON.stringify(result.requests[1].messages)).toContain(
+    "write the final result as JSON to a file in the working directory, then call StructuredOutput with its path",
+  )
   expect(result.outcomes).toEqual([{ status: "accepted", attempts: 2, value: { result: "repaired" } }])
 }, 15_000)
 
@@ -585,7 +606,9 @@ for (const parallel of [
     expect(result.info.error).toBeUndefined()
     expect(result.info.structured).toEqual({ result: "accepted" })
     expect(result.outcomes).toEqual([{ status: "accepted", attempts: 2, value: { result: "accepted" } }])
-    expect(result.rejected).toMatchObject([{ attempt: parallel[0] === "{}" ? 1 : 2, maxAttempts: 1 }])
+    // Path form: both calls execute concurrently, so the rejected attempt number follows file I/O order.
+    expect(result.rejected).toMatchObject([{ maxAttempts: 1 }])
+    expect([1, 2]).toContain(result.rejected[0].attempt)
   }, 15000)
 }
 
@@ -700,7 +723,12 @@ for (const [name, description] of [
 ]) {
   test(`tool description caps ${name} schema at 8 KiB and explains truncation`, () => {
     const canonical = { type: "object", description }
-    const tool = SessionPrompt.createStructuredOutputTool({ schema: canonical, onSuccess() {} })
+    const tool = SessionPrompt.createStructuredOutputTool({
+      schema: canonical,
+      root: import.meta.dir,
+      onReject: async () => "",
+      onSuccess() {},
+    })
     const text = JSON.stringify(canonical)
     const expected = new TextDecoder().decode(Buffer.from(text).subarray(0, 8 * 1024))
     expect(tool.description).toContain("truncated; the validator enforces the full schema")
@@ -723,6 +751,8 @@ for (const [name, schema, reason] of [
       SessionPrompt.createStructuredOutputTool({
         schema,
         validate: OutputSchema.compile({ type: "object" }),
+        root: import.meta.dir,
+        onReject: async () => "",
         onSuccess() {},
       }),
     ).toThrow(reason)

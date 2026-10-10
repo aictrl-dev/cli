@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
 import { tmpdir } from "../fixture/fixture"
-import { schema } from "../fixture/output-schema"
+import { schema, pathArgs } from "../fixture/output-schema"
 import { outputResult } from "../../src/cli/cmd/run.output"
 
 const entry = path.resolve(import.meta.dir, "../../src/index.ts")
@@ -73,7 +73,10 @@ async function run(
                           type: "function",
                           function: options.denied
                             ? { name: "read", arguments: JSON.stringify({ filePath: "/outside-fixture.txt" }) }
-                            : { name: "StructuredOutput", arguments: args },
+                            : {
+                                name: "StructuredOutput",
+                                arguments: pathArgs(tmp.path, args, `so_${requests.length}.json`),
+                              },
                         },
                       ],
                     },
@@ -381,14 +384,23 @@ for (const json of [true, false]) {
       "required",
       { type: "function", function: { name: "StructuredOutput" } },
     ])
-    expect(JSON.stringify(result.requests[1].messages)).toContain("call StructuredOutput with the final result")
+    expect(JSON.stringify(result.requests[1].messages)).toContain(
+      "write the final result as JSON to a file in the working directory, then call StructuredOutput with its path",
+    )
     expect(result.result).toBe(JSON.stringify({ result: "accepted" }, null, 2) + "\n")
     if (!json) return
     expect(result.events.filter((event) => event.type === "structured_output_rejected")).toMatchObject([
       {
         attempt: 1,
         maxAttempts: 3,
-        errors: [{ path: "", keyword: "missing", message: "call StructuredOutput with the final result" }],
+        errors: [
+          {
+            path: "",
+            keyword: "missing",
+            message:
+              "write the final result as JSON to a file in the working directory, then call StructuredOutput with its path",
+          },
+        ],
       },
     ])
     expect(result.events.filter((event) => event.type === "structured_output")).toMatchObject([
@@ -410,7 +422,14 @@ test("prose finish with zero retries fails after exactly one CLI provider reques
     {
       attempt: 1,
       maxAttempts: 1,
-      errors: [{ path: "", keyword: "missing", message: "call StructuredOutput with the final result" }],
+      errors: [
+        {
+          path: "",
+          keyword: "missing",
+          message:
+            "write the final result as JSON to a file in the working directory, then call StructuredOutput with its path",
+        },
+      ],
     },
   ])
   expect(result.events.filter((event) => event.type === "structured_output")).toMatchObject([
@@ -526,7 +545,17 @@ test("schema attach repairs a prose finish through the HTTP session boundary", a
   ])
   expect(result.result).toBe(JSON.stringify({ result: "accepted" }, null, 2) + "\n")
   expect(result.events.filter((event) => event.type === "structured_output_rejected")).toMatchObject([
-    { attempt: 1, errors: [{ path: "", keyword: "missing", message: "call StructuredOutput with the final result" }] },
+    {
+      attempt: 1,
+      errors: [
+        {
+          path: "",
+          keyword: "missing",
+          message:
+            "write the final result as JSON to a file in the working directory, then call StructuredOutput with its path",
+        },
+      ],
+    },
   ])
   expect(result.events.filter((event) => event.type === "structured_output")).toMatchObject([
     { status: "accepted", attempts: 2, value: { result: "accepted" } },

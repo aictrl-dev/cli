@@ -55,6 +55,25 @@ aictrl run --output-schema result.schema.json --output-schema-retries 2 \
 Relative `--output-schema` and `--output-result` paths resolve against `--dir` when
 it is given (as `--file` paths do); configuration errors print the resolved path.
 
+**StructuredOutput contract (#140).** The model writes its final result as JSON
+to a file in the working directory (`--dir`, or the attached server's session
+directory), then calls `StructuredOutput` with
+`{ "path": "<file>" }`. The tool takes only that argument; the canonical schema is
+text in the tool description, so provider schema conversion cannot drop result
+fields. The CLI reads the file and publishes its parsed contents, not a re-emitted
+copy. The file must:
+
+- resolve inside the working directory after following symlinks (relative paths
+  resolve against it; absolute paths inside it are accepted);
+- be a regular file of at most 2 MiB;
+- contain complete JSON that the schema accepts.
+
+A file that fails any of these is a counted rejection. The model is told to fix the
+file at that path and call `StructuredOutput` again with its path. Calling
+`StructuredOutput` with the result object as arguments is no longer supported.
+Callers whose prompts say to pass the result as tool arguments must say to write a
+file and pass its path instead.
+
 Ajv strict mode rejects unknown schema keywords and unregistered `format`
 values such as `date-time` and `uri` as configuration errors (exit **2**).
 The result parent directory must exist and be writable at configuration time.

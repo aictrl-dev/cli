@@ -50,15 +50,18 @@ import { Truncate } from "@/tool/truncation"
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
 
-const STRUCTURED_OUTPUT_DESCRIPTION = `Use this tool to return your final response in the requested structured format.
+const STRUCTURED_OUTPUT_DESCRIPTION = `Use this tool to submit your final response as a JSON file.
 
 IMPORTANT:
-- Call this tool at the end of your response; repair rejected arguments within the allowed budget
-- The input must be valid JSON matching the required schema
-- Complete all necessary research and tool calls BEFORE calling this tool
-- This tool provides your final answer - no further actions are taken after calling it`
+- First write the final result as JSON to a file in the working directory, matching the schema below
+- Then call this tool with that file's path; the file is validated and published as written
+- If the file is rejected, fix the file and call this tool again with its path
+- Complete all necessary research and tool calls BEFORE calling this tool`
 
-const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested structured output. You MUST use the StructuredOutput tool to provide your final response. Do NOT respond with plain text - you MUST call the StructuredOutput tool with your answer formatted according to the schema.`
+const STRUCTURED_OUTPUT_MISSING =
+  "write the final result as JSON to a file in the working directory, then call StructuredOutput with its path"
+
+const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested structured output. Write your final result as JSON to a file in the working directory, then call the StructuredOutput tool with that file's path. Do NOT respond with plain text.`
 
 export namespace SessionPrompt {
   const log = Log.create({ service: "session.prompt" })
@@ -738,7 +741,8 @@ export namespace SessionPrompt {
 
       const reject = (raw: string) => {
         if (!contract) throw new Error("Missing output schema")
-        return rejection(OutputSchema.parse(raw, contract.validate))
+        // Only the {path} arguments reach the SDK boundary; file content errors come from execute.
+        return rejection(OutputSchema.parse(raw, OutputSchema.shape))
       }
 
       const available = !!contract && attempts < contract.format.retryCount + 1
@@ -748,6 +752,8 @@ export namespace SessionPrompt {
           schema: format.schema,
           validate: contract.validate,
           model,
+          root: Instance.directory,
+          onReject: rejection,
           async onSuccess(output) {
             if (structuredOutput !== undefined) return
             if (!available) throw new Error("StructuredOutput corrective turn budget exhausted")
@@ -806,7 +812,7 @@ export namespace SessionPrompt {
             ? [
                 {
                   role: "user" as const,
-                  content: "<system-reminder>call StructuredOutput with the final result</system-reminder>",
+                  content: `<system-reminder>${STRUCTURED_OUTPUT_MISSING}</system-reminder>`,
                 },
               ]
             : []),
@@ -869,7 +875,7 @@ export namespace SessionPrompt {
       reminder =
         !!contract && (await missingStructuredOutput(processor.message, () => MessageV2.parts(processor.message.id)))
       if (reminder) {
-        await rejection([{ path: "", keyword: "missing", message: "call StructuredOutput with the final result" }])
+        await rejection([{ path: "", keyword: "missing", message: STRUCTURED_OUTPUT_MISSING }])
       }
 
       if (contract && !processor.message.error && rejected > contract.format.retryCount) {
@@ -1121,6 +1127,10 @@ export namespace SessionPrompt {
     schema: Record<string, unknown>
     validate?: ReturnType<typeof OutputSchema.compile>
     model?: Provider.Model
+    /** The tool takes {path} to the JSON result file, which must stay inside this directory (#140). */
+    root: string
+    /** Counts the rejection against the corrective budget and returns the feedback text. */
+    onReject: (errors: OutputSchema.Diagnostic[]) => Promise<string>
     onSuccess: (output: unknown) => void | Promise<void>
   }): AITool & { id: "StructuredOutput" } {
     OutputSchema.canonical(input.schema)
@@ -1133,16 +1143,24 @@ export namespace SessionPrompt {
         : `Canonical JSON Schema (truncated; the validator enforces the full schema): ${new TextDecoder().decode(Buffer.from(canonical.text).subarray(0, 8 * 1024))}`
     const result = tool({
       description: `${STRUCTURED_OUTPUT_DESCRIPTION}\n\n${description}`,
-      inputSchema: jsonSchema(input.model ? ProviderTransform.schema(input.model, schema) : schema, {
-        validate(value) {
-          return validate(value)
-            ? { success: true, value }
-            : { success: false, error: OutputSchema.error(OutputSchema.diagnostics(validate.errors)) }
+      // Only {path} reaches the provider, so provider schema conversion cannot drop result fields.
+      inputSchema: jsonSchema<{ path: string }>(
+        input.model ? ProviderTransform.schema(input.model, OutputSchema.PATH_SCHEMA) : OutputSchema.PATH_SCHEMA,
+        {
+          validate(value) {
+            return OutputSchema.shape(value)
+              ? { success: true, value: value as { path: string } }
+              : { success: false, error: OutputSchema.error(OutputSchema.diagnostics(OutputSchema.shape.errors)) }
+          },
         },
-      }),
+      ),
       async execute(args) {
-        if (!validate(args)) throw OutputSchema.error(OutputSchema.diagnostics(validate.errors))
-        await input.onSuccess(args)
+        const loaded = await OutputSchema.file(input.root, args.path, validate)
+        if ("errors" in loaded)
+          throw new Error(
+            `Fix the file at ${JSON.stringify(args.path)}, then call StructuredOutput again with its path. ${await input.onReject(loaded.errors)}`,
+          )
+        await input.onSuccess(loaded.value)
         return {
           output: "Structured output captured successfully.",
           title: "Structured Output",
