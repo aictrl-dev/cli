@@ -2,7 +2,8 @@
 
 1. Prepare a PR against `main` with the fixes, the version bump in
    `packages/cli/package.json`, and the matching `packages/cli` workspace
-   version in `bun.lock`. Run `bun install --frozen-lockfile`.
+   version in `bun.lock`. Run `bun install --frozen-lockfile`. In `CHANGELOG.md`,
+   retitle `## Unreleased` to `## <version> (<date>)`.
 2. Run the release regressions from `packages/cli`:
 
    ```bash
@@ -36,16 +37,38 @@
    `sandbox` before `main`; verify a sandbox review persists MCP findings and
    a stalled stream reports a timeout rather than waiting for the job limit.
 
-## 0.4.7 candidate
+## 0.4.8 candidate
 
-- Output-schema review follow-ups (#134):
-  - schemas are bounded by bytes (64 KiB) and structure (depth 64, 10,000 nested objects), on every path;
-  - configuration errors lead with the reason and name the resolved path;
-  - every rejected attempt is reported and counted;
-  - `retryCount` is capped at 10 (wire values clamp; the flag rejects above 10);
-  - queued telemetry drains before terminal failure, and failures settle in a single terminal path.
-- Provider hints (#134): the StructuredOutput tool description embeds the canonical schema (constraints that the Vertex adapter drops); the corrective turn after a prose-only finish forces StructuredOutput by name (GLM).
-- Executor adoption: bump the aictrl `docker/executor/Dockerfile` pin (application #5960 follow-up).
+- **BREAKING for `--output-schema` callers (#142, closes #140):** `StructuredOutput`
+  takes only `{ "path": "<file>" }`. The model writes its final result as JSON to a
+  file in the working directory and passes the path. The CLI validates that file with
+  Ajv and publishes the parsed file. Result objects passed as tool arguments are
+  rejected. Callers must change prompts that say "call StructuredOutput with the
+  result" to say "write a file and pass its path".
+- **Why a patch bump (0.4.8):** schema mode is used only by the aictrl executor,
+  which pins exact versions. Consumers on a caret range (`^0.4.x`) must update their
+  schema-mode prompts to the file+path form before upgrading.
+- Only `{ path }` reaches the provider, so provider schema conversion can no longer
+  drop result fields. On 0.4.7, Gemini emptied map-typed fields (#139).
+- The result file must:
+  - resolve inside the working directory (symlinks are followed when checking, and a
+    post-open inode re-check also covers swap races; `O_NOFOLLOW`/`O_NONBLOCK` are
+    used where the platform defines them);
+  - be a regular file of at most 2 MiB (reads are bounded).
+- Every failure is a fixed, counted `structured_output_rejected` diagnostic; EVENTS.md
+  lists them verbatim. The prose-only `missing` diagnostic and reminder now say
+  "write the final result as JSON to a file in the working directory, then call
+  StructuredOutput with its path".
+- Evidence (#139 reproduction, 6-key map):
+  - 0.4.7: Gemini 3.8 Flash published `elements: {}` 7/7 (silent on 2, exit 3 on 5).
+  - #142 builds (POC and first PR head): Gemini 10/10 and GLM 4/4 published all 6 keys identically.
+  - Gemini output + reasoning tokens fell from 2.5–3.9k to 1.0–1.8k.
+- Executor adoption, in one aictrl PR:
+  - bump the `docker/executor/Dockerfile` pin;
+  - update the prompts that ask for the result as tool arguments: `prompt-builder.ts`
+    structured paragraph, `pr-explanation-output-contract.ts`, and the `explain-change`
+    skill step that says to call StructuredOutput "with the contents of `$RESULT`";
+  - confirm `$RESULT` lies inside the CLI's `--dir`.
 
 Publication and executor promotion are separate gates. Preparing this candidate
 PR does not publish npm packages or deploy an executor image.

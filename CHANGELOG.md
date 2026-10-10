@@ -1,23 +1,31 @@
 # Changelog
 
-## Unreleased
+## 0.4.8 (2026-10-10)
 
 ### Breaking changes
 
-- **StructuredOutput publishes the validated result file** — In `--output-schema` mode the `StructuredOutput` tool now takes only `{ "path": "<file>" }`. The model writes its final result as JSON to a file in the working directory and passes the path; the CLI follows symlinks, keeps the file inside the working directory, caps it at 2 MiB, validates it with Ajv and publishes the parsed file. Passing the result object as tool arguments is no longer accepted. Callers whose prompts say "call StructuredOutput with the result" must say to write a file and pass its path. Only `{ path }` reaches the provider, so provider schema conversion can no longer drop result fields (Gemini emptied map-typed fields, #139), and the model no longer re-emits the whole result as output tokens. Rejected files are counted corrective turns that ask the model to fix the file; their fixed diagnostics are listed in EVENTS.md. The prose-only `missing` diagnostic and reminder now read "write the final result as JSON to a file in the working directory, then call StructuredOutput with its path". (#140)
+- **StructuredOutput publishes the validated result file** — In `--output-schema` mode the `StructuredOutput` tool now takes only `{ "path": "<file>" }`. The model writes its final result as JSON to a file in the working directory and passes the path; the CLI follows symlinks, keeps the file inside the working directory, caps it at 2 MiB, validates it with Ajv and publishes the parsed file. Passing the result object as tool arguments is no longer accepted. Callers whose prompts say "call StructuredOutput with the result" must say to write a file and pass its path. Only `{ path }` reaches the provider, so provider schema conversion can no longer drop result fields (Gemini emptied map-typed fields, #139), and the model no longer re-emits the whole result as output tokens. Rejected files are counted corrective turns that ask the model to fix the file; their fixed diagnostics are listed in EVENTS.md. This ships as a patch because schema mode is used only by the aictrl executor, which pins exact versions; consumers on a caret range (`^0.4.x`) must update their schema-mode prompts to the file+path form before upgrading. The prose-only `missing` diagnostic and reminder now read "write the final result as JSON to a file in the working directory, then call StructuredOutput with its path". (#140)
+
+## 0.4.4 (2026-09-30)
 
 ### Fixes
 
 - **Provider error finishes fail headless execution** — Normal streams ending in `error` or `content-filter` now persist a structured provider failure, emit consistent failure events, and exit nonzero while retaining partial output and usage. Empty successful responses remain successful. (#108)
+
+## 0.4.3 (2026-08-20)
 
 ### Features
 
 - **GPT-5.6 Codex models** — Added OpenAI's Sol, Terra, and Luna models with API and subscription-backed reasoning effort variants, including the Codex-only `ultra` alias for Sol and Terra.
 - **GLM-5.3 model support** — Added the latest Z.AI Coding Plan model with its 1M-token context window and native `low`, `high`, and `max` reasoning efforts.
 
+## 0.4.1 (2026-07-21)
+
 ### Compatibility
 
 - **NDJSON v1 terminal reasons are an open set** — `session_error.reason` now includes `interrupted` for `SIGINT` and `terminated` for `SIGTERM`, and `code` may contain the conventional signal-derived exit code (`130` or `143`). Schema v1 consumers should treat unknown event types, fields, and enum-like string values as forward-compatible additions.
+
+Releases 0.3.3–0.4.7 not listed here (0.4.2 was never published) have notes on [GitHub Releases](https://github.com/aictrl-dev/cli/releases) only.
 
 ## 0.3.2 (2026-04-11)
 
