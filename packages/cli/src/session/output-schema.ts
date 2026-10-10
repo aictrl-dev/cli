@@ -98,7 +98,7 @@ export namespace OutputSchema {
       path: {
         type: "string",
         maxLength: 1024,
-        description: "Path of the JSON result file, relative to the working directory",
+        description: "Path of the JSON result file in the working directory (relative, or absolute inside it)",
       },
     },
     required: ["path"],
@@ -107,6 +107,11 @@ export namespace OutputSchema {
   export const shape = compile(PATH_SCHEMA)
   const MAX_FILE_BYTES = 2 * 1024 * 1024
   const OUTSIDE = "path must stay inside the working directory"
+  // POSIX only; Windows defines neither flag. There, containment rests on the post-open
+  // inode re-check below, and named pipes live outside the filesystem (\\.\pipe\), so an
+  // in-directory path cannot open one.
+  const NOFOLLOW = fs.constants.O_NOFOLLOW ?? 0
+  const NONBLOCK = fs.constants.O_NONBLOCK ?? 0
 
   function contains(base: string, target: string) {
     const relative = path.relative(base, target)
@@ -137,7 +142,7 @@ export namespace OutputSchema {
     // O_NOFOLLOW refuses a final component swapped for a symlink after the check (ELOOP).
     // O_NONBLOCK makes opening a FIFO return at once; fstat then rejects it as non-regular.
     const handle = await fs
-      .open(target, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK)
+      .open(target, fs.constants.O_RDONLY | NOFOLLOW | NONBLOCK)
       .catch((error: NodeJS.ErrnoException) => (error.code === "ELOOP" ? OUTSIDE : "file not readable"))
     if (typeof handle === "string") return fail("file", handle)
     try {
@@ -152,7 +157,8 @@ export namespace OutputSchema {
       if (!current || current.dev !== stat.dev || current.ino !== stat.ino) return fail("file", OUTSIDE)
       const size = `file must not exceed ${MAX_FILE_BYTES} bytes`
       if (stat.size > MAX_FILE_BYTES) return fail("file", size)
-      const buffer = Buffer.alloc(MAX_FILE_BYTES + 1)
+      // Unzeroed per call: only the filled prefix is parsed, and calls never share a buffer.
+      const buffer = Buffer.allocUnsafe(MAX_FILE_BYTES + 1)
       const length = await fill(handle, buffer).catch(() => undefined)
       if (length === undefined) return fail("file", "file not readable")
       if (length > MAX_FILE_BYTES) return fail("file", size)

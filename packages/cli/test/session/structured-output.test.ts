@@ -200,6 +200,7 @@ describe("structured-output.createStructuredOutputTool", () => {
     expect(Object.keys(input.properties)).toEqual(["path"])
     expect(input.required).toEqual(["path"])
     expect(input.additionalProperties).toBe(false)
+    expect(input.properties.path.description).toContain("relative, or absolute inside it")
     expect(tool.description).toContain("write the final result as JSON to a file")
     expect(tool.description).toContain(`Canonical JSON Schema: ${JSON.stringify(schema)}`)
     expect(tool.description).not.toContain("$schema")
@@ -333,6 +334,30 @@ describe("structured-output.createStructuredOutputTool", () => {
       await fs.rm(path.join(tmp.path, "result.json"))
       await fs.symlink(path.join(outside.path, "secret.json"), path.join(tmp.path, "result.json"))
       return open(...args)
+    })
+    try {
+      const rejected: unknown[] = []
+      const tool = rejecting(tmp.path, rejected)
+      await expect(tool.execute!({ path: "result.json" }, options)).rejects.toThrow("Fix the file at")
+      expect(rejected).toEqual([
+        [{ path: "", keyword: "file", message: "path must stay inside the working directory" }],
+      ])
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  test("without O_NOFOLLOW (Windows), the inode re-check still rejects a swapped result file", async () => {
+    await using outside = await tmpdir()
+    await using tmp = await tmpdir()
+    await Bun.write(path.join(outside.path, "secret.json"), JSON.stringify({ elements: { secret: "outside" } }))
+    await Bun.write(path.join(tmp.path, "result.json"), JSON.stringify({ elements: { a: "b" } }))
+    const open = fs.open
+    // Drops the POSIX-only flags, as on win32 where fs.constants defines neither.
+    const spy = spyOn(fs, "open").mockImplementation(async (...args: Parameters<typeof fs.open>) => {
+      await fs.rm(path.join(tmp.path, "result.json"))
+      await fs.symlink(path.join(outside.path, "secret.json"), path.join(tmp.path, "result.json"))
+      return open(args[0], fs.constants.O_RDONLY)
     })
     try {
       const rejected: unknown[] = []
