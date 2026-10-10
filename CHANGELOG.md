@@ -25,7 +25,7 @@
 
 - **NDJSON v1 terminal reasons are an open set** — `session_error.reason` now includes `interrupted` for `SIGINT` and `terminated` for `SIGTERM`, and `code` may contain the conventional signal-derived exit code (`130` or `143`). Schema v1 consumers should treat unknown event types, fields, and enum-like string values as forward-compatible additions.
 
-Releases 0.3.3–0.4.7 not listed here have notes on [GitHub Releases](https://github.com/aictrl-dev/cli/releases) only.
+Releases 0.3.3–0.4.7 not listed here (0.4.2 was never published) have notes on [GitHub Releases](https://github.com/aictrl-dev/cli/releases) only.
 
 ## 0.3.2 (2026-04-11)
 
