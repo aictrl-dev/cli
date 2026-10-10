@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import { asSchema } from "ai"
 import { MessageV2 } from "../../src/session/message-v2"
 import { SessionPrompt } from "../../src/session/prompt"
@@ -167,7 +167,13 @@ describe("structured-output.createStructuredOutputTool", () => {
   }
   const options = { toolCallId: "call", messages: [], abortSignal: undefined as any }
   const create = (root: string, input: Partial<Parameters<typeof SessionPrompt.createStructuredOutputTool>[0]> = {}) =>
-    SessionPrompt.createStructuredOutputTool({ schema, root, onSuccess: () => {}, ...input })
+    SessionPrompt.createStructuredOutputTool({
+      schema,
+      root,
+      onReject: async (errors) => JSON.stringify(errors),
+      onSuccess: () => {},
+      ...input,
+    })
   // Rejections report diagnostics through onReject, as the prompt loop does.
   const rejecting = (root: string, rejected: unknown[], input: { schema?: Record<string, unknown> } = {}) =>
     create(root, {
@@ -247,7 +253,7 @@ describe("structured-output.createStructuredOutputTool", () => {
     const rejected: unknown[] = []
     const tool = rejecting(tmp.path, rejected)
     for (const file of ["missing.json", "dir", "big.json", "truncated.json"])
-      await expect(tool.execute!({ path: file }, options)).rejects.toThrow(`Fix the file at ${file}`)
+      await expect(tool.execute!({ path: file }, options)).rejects.toThrow(`Fix the file at ${JSON.stringify(file)}`)
     expect(rejected).toEqual([
       [{ path: "", keyword: "file", message: "file not found" }],
       [{ path: "", keyword: "file", message: "path must be a regular file" }],
@@ -265,7 +271,7 @@ describe("structured-output.createStructuredOutputTool", () => {
       (error: Error) => error,
     )
     expect((error as Error).message).toBe(
-      'Fix the file at result.json, then call StructuredOutput again with its path. StructuredOutput rejected: [{"path":"/elements","keyword":"minProperties","message":"must NOT have fewer than 1 properties"}]',
+      'Fix the file at "result.json", then call StructuredOutput again with its path. StructuredOutput rejected: [{"path":"/elements","keyword":"minProperties","message":"must NOT have fewer than 1 properties"}]',
     )
     expect(rejected).toHaveLength(1)
   })
@@ -293,7 +299,7 @@ describe("structured-output.createStructuredOutputTool", () => {
     const rejected: unknown[] = []
     await expect(
       rejecting(tmp.path, rejected, { schema: nested }).execute!({ path: "invalid.json" }, options),
-    ).rejects.toThrow("Fix the file at invalid.json")
+    ).rejects.toThrow('Fix the file at "invalid.json"')
     expect(rejected).toEqual([
       [
         { path: "/user", keyword: "required", message: "must have required property 'name'" },
@@ -301,6 +307,126 @@ describe("structured-output.createStructuredOutputTool", () => {
         { path: "/count", keyword: "type", message: "must be number" },
       ],
     ])
+  })
+
+  test("accepts in-root names that start with two dots", async () => {
+    await using tmp = await tmpdir()
+    const value = { elements: { a: "b" } }
+    await Bun.write(path.join(tmp.path, "..result.json"), JSON.stringify(value))
+    await Bun.write(path.join(tmp.path, "..out", "result.json"), JSON.stringify(value))
+    const captured: unknown[] = []
+    const tool = create(tmp.path, { onSuccess: (output) => void captured.push(output) })
+    await tool.execute!({ path: "..result.json" }, options)
+    await tool.execute!({ path: "..out/result.json" }, options)
+    expect(captured).toEqual([value, value])
+  })
+
+  // The swaps below run inside fs.open, after the containment check and before the open:
+  // the window a background process started by the model could race.
+  test("a result file swapped for an outside symlink after the check is rejected", async () => {
+    await using outside = await tmpdir()
+    await using tmp = await tmpdir()
+    await Bun.write(path.join(outside.path, "secret.json"), JSON.stringify({ elements: { secret: "outside" } }))
+    await Bun.write(path.join(tmp.path, "result.json"), JSON.stringify({ elements: { a: "b" } }))
+    const open = fs.open
+    const spy = spyOn(fs, "open").mockImplementation(async (...args: Parameters<typeof fs.open>) => {
+      await fs.rm(path.join(tmp.path, "result.json"))
+      await fs.symlink(path.join(outside.path, "secret.json"), path.join(tmp.path, "result.json"))
+      return open(...args)
+    })
+    try {
+      const rejected: unknown[] = []
+      const tool = rejecting(tmp.path, rejected)
+      await expect(tool.execute!({ path: "result.json" }, options)).rejects.toThrow("Fix the file at")
+      expect(rejected).toEqual([
+        [{ path: "", keyword: "file", message: "path must stay inside the working directory" }],
+      ])
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  test("a parent directory swapped for an outside symlink after the check is rejected", async () => {
+    await using outside = await tmpdir()
+    await using tmp = await tmpdir()
+    await Bun.write(path.join(outside.path, "result.json"), JSON.stringify({ elements: { secret: "outside" } }))
+    await Bun.write(path.join(tmp.path, "out", "result.json"), JSON.stringify({ elements: { a: "b" } }))
+    const open = fs.open
+    const spy = spyOn(fs, "open").mockImplementation(async (...args: Parameters<typeof fs.open>) => {
+      await fs.rename(path.join(tmp.path, "out"), path.join(tmp.path, "moved"))
+      await fs.symlink(outside.path, path.join(tmp.path, "out"))
+      return open(...args)
+    })
+    try {
+      const rejected: unknown[] = []
+      const tool = rejecting(tmp.path, rejected)
+      await expect(tool.execute!({ path: "out/result.json" }, options)).rejects.toThrow("Fix the file at")
+      expect(rejected).toEqual([
+        [{ path: "", keyword: "file", message: "path must stay inside the working directory" }],
+      ])
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  test("a FIFO is rejected without blocking", async () => {
+    if (process.platform === "win32") return
+    await using tmp = await tmpdir()
+    await Bun.$`mkfifo ${path.join(tmp.path, "result.json")}`.quiet()
+    const rejected: unknown[] = []
+    const tool = rejecting(tmp.path, rejected)
+    const outcome = await Promise.race([
+      tool.execute!({ path: "result.json" }, options).catch((error: Error) => error.message),
+      Bun.sleep(2_000).then(() => "blocked"),
+    ])
+    expect(outcome).toContain("Fix the file at")
+    expect(rejected).toEqual([[{ path: "", keyword: "file", message: "path must be a regular file" }]])
+  })
+
+  test("a file that grows past the cap after stat is rejected without reading it all", async () => {
+    await using tmp = await tmpdir()
+    const target = path.join(tmp.path, "result.json")
+    await Bun.write(target, JSON.stringify({ elements: { a: "b" } }))
+    const open = fs.open
+    const spy = spyOn(fs, "open").mockImplementation(async (...args: Parameters<typeof fs.open>) => {
+      const handle = await open(...args)
+      const stat = handle.stat.bind(handle)
+      handle.stat = (async (...options: Parameters<typeof handle.stat>) => {
+        const result = await stat(...options)
+        await fs.appendFile(target, " ".repeat(3 * 1024 * 1024))
+        return result
+      }) as typeof handle.stat
+      return handle
+    })
+    try {
+      const rejected: unknown[] = []
+      const tool = rejecting(tmp.path, rejected)
+      await expect(tool.execute!({ path: "result.json" }, options)).rejects.toThrow("Fix the file at")
+      expect(rejected).toEqual([
+        [{ path: "", keyword: "file", message: `file must not exceed ${2 * 1024 * 1024} bytes` }],
+      ])
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  test("an unavailable working directory is a counted rejection, not a raw OS error", async () => {
+    await using tmp = await tmpdir()
+    const rejected: unknown[] = []
+    const tool = rejecting(path.join(tmp.path, "removed"), rejected)
+    await expect(tool.execute!({ path: "result.json" }, options)).rejects.toThrow("Fix the file at")
+    expect(rejected).toEqual([[{ path: "", keyword: "file", message: "working directory unavailable" }]])
+  })
+
+  test("the corrective message JSON-encodes the submitted path", async () => {
+    await using tmp = await tmpdir()
+    const rejected: unknown[] = []
+    const error = await rejecting(tmp.path, rejected).execute!({ path: "a\nb\u001b[31m.json" }, options).catch(
+      (error: Error) => error.message,
+    )
+    expect(error).toStartWith(
+      'Fix the file at "a\\nb\\u001b[31m.json", then call StructuredOutput again with its path.',
+    )
   })
 
   test("toModelOutput returns text value", async () => {

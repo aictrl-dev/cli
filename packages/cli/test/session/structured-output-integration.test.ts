@@ -5,19 +5,33 @@ import { SessionPrompt } from "../../src/session/prompt"
 import { Log } from "../../src/util/log"
 import { Instance } from "../../src/project/instance"
 import { MessageV2 } from "../../src/session/message-v2"
+import { tmpdir } from "../fixture/fixture"
 
-const projectRoot = path.join(__dirname, "../..")
 Log.init({ print: false })
 
 // Skip tests if no API key is available
 const hasApiKey = !!process.env.ANTHROPIC_API_KEY
 
-// Helper to run test within Instance context
+// Helper to run test within Instance context. The model writes its result file into the
+// working directory (#140), so each test gets a temporary one rather than the repository.
 async function withInstance<T>(fn: () => Promise<T>): Promise<T> {
+  await using tmp = await tmpdir({ git: true })
   return Instance.provide({
-    directory: projectRoot,
+    directory: tmp.path,
     fn,
   })
+}
+
+// The published value is the file the model passed to StructuredOutput by path (#140).
+async function expectPublishedFile(sessionID: string, structured: unknown) {
+  const calls = (await Session.messages({ sessionID }))
+    .flatMap((message) => message.parts)
+    .filter((part) => part.type === "tool" && part.tool === "StructuredOutput" && part.state.status === "completed")
+  expect(calls).toHaveLength(1)
+  const call = calls[0]
+  if (call.type !== "tool" || call.state.status !== "completed") throw new Error("unreachable")
+  expect(Object.keys(call.state.input)).toEqual(["path"])
+  expect(await Bun.file(path.resolve(Instance.directory, call.state.input.path)).json()).toEqual(structured)
 }
 
 describe("StructuredOutput Integration", () => {
@@ -57,6 +71,7 @@ describe("StructuredOutput Integration", () => {
 
           const output = result.info.structured as any
           expect(output.answer).toBe(4)
+          await expectPublishedFile(session.id, result.info.structured)
 
           // Verify no error was set
           expect(result.info.error).toBeUndefined()
@@ -120,6 +135,7 @@ describe("StructuredOutput Integration", () => {
           if (output.products) {
             expect(Array.isArray(output.products)).toBe(true)
           }
+          await expectPublishedFile(session.id, result.info.structured)
 
           // Verify no error was set
           expect(result.info.error).toBeUndefined()

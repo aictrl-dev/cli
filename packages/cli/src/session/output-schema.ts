@@ -104,32 +104,61 @@ export namespace OutputSchema {
     required: ["path"],
     additionalProperties: false,
   }
+  export const shape = compile(PATH_SCHEMA)
   const MAX_FILE_BYTES = 2 * 1024 * 1024
+  const OUTSIDE = "path must stay inside the working directory"
 
+  function contains(base: string, target: string) {
+    const relative = path.relative(base, target)
+    return relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative)
+  }
+
+  // Reads at most buffer.length bytes, however much the file grows while it is read.
+  async function fill(handle: fs.FileHandle, buffer: Buffer, offset = 0): Promise<number> {
+    if (offset === buffer.length) return offset
+    const read = await handle.read(buffer, offset, buffer.length - offset, offset)
+    if (!read.bytesRead) return offset
+    return fill(handle, buffer, offset + read.bytesRead)
+  }
+
+  // Every failure is a fixed diagnostic, so it counts as a rejection and never echoes OS error text.
   export async function file(
     root: string,
     input: string,
     validate: ReturnType<typeof compile>,
   ): Promise<{ value: unknown } | { errors: Diagnostic[] }> {
     const fail = (keyword: string, message: string) => ({ errors: [{ path: "", keyword, message }] })
-    const base = await fs.realpath(root)
+    const base = await fs.realpath(root).catch(() => undefined)
+    if (!base) return fail("file", "working directory unavailable")
     // realpath follows symlinks, so a link pointing outside the root is rejected too.
     const target = await fs.realpath(path.resolve(base, input)).catch(() => undefined)
     if (!target) return fail("file", "file not found")
-    const relative = path.relative(base, target)
-    if (relative.startsWith("..") || path.isAbsolute(relative))
-      return fail("file", "path must stay inside the working directory")
-    // One handle for stat and read, so the checked file is the file read.
-    const handle = await fs.open(target, "r").catch(() => undefined)
-    if (!handle) return fail("file", "file not readable")
+    if (!contains(base, target)) return fail("file", OUTSIDE)
+    // O_NOFOLLOW refuses a final component swapped for a symlink after the check (ELOOP).
+    // O_NONBLOCK makes opening a FIFO return at once; fstat then rejects it as non-regular.
+    const handle = await fs
+      .open(target, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK)
+      .catch((error: NodeJS.ErrnoException) => (error.code === "ELOOP" ? OUTSIDE : "file not readable"))
+    if (typeof handle === "string") return fail("file", handle)
     try {
-      const stat = await handle.stat()
+      // One handle for stat and read, so the checked file is the file read.
+      const stat = await handle.stat().catch(() => undefined)
+      if (!stat) return fail("file", "file not readable")
       if (!stat.isFile()) return fail("file", "path must be a regular file")
-      if (stat.size > MAX_FILE_BYTES) return fail("file", `file must not exceed ${MAX_FILE_BYTES} bytes`)
-      const text = await handle.readFile("utf8")
+      // A parent directory swapped for a symlink after the check is followed by open, so the
+      // opened file must still be the file the path resolves to inside the working directory.
+      const again = await fs.realpath(target).catch(() => undefined)
+      const current = again && contains(base, again) ? await fs.stat(again).catch(() => undefined) : undefined
+      if (!current || current.dev !== stat.dev || current.ino !== stat.ino) return fail("file", OUTSIDE)
+      const size = `file must not exceed ${MAX_FILE_BYTES} bytes`
+      if (stat.size > MAX_FILE_BYTES) return fail("file", size)
+      const buffer = Buffer.alloc(MAX_FILE_BYTES + 1)
+      const length = await fill(handle, buffer).catch(() => undefined)
+      if (length === undefined) return fail("file", "file not readable")
+      if (length > MAX_FILE_BYTES) return fail("file", size)
       const value = (() => {
         try {
-          return { parsed: JSON.parse(text) as unknown }
+          return { parsed: JSON.parse(buffer.subarray(0, length).toString("utf8")) as unknown }
         } catch {
           return undefined
         }
@@ -138,7 +167,7 @@ export namespace OutputSchema {
       if (!validate(value.parsed)) return { errors: diagnostics(validate.errors) }
       return { value: value.parsed }
     } finally {
-      await handle.close()
+      await handle.close().catch(() => undefined)
     }
   }
 

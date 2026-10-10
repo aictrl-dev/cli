@@ -580,14 +580,24 @@ is under 2 KB and never includes submitted values or raw JSON arguments. A `path
 can contain property names submitted by the model (for example, in map or
 `patternProperties` schemas), never their values. Each path segment is clipped
 to 64 characters; paths also have an overall length bound.
-File diagnostics use keyword `file` (`file not found`, `path must stay inside the
-working directory`, `path must be a regular file`, a size over 2 MiB) or `parse`
-(`file must contain complete, valid JSON`); schema diagnostics use Ajv keywords.
+A result file that cannot be used emits one fixed diagnostic with `path: ""`:
+
+| `keyword` | `message` |
+|---|---|
+| `file` | `working directory unavailable` |
+| `file` | `file not found` |
+| `file` | `path must stay inside the working directory` |
+| `file` | `file not readable` |
+| `file` | `path must be a regular file` |
+| `file` | `file must not exceed 2097152 bytes` |
+| `parse` | `file must contain complete, valid JSON` |
+
+A file that parses but fails the schema emits Ajv diagnostics as above.
 Feedback for a rejected file goes to the model as the StructuredOutput tool error and
-asks it to fix the file at that path. Malformed tool arguments (not a `{ path }`
-object) go to the model through the `invalid` tool.
+asks it to fix the file at the JSON-encoded path. Malformed tool arguments (not a
+`{ path }` object) go to the model through the `invalid` tool.
 A prose-only finish emits the fixed diagnostic
-`{ "path": "", "keyword": "missing", "message": "call StructuredOutput with the final result" }`
+`{ "path": "", "keyword": "missing", "message": "write the final result as JSON to a file in the working directory, then call StructuredOutput with its path" }`
 and receives an ephemeral reminder before the next turn while budget remains.
 Other tools remain usable until a valid final result; their outputs are not final
 results. Only the `{ path }` tool schema is sent to the provider; local validation

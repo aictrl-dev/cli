@@ -367,7 +367,7 @@ test("repair diagnostics sent to model are bounded and never echo submitted valu
     .join("")
   expect(Buffer.byteLength(feedback)).toBeLessThan(2048)
   // Path form: file content errors return as the StructuredOutput tool error, not an `invalid` repair call.
-  expect(feedback).toContain("Fix the file at so_1_0.json")
+  expect(feedback).toContain('Fix the file at \\\"so_1_0.json\\\"')
   expect(JSON.stringify(request)).not.toContain("submitted-secret-")
   expect(feedback).toContain("additionalProperties")
   expect(result.info.structured).toEqual({ result: "repaired" })
@@ -388,7 +388,14 @@ test("model finish without StructuredOutput has an explicit missing outcome", as
       sessionID: result.info.sessionID,
       attempt: 1,
       maxAttempts: 1,
-      errors: [{ path: "", keyword: "missing", message: "call StructuredOutput with the final result" }],
+      errors: [
+        {
+          path: "",
+          keyword: "missing",
+          message:
+            "write the final result as JSON to a file in the working directory, then call StructuredOutput with its path",
+        },
+      ],
     },
   ])
   expect(result.info.structured).toBeUndefined()
@@ -453,6 +460,7 @@ test("execute defence in depth rejects an invalid result file before capture", a
   const tool = SessionPrompt.createStructuredOutputTool({
     schema,
     root: tmp.path,
+    onReject: async (errors) => OutputSchema.error(errors).message,
     onSuccess: (value) => {
       captured.push(value)
     },
@@ -504,7 +512,14 @@ test("prose-only finish is a counted corrective attempt before a valid result", 
       sessionID: result.info.sessionID,
       attempt: 1,
       maxAttempts: 2,
-      errors: [{ path: "", keyword: "missing", message: "call StructuredOutput with the final result" }],
+      errors: [
+        {
+          path: "",
+          keyword: "missing",
+          message:
+            "write the final result as JSON to a file in the working directory, then call StructuredOutput with its path",
+        },
+      ],
     },
   ])
   expect(JSON.stringify(result.requests[1].messages)).toContain(
@@ -708,7 +723,12 @@ for (const [name, description] of [
 ]) {
   test(`tool description caps ${name} schema at 8 KiB and explains truncation`, () => {
     const canonical = { type: "object", description }
-    const tool = SessionPrompt.createStructuredOutputTool({ schema: canonical, root: import.meta.dir, onSuccess() {} })
+    const tool = SessionPrompt.createStructuredOutputTool({
+      schema: canonical,
+      root: import.meta.dir,
+      onReject: async () => "",
+      onSuccess() {},
+    })
     const text = JSON.stringify(canonical)
     const expected = new TextDecoder().decode(Buffer.from(text).subarray(0, 8 * 1024))
     expect(tool.description).toContain("truncated; the validator enforces the full schema")
@@ -732,6 +752,7 @@ for (const [name, schema, reason] of [
         schema,
         validate: OutputSchema.compile({ type: "object" }),
         root: import.meta.dir,
+        onReject: async () => "",
         onSuccess() {},
       }),
     ).toThrow(reason)
