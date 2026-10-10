@@ -2,7 +2,8 @@
 
 1. Prepare a PR against `main` with the fixes, the version bump in
    `packages/cli/package.json`, and the matching `packages/cli` workspace
-   version in `bun.lock`. Run `bun install --frozen-lockfile`.
+   version in `bun.lock`. Run `bun install --frozen-lockfile`. In `CHANGELOG.md`,
+   retitle `## Unreleased` to `## <version> (<date>)`.
 2. Run the release regressions from `packages/cli`:
 
    ```bash
@@ -44,6 +45,9 @@
   Ajv and publishes the parsed file. Result objects passed as tool arguments are
   rejected. Callers must change prompts that say "call StructuredOutput with the
   result" to say "write a file and pass its path".
+- **Why a patch bump (0.4.8):** schema mode is used only by the aictrl executor,
+  which pins exact versions. Consumers on a caret range (`^0.4.x`) must update their
+  schema-mode prompts to the file+path form before upgrading.
 - Only `{ path }` reaches the provider, so provider schema conversion can no longer
   drop result fields. On 0.4.7, Gemini emptied map-typed fields (#139).
 - The result file must:
