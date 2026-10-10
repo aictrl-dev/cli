@@ -54,6 +54,8 @@ aictrl run --format json "review this PR" | jq '.type'
 `aictrl run --output-schema <file>` validates the final JSON result.
 Use `--output-schema-retries <n>` for additional corrective turns (0–10, default 2)
 and `--output-result <file>` to atomically write the accepted value.
+The agent writes the result to a JSON file in the working directory and calls
+`StructuredOutput` with its path; the CLI validates and publishes that file.
 Zero retries permits only the initial turn; N permits the initial turn and at
 most N corrective turns. Serialized schemas are limited to 64 KiB, depth 64 and 10,000
 nested objects.

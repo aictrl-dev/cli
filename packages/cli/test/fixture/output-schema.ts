@@ -1,3 +1,6 @@
+import fs from "fs"
+import path from "path"
+
 export const schema = {
   type: "object",
   properties: {
@@ -27,3 +30,10 @@ export const corpus = [
   [],
   "value",
 ]
+
+// StructuredOutput takes the path of a result file (#140): fixture providers write the
+// result text to a file in the run directory and call the tool with its path.
+export function pathArgs(directory: string, args: string, name: string) {
+  fs.writeFileSync(path.join(directory, name), args)
+  return JSON.stringify({ path: name })
+}

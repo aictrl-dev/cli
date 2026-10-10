@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Breaking changes
+
+- **StructuredOutput publishes the validated result file** — In `--output-schema` mode the `StructuredOutput` tool now takes only `{ "path": "<file>" }`. The model writes its final result as JSON to a file in the working directory and passes the path; the CLI follows symlinks, keeps the file inside the working directory, caps it at 2 MiB, validates it with Ajv and publishes the parsed file. Passing the result object as tool arguments is no longer accepted. Callers whose prompts say "call StructuredOutput with the result" must say to write a file and pass its path. Only `{ path }` reaches the provider, so provider schema conversion can no longer drop result fields (Gemini emptied map-typed fields, #139), and the model no longer re-emits the whole result as output tokens. Rejected files are counted corrective turns that ask the model to fix the file. (#140)
+
 ### Fixes
 
 - **Provider error finishes fail headless execution** — Normal streams ending in `error` or `content-filter` now persist a structured provider failure, emit consistent failure events, and exit nonzero while retaining partial output and usage. Empty successful responses remain successful. (#108)

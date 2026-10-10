@@ -541,6 +541,9 @@ does not coerce types, insert defaults or remove extra properties.
 Serialized schemas are limited to 64 KiB, depth 64 and 10,000 nested objects.
 The schema file is trusted instruction input: annotations (`description`, `title`,
 `examples`) are shown to the model in the StructuredOutput tool description.
+StructuredOutput takes only `{ "path": "<file>" }`: the model writes the result as
+JSON to a file inside the working directory and passes its path. The CLI publishes
+the parsed file contents (#140).
 
 `--output-schema-retries <n>` permits N additional corrective turns (0–10, default 2).
 Zero permits only the initial turn; N permits the initial turn and at most N
@@ -557,8 +560,8 @@ value in the terminal event below.
 
 ### `structured_output_rejected`
 
-Emitted once per rejected StructuredOutput attempt, including unparseable JSON
-and a model turn that finishes in prose without a final tool call:
+Emitted once per rejected StructuredOutput attempt, including an unusable result
+file and a model turn that finishes in prose without a final tool call:
 
 ```json
 {
@@ -577,13 +580,18 @@ is under 2 KB and never includes submitted values or raw JSON arguments. A `path
 can contain property names submitted by the model (for example, in map or
 `patternProperties` schemas), never their values. Each path segment is clipped
 to 64 characters; paths also have an overall length bound.
-Validation feedback goes to the model in the same session through the `invalid` tool.
+File diagnostics use keyword `file` (`file not found`, `path must stay inside the
+working directory`, `path must be a regular file`, a size over 2 MiB) or `parse`
+(`file must contain complete, valid JSON`); schema diagnostics use Ajv keywords.
+Feedback for a rejected file goes to the model as the StructuredOutput tool error and
+asks it to fix the file at that path. Malformed tool arguments (not a `{ path }`
+object) go to the model through the `invalid` tool.
 A prose-only finish emits the fixed diagnostic
 `{ "path": "", "keyword": "missing", "message": "call StructuredOutput with the final result" }`
 and receives an ephemeral reminder before the next turn while budget remains.
 Other tools remain usable until a valid final result; their outputs are not final
-results. Provider-compatible tool schemas may be transformed, while local
-validation always uses the canonical schema.
+results. Only the `{ path }` tool schema is sent to the provider; local validation
+of the file always uses the canonical schema.
 
 ### `structured_output`
 

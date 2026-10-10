@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test"
 import { asSchema } from "ai"
 import { MessageV2 } from "../../src/session/message-v2"
 import { SessionPrompt } from "../../src/session/prompt"
+import fs from "fs/promises"
+import path from "path"
+import { tmpdir } from "../fixture/fixture"
 
 describe("structured-output.OutputFormat", () => {
   test("parses text format", () => {
@@ -157,200 +160,152 @@ describe("structured-output.AssistantMessage", () => {
 })
 
 describe("structured-output.createStructuredOutputTool", () => {
-  test("creates tool with correct id", () => {
-    const tool = SessionPrompt.createStructuredOutputTool({
-      schema: { type: "object", properties: { name: { type: "string" } } },
-      onSuccess: () => {},
-    })
-
-    // AI SDK tool type doesn't expose id, but we set it internally
-    expect((tool as any).id).toBe("StructuredOutput")
-  })
-
-  test("creates tool with description", () => {
-    const tool = SessionPrompt.createStructuredOutputTool({
-      schema: { type: "object" },
-      onSuccess: () => {},
-    })
-
-    expect(tool.description).toContain("structured format")
-  })
-
-  test("creates tool with schema as inputSchema", () => {
-    const schema = {
-      type: "object",
-      properties: {
-        company: { type: "string" },
-        founded: { type: "number" },
+  const schema = {
+    type: "object",
+    properties: { elements: { type: "object", additionalProperties: { type: "string" }, minProperties: 1 } },
+    required: ["elements"],
+  }
+  const options = { toolCallId: "call", messages: [], abortSignal: undefined as any }
+  const create = (root: string, input: Partial<Parameters<typeof SessionPrompt.createStructuredOutputTool>[0]> = {}) =>
+    SessionPrompt.createStructuredOutputTool({ schema, root, onSuccess: () => {}, ...input })
+  // Rejections report diagnostics through onReject, as the prompt loop does.
+  const rejecting = (root: string, rejected: unknown[], input: { schema?: Record<string, unknown> } = {}) =>
+    create(root, {
+      ...input,
+      onReject: async (errors) => {
+        rejected.push(errors)
+        return `StructuredOutput rejected: ${JSON.stringify(errors)}`
       },
-      required: ["company"],
-    }
-
-    const tool = SessionPrompt.createStructuredOutputTool({
-      schema,
-      onSuccess: () => {},
+      onSuccess: () => {
+        throw new Error("rejected file captured")
+      },
     })
 
-    // AI SDK wraps schema in { jsonSchema: {...} }
-    expect(tool.inputSchema).toBeDefined()
-    const inputSchema = tool.inputSchema as any
-    expect(inputSchema.jsonSchema?.properties?.company).toBeDefined()
-    expect(inputSchema.jsonSchema?.properties?.founded).toBeDefined()
+  test("creates tool with correct id", async () => {
+    await using tmp = await tmpdir()
+    // AI SDK tool type doesn't expose id, but we set it internally
+    expect((create(tmp.path) as any).id).toBe("StructuredOutput")
   })
 
-  test("strips $schema property from inputSchema", () => {
-    const schema = {
-      $schema: "http://json-schema.org/draft-07/schema#",
-      type: "object",
-      properties: { name: { type: "string" } },
-    }
-
-    const tool = SessionPrompt.createStructuredOutputTool({
-      schema,
-      onSuccess: () => {},
-    })
-
-    // AI SDK wraps schema in { jsonSchema: {...} }
-    const inputSchema = tool.inputSchema as any
-    expect(inputSchema.jsonSchema?.$schema).toBeUndefined()
-    expect(tool.description).toContain(`Canonical JSON Schema: ${JSON.stringify(inputSchema.jsonSchema)}`)
+  test("only {path} is the tool input schema; the canonical schema is description text", async () => {
+    await using tmp = await tmpdir()
+    const tool = create(tmp.path, { schema: { $schema: "http://json-schema.org/draft-07/schema#", ...schema } })
+    const input = (tool.inputSchema as any).jsonSchema
+    expect(Object.keys(input.properties)).toEqual(["path"])
+    expect(input.required).toEqual(["path"])
+    expect(input.additionalProperties).toBe(false)
+    expect(tool.description).toContain("write the final result as JSON to a file")
+    expect(tool.description).toContain(`Canonical JSON Schema: ${JSON.stringify(schema)}`)
     expect(tool.description).not.toContain("$schema")
   })
 
-  test("execute calls onSuccess with valid args", async () => {
-    let capturedOutput: unknown
-
-    const tool = SessionPrompt.createStructuredOutputTool({
-      schema: { type: "object", properties: { name: { type: "string" } } },
-      onSuccess: (output) => {
-        capturedOutput = output
-      },
-    })
-
-    expect(tool.execute).toBeDefined()
-    const testArgs = { name: "Test Company" }
-    const result = await tool.execute!(testArgs, {
-      toolCallId: "test-call-id",
-      messages: [],
-      abortSignal: undefined as any,
-    })
-
-    expect(capturedOutput).toEqual(testArgs)
-    expect(result.output).toBe("Structured output captured successfully.")
-    expect(result.metadata.valid).toBe(true)
+  test("AI SDK boundary accepts only a bounded {path}", async () => {
+    await using tmp = await tmpdir()
+    const validate = asSchema(create(tmp.path).inputSchema).validate!
+    expect(await validate({ path: "result.json" })).toMatchObject({ success: true })
+    for (const value of [{}, { path: 1 }, { path: "result.json", elements: {} }, { path: "a".repeat(1025) }])
+      expect(await validate(value)).toMatchObject({ success: false })
   })
 
-  test("AI SDK boundary rejects missing required fields", async () => {
-    const tool = SessionPrompt.createStructuredOutputTool({
-      schema: {
-        type: "object",
-        properties: { name: { type: "string" }, age: { type: "number" } },
-        required: ["name", "age"],
-      },
-      onSuccess: () => {
-        throw new Error("Invalid input captured")
-      },
-    })
-    expect(await asSchema(tool.inputSchema).validate!({})).toMatchObject({ success: false })
+  test("publishes the validated file contents", async () => {
+    await using tmp = await tmpdir()
+    const value = { elements: { "queued->running": "dispatch", "TASKS.org_id": "fk", "1": "first" } }
+    await Bun.write(path.join(tmp.path, "out", "result.json"), JSON.stringify(value))
+    const captured: unknown[] = []
+    const tool = create(tmp.path, { onSuccess: (output) => void captured.push(output) })
+    for (const file of ["out/result.json", path.join(tmp.path, "out", "result.json")]) {
+      const result = await tool.execute!({ path: file }, options)
+      expect(result.output).toBe("Structured output captured successfully.")
+      expect(result.metadata.valid).toBe(true)
+    }
+    expect(captured).toEqual([value, value])
   })
 
-  test("AI SDK boundary rejects wrong scalar types", async () => {
-    const tool = SessionPrompt.createStructuredOutputTool({
-      schema: { type: "object", properties: { count: { type: "number" } }, required: ["count"] },
-      onSuccess: () => {
-        throw new Error("Invalid input captured")
-      },
-    })
-    expect(await asSchema(tool.inputSchema).validate!({ count: "wrong" })).toMatchObject({ success: false })
-  })
-
-  test("execute handles nested objects", async () => {
-    let capturedOutput: unknown
-
-    const tool = SessionPrompt.createStructuredOutputTool({
-      schema: {
-        type: "object",
-        properties: {
-          user: {
-            type: "object",
-            properties: {
-              name: { type: "string" },
-              email: { type: "string" },
-            },
-            required: ["name"],
-          },
-        },
-        required: ["user"],
-      },
-      onSuccess: (output) => {
-        capturedOutput = output
-      },
-    })
-
-    // Valid nested object - AI SDK validates before calling execute()
-    const validResult = await tool.execute!(
-      { user: { name: "John", email: "john@test.com" } },
-      {
-        toolCallId: "test-call-id",
-        messages: [],
-        abortSignal: undefined as any,
-      },
+  test("rejects paths that escape the working directory, directly or through a symlink", async () => {
+    await using outside = await tmpdir()
+    await using tmp = await tmpdir()
+    await Bun.write(path.join(outside.path, "result.json"), JSON.stringify({ elements: { a: "b" } }))
+    await fs.symlink(path.join(outside.path, "result.json"), path.join(tmp.path, "link.json"))
+    const rejected: unknown[] = []
+    const tool = rejecting(tmp.path, rejected)
+    for (const file of [
+      path.join(outside.path, "result.json"),
+      "../" + path.basename(outside.path) + "/result.json",
+      "link.json",
+    ])
+      await expect(tool.execute!({ path: file }, options)).rejects.toThrow("Fix the file at")
+    expect(rejected).toEqual(
+      Array(3).fill([{ path: "", keyword: "file", message: "path must stay inside the working directory" }]),
     )
-
-    expect(capturedOutput).toEqual({ user: { name: "John", email: "john@test.com" } })
-    expect(validResult.metadata.valid).toBe(true)
-
-    // Verify schema has correct nested structure
-    const inputSchema = tool.inputSchema as any
-    expect(inputSchema.jsonSchema?.properties?.user?.type).toBe("object")
-    expect(inputSchema.jsonSchema?.properties?.user?.properties?.name?.type).toBe("string")
-    expect(inputSchema.jsonSchema?.properties?.user?.required).toContain("name")
   })
 
-  test("execute handles arrays", async () => {
-    let capturedOutput: unknown
+  test("rejects missing, non-regular, oversized and unparseable files", async () => {
+    await using tmp = await tmpdir()
+    await fs.mkdir(path.join(tmp.path, "dir"))
+    await Bun.write(path.join(tmp.path, "big.json"), JSON.stringify({ elements: { a: "x".repeat(2 * 1024 * 1024) } }))
+    await Bun.write(path.join(tmp.path, "truncated.json"), '{"elements": {"a": "submitted-secret-')
+    const rejected: unknown[] = []
+    const tool = rejecting(tmp.path, rejected)
+    for (const file of ["missing.json", "dir", "big.json", "truncated.json"])
+      await expect(tool.execute!({ path: file }, options)).rejects.toThrow(`Fix the file at ${file}`)
+    expect(rejected).toEqual([
+      [{ path: "", keyword: "file", message: "file not found" }],
+      [{ path: "", keyword: "file", message: "path must be a regular file" }],
+      [{ path: "", keyword: "file", message: `file must not exceed ${2 * 1024 * 1024} bytes` }],
+      // JSON parser errors can echo the file contents, so the diagnostic is fixed.
+      [{ path: "", keyword: "parse", message: "file must contain complete, valid JSON" }],
+    ])
+  })
 
-    const tool = SessionPrompt.createStructuredOutputTool({
-      schema: {
-        type: "object",
-        properties: {
-          tags: {
-            type: "array",
-            items: { type: "string" },
-          },
-        },
-        required: ["tags"],
-      },
-      onSuccess: (output) => {
-        capturedOutput = output
-      },
-    })
-
-    // Valid array - AI SDK validates before calling execute()
-    const validResult = await tool.execute!(
-      { tags: ["a", "b", "c"] },
-      {
-        toolCallId: "test-call-id",
-        messages: [],
-        abortSignal: undefined as any,
-      },
+  test("invalid file content is a counted rejection with a fix-the-file corrective message", async () => {
+    await using tmp = await tmpdir()
+    await Bun.write(path.join(tmp.path, "result.json"), JSON.stringify({ elements: {} }))
+    const rejected: unknown[] = []
+    const error = await rejecting(tmp.path, rejected).execute!({ path: "result.json" }, options).catch(
+      (error: Error) => error,
     )
-
-    expect(capturedOutput).toEqual({ tags: ["a", "b", "c"] })
-    expect(validResult.metadata.valid).toBe(true)
-
-    // Verify schema has correct array structure
-    const inputSchema = tool.inputSchema as any
-    expect(inputSchema.jsonSchema?.properties?.tags?.type).toBe("array")
-    expect(inputSchema.jsonSchema?.properties?.tags?.items?.type).toBe("string")
+    expect((error as Error).message).toBe(
+      'Fix the file at result.json, then call StructuredOutput again with its path. StructuredOutput rejected: [{"path":"/elements","keyword":"minProperties","message":"must NOT have fewer than 1 properties"}]',
+    )
+    expect(rejected).toHaveLength(1)
   })
 
-  test("toModelOutput returns text value", () => {
-    const tool = SessionPrompt.createStructuredOutputTool({
-      schema: { type: "object" },
-      onSuccess: () => {},
-    })
+  test("file content is validated against nested objects, arrays and scalar types", async () => {
+    await using tmp = await tmpdir()
+    const nested = {
+      type: "object",
+      properties: {
+        user: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+        tags: { type: "array", items: { type: "string" } },
+        count: { type: "number" },
+      },
+      required: ["user", "tags", "count"],
+    }
+    const value = { user: { name: "John" }, tags: ["a", "b"], count: 1 }
+    await Bun.write(path.join(tmp.path, "valid.json"), JSON.stringify(value))
+    await Bun.write(path.join(tmp.path, "invalid.json"), JSON.stringify({ user: {}, tags: [1], count: "1" }))
+    const captured: unknown[] = []
+    await create(tmp.path, { schema: nested, onSuccess: (output) => void captured.push(output) }).execute!(
+      { path: "valid.json" },
+      options,
+    )
+    expect(captured).toEqual([value])
+    const rejected: unknown[] = []
+    await expect(
+      rejecting(tmp.path, rejected, { schema: nested }).execute!({ path: "invalid.json" }, options),
+    ).rejects.toThrow("Fix the file at invalid.json")
+    expect(rejected).toEqual([
+      [
+        { path: "/user", keyword: "required", message: "must have required property 'name'" },
+        { path: "/tags/0", keyword: "type", message: "must be string" },
+        { path: "/count", keyword: "type", message: "must be number" },
+      ],
+    ])
+  })
 
+  test("toModelOutput returns text value", async () => {
+    await using tmp = await tmpdir()
+    const tool = create(tmp.path)
     expect(tool.toModelOutput).toBeDefined()
     const modelOutput = tool.toModelOutput!({
       output: "Test output",
@@ -363,5 +318,5 @@ describe("structured-output.createStructuredOutputTool", () => {
   })
 
   // The prompt loop owns the corrective attempt budget; this tool enforces the
-  // canonical validator before capture, including direct execute() calls.
+  // canonical validator on the file before capture, including direct execute() calls.
 })

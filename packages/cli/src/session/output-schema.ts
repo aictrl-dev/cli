@@ -2,6 +2,8 @@ import Ajv, { type ErrorObject } from "ajv"
 import Ajv2020 from "ajv/dist/2020"
 import z from "zod"
 import { createHash } from "crypto"
+import path from "path"
+import fs from "fs/promises"
 
 export namespace OutputSchema {
   export const Diagnostic = z.object({ path: z.string(), keyword: z.string(), message: z.string() })
@@ -85,6 +87,58 @@ export namespace OutputSchema {
     } catch {
       // JSON parser errors can echo the entire submitted input.
       return [{ path: "", keyword: "parse", message: "arguments must be complete, valid JSON" }]
+    }
+  }
+
+  // Path form (#140): the model writes its result to a file and passes the path, so the
+  // published value is the file it validated, never a provider-schema-constrained re-emission.
+  export const PATH_SCHEMA: Record<string, unknown> = {
+    type: "object",
+    properties: {
+      path: {
+        type: "string",
+        maxLength: 1024,
+        description: "Path of the JSON result file, relative to the working directory",
+      },
+    },
+    required: ["path"],
+    additionalProperties: false,
+  }
+  const MAX_FILE_BYTES = 2 * 1024 * 1024
+
+  export async function file(
+    root: string,
+    input: string,
+    validate: ReturnType<typeof compile>,
+  ): Promise<{ value: unknown } | { errors: Diagnostic[] }> {
+    const fail = (keyword: string, message: string) => ({ errors: [{ path: "", keyword, message }] })
+    const base = await fs.realpath(root)
+    // realpath follows symlinks, so a link pointing outside the root is rejected too.
+    const target = await fs.realpath(path.resolve(base, input)).catch(() => undefined)
+    if (!target) return fail("file", "file not found")
+    const relative = path.relative(base, target)
+    if (relative.startsWith("..") || path.isAbsolute(relative))
+      return fail("file", "path must stay inside the working directory")
+    // One handle for stat and read, so the checked file is the file read.
+    const handle = await fs.open(target, "r").catch(() => undefined)
+    if (!handle) return fail("file", "file not readable")
+    try {
+      const stat = await handle.stat()
+      if (!stat.isFile()) return fail("file", "path must be a regular file")
+      if (stat.size > MAX_FILE_BYTES) return fail("file", `file must not exceed ${MAX_FILE_BYTES} bytes`)
+      const text = await handle.readFile("utf8")
+      const value = (() => {
+        try {
+          return { parsed: JSON.parse(text) as unknown }
+        } catch {
+          return undefined
+        }
+      })()
+      if (!value) return fail("parse", "file must contain complete, valid JSON")
+      if (!validate(value.parsed)) return { errors: diagnostics(validate.errors) }
+      return { value: value.parsed }
+    } finally {
+      await handle.close()
     }
   }
 

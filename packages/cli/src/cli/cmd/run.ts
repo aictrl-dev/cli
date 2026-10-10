@@ -349,7 +349,11 @@ export const RunCommand = cmd({
         default: "default",
         describe: "format: default (formatted) or json (raw JSON events)",
       })
-      .option("output-schema", { type: "string", describe: "JSON Schema file for the final result (object root)" })
+      .option("output-schema", {
+        type: "string",
+        describe:
+          "JSON Schema file for the final result (object root); the agent writes the result to a JSON file in the working directory and passes its path to StructuredOutput",
+      })
       .option("output-schema-retries", { type: "number", describe: "additional corrective turns (0-10, default: 2)" })
       .option("output-result", {
         type: "string",
