@@ -161,7 +161,6 @@ async function run(source: string, initial = "initial") {
       ...process.env,
       AICTRL_CONFIG_CONTENT: "{}",
       AICTRL_DISABLE_PROJECT_CONFIG: "false",
-      AICTRL_DISABLE_DEFAULT_PLUGINS: "true",
       AICTRL_DISABLE_MODELS_FETCH: "true",
       AICTRL_TEST_HOME: tmp.path,
       AICTRL_TEST_MANAGED_CONFIG_DIR: path.join(tmp.path, "managed"),

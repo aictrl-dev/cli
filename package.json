@@ -18,7 +18,6 @@
       "packages/*"
     ],
     "catalog": {
-      "@babel/core": "7.29.7",
       "hono": "4.10.7",
       "hono-openapi": "1.1.2",
       "@hono/zod-validator": "0.4.2",
@@ -33,7 +32,6 @@
       "@cloudflare/workers-types": "4.20251008.0",
       "@openauthjs/openauth": "0.0.0-20250322224806",
       "@pierre/diffs": "1.1.0-beta.18",
-      "@solid-primitives/storage": "4.3.3",
       "@tailwindcss/vite": "4.1.11",
       "diff": "8.0.2",
       "dompurify": "3.3.1",
@@ -57,7 +55,6 @@
       "@solidjs/meta": "0.29.4",
       "@solidjs/router": "0.15.4",
       "@solidjs/start": "https://pkg.pr.new/@solidjs/start@dfb2020",
-      "solid-js": "1.9.10",
       "vite-plugin-solid": "2.11.10"
     }
   },
@@ -95,7 +92,6 @@
     "web-tree-sitter"
   ],
   "overrides": {
-    "@babel/core": "catalog:",
     "@types/bun": "catalog:",
     "@types/node": "catalog:"
   },

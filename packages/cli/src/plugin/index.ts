@@ -5,7 +5,6 @@ import { Log } from "../util/log"
 import { createAictrlClient } from "@aictrl/sdk"
 import { BunProc } from "../bun"
 import { Instance } from "../project/instance"
-import { Flag } from "../flag/flag"
 import { CodexAuthPlugin } from "./codex"
 import { Session } from "../session"
 import { NamedError } from "@aictrl/util/error"
@@ -13,8 +12,6 @@ import { CopilotAuthPlugin } from "./copilot"
 
 export namespace Plugin {
   const log = Log.create({ service: "plugin" })
-
-  const BUILTIN = [] as string[]
 
   // Built-in plugins that are directly imported (not installed from npm)
   const INTERNAL_PLUGINS: PluginInstance[] = [CodexAuthPlugin, CopilotAuthPlugin]
@@ -43,11 +40,8 @@ export namespace Plugin {
       if (init) hooks.push(init)
     }
 
-    let plugins = config.plugin ?? []
+    const plugins = config.plugin ?? []
     if (plugins.length) await Config.waitForDependencies()
-    if (!Flag.AICTRL_DISABLE_DEFAULT_PLUGINS) {
-      plugins = [...BUILTIN, ...plugins]
-    }
 
     for (let plugin of plugins) {
       // ignore old codex plugin since it is supported first party now

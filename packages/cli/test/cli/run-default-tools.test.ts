@@ -40,7 +40,6 @@ async function requestedTools(entry: string) {
   )
   const environment = {
     ...process.env,
-    AICTRL_DISABLE_DEFAULT_PLUGINS: "true",
     AICTRL_DISABLE_MODELS_FETCH: "true",
     AICTRL_DISABLE_AUTOCOMPACT: "true",
   }

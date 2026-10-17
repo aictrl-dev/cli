@@ -216,7 +216,6 @@ SessionPrompt.prompt = async (input) => {
         XDG_DATA_HOME: path.join(home, ".local/share"),
         XDG_CACHE_HOME: path.join(home, ".cache"),
         AICTRL_TEST_HOME: home,
-        AICTRL_DISABLE_DEFAULT_PLUGINS: "true",
         AICTRL_DISABLE_MODELS_FETCH: "true",
         AICTRL_DISABLE_AUTOCOMPACT: "true",
         AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS: options.timeout ? "100" : "0",
@@ -702,7 +701,7 @@ for (const [name, value, failure, code] of [
       ],
       {
         cwd: tmp.path,
-        env: { ...process.env, AICTRL_DISABLE_DEFAULT_PLUGINS: "true", AICTRL_DISABLE_MODELS_FETCH: "true" },
+        env: { ...process.env, AICTRL_DISABLE_MODELS_FETCH: "true" },
         stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",

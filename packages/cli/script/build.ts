@@ -4,7 +4,6 @@ import { $ } from "bun"
 import fs from "fs"
 import path from "path"
 import { fileURLToPath } from "url"
-import solidPlugin from "../node_modules/@opentui/solid/scripts/solid-plugin"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -156,7 +155,6 @@ await $`rm -rf dist`
 
 const binaries: Record<string, string> = {}
 if (!skipInstall && !liteFlag) {
-  await $`bun install --os="*" --cpu="*" @opentui/core@${pkg.dependencies["@opentui/core"]}`
   await $`bun install --os="*" --cpu="*" @parcel/watcher@${(pkg as any).optionalDependencies["@parcel/watcher"]}`
 }
 for (const item of targets) {
@@ -177,7 +175,6 @@ for (const item of targets) {
   await Bun.build({
     conditions: ["browser"],
     tsconfig: "./tsconfig.json",
-    plugins: liteFlag ? [] : [solidPlugin],
     sourcemap: "external",
     compile: {
       autoloadBunfig: false,
@@ -199,7 +196,6 @@ for (const item of targets) {
     },
   })
 
-  await $`rm -rf ./dist/${name}/bin/tui`
   await Bun.file(`dist/${name}/package.json`).write(
     JSON.stringify(
       {

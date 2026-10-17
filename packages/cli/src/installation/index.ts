@@ -1,4 +1,3 @@
-import { BusEvent } from "@/bus/bus-event"
 import path from "path"
 import { $ } from "bun"
 import z from "zod"
@@ -16,21 +15,6 @@ export namespace Installation {
   const log = Log.create({ service: "installation" })
 
   export type Method = Awaited<ReturnType<typeof method>>
-
-  export const Event = {
-    Updated: BusEvent.define(
-      "installation.updated",
-      z.object({
-        version: z.string(),
-      }),
-    ),
-    UpdateAvailable: BusEvent.define(
-      "installation.update-available",
-      z.object({
-        version: z.string(),
-      }),
-    ),
-  }
 
   export const Info = z
     .object({

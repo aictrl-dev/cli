@@ -85,7 +85,6 @@ async function run(input: Fixture, args: string[]) {
         XDG_DATA_HOME: path.join(input.home, ".local/share"),
         XDG_CACHE_HOME: path.join(input.home, ".cache"),
         AICTRL_TEST_HOME: input.home,
-        AICTRL_DISABLE_DEFAULT_PLUGINS: "true",
         AICTRL_DISABLE_MODELS_FETCH: "true",
         AICTRL_DISABLE_AUTOCOMPACT: "true",
       },
