@@ -74,6 +74,22 @@ In headless mode, Aictrl automatically rejects all interactive permission reques
 
 Set `AICTRL_HEADLESS=true` in your environment to force headless behavior even in pseudo-TTYs.
 
+### Git Commits and Pull Requests
+
+By default the `bash` tool description carries only a short set of git safety
+rules: never commit, push or open a pull request unless the task asks, never
+skip hooks, never force push or amend unless asked, and never change git config.
+The built-in commit and pull request procedure is opt-in. Enable it when your
+agents should commit or open PRs:
+
+```json
+{ "git": { "write": true } }
+```
+
+Or supply your own procedure through skills, `AGENTS.md` or `instructions`, so
+it follows your own conventions. See the
+[configuration reference](packages/cli/README.md#git-commits-and-pull-requests).
+
 ### Model Stream Idle Timeout
 
 Model stream idle timeouts are disabled by default. Set

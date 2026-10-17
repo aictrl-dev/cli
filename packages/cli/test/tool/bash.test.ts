@@ -6,6 +6,7 @@ import { Instance } from "../../src/project/instance"
 import { Filesystem } from "../../src/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
 import type { PermissionNext } from "../../src/permission/next"
+import type { Config } from "../../src/config/config"
 import { Truncate } from "../../src/tool/truncation"
 
 const ctx = {
@@ -38,6 +39,50 @@ describe("tool.bash", () => {
         expect(result.metadata.output).toContain("test")
       },
     })
+  })
+})
+
+describe("tool.bash description", () => {
+  // The bash description before the git procedure became opt-in (#156).
+  const withGit = path.join(__dirname, "fixtures/bash-description-with-git.txt")
+
+  async function description(config?: Partial<Config.Info>) {
+    await using tmp = await tmpdir({ config })
+    return Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const bash = await BashTool.init()
+        return { text: bash.description, directory: tmp.path }
+      },
+    })
+  }
+
+  function render(template: string, directory: string) {
+    return template
+      .replaceAll("${directory}", directory)
+      .replaceAll("${maxLines}", String(Truncate.MAX_LINES))
+      .replaceAll("${maxBytes}", String(Truncate.MAX_BYTES))
+  }
+
+  test("omits the commit and pull request procedure by default", async () => {
+    const result = await description()
+    expect(result.text).not.toContain("# Committing changes with git")
+    expect(result.text).not.toContain("# Creating pull requests")
+    expect(result.text).toContain("# Git safety")
+    expect(result.text).toContain("NEVER skip hooks")
+    expect(result.text).toContain("# Other common operations")
+    expect(result.text).not.toContain("${")
+  })
+
+  test("omits the procedure when git.write is false", async () => {
+    const result = await description({ git: { write: false } })
+    expect(result.text).not.toContain("# Committing changes with git")
+    expect(result.text).toContain("# Git safety")
+  })
+
+  test("reproduces the full commit and pull request procedure when git.write is true", async () => {
+    const result = await description({ git: { write: true } })
+    expect(result.text).toBe(render(await Bun.file(withGit).text(), result.directory))
   })
 })
 

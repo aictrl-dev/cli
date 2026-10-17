@@ -137,6 +137,28 @@ Use `--variant` to select provider-specific reasoning effort. For OpenAI-compati
 Ollama models, `--variant none` sends `reasoning_effort: "none"` to disable
 thinking; model `options` can also set `reasoning_effort: "none"` directly.
 
+### Git Commits and Pull Requests
+
+Whether an agent may commit, push or open pull requests is the caller's decision.
+By default the `bash` tool description includes only the git safety rules:
+
+- never commit, push or open pull requests unless the task explicitly asks for it;
+- never skip hooks (`--no-verify`, `--no-gpg-sign`);
+- never force push, amend or run destructive git commands unless explicitly asked;
+- never update the git config.
+
+To include the built-in step-by-step commit and pull request procedure, set
+`git.write` in `aictrl.json`, or pass it inline with `AICTRL_CONFIG_CONTENT`:
+
+```json
+{ "git": { "write": true } }
+```
+
+Alternatively, leave it off and supply your own procedure through a skill,
+`AGENTS.md` or the `instructions` config, so commits and PRs follow your own
+conventions. `git.write` only changes the prompt; use `permission.bash` to
+restrict which git commands may actually run.
+
 ## Local Development
 
 ```bash

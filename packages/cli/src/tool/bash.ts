@@ -3,7 +3,10 @@ import { spawn } from "child_process"
 import { Tool } from "./tool"
 import path from "path"
 import DESCRIPTION from "./bash.txt"
+import GIT_SAFETY from "./bash-git-safety.txt"
+import GIT_PROCEDURE from "./bash-git.txt"
 import { Log } from "../util/log"
+import { Config } from "../config/config"
 import { Instance } from "../project/instance"
 import { lazy } from "@/util/lazy"
 import { Language } from "web-tree-sitter"
@@ -88,13 +91,24 @@ async function extractEmbeddedCommands(
   return commands
 }
 
+/**
+ * Every run gets the git safety rules. The commit and pull request procedure is
+ * opt-in through `git.write`, because whether an agent may write to git is the caller's decision.
+ */
+async function gitInstructions() {
+  const config = await Config.get()
+  if (config.git?.write) return GIT_PROCEDURE.trimEnd()
+  return GIT_SAFETY.trimEnd()
+}
+
 // TODO: we may wanna rename this tool so it works better on other shells
 export const BashTool = Tool.define("bash", async () => {
   const shell = Shell.acceptable()
   log.info("bash tool using shell", { shell })
 
   return {
-    description: DESCRIPTION.replaceAll("${directory}", Instance.directory)
+    description: DESCRIPTION.replace("${git}", await gitInstructions())
+      .replaceAll("${directory}", Instance.directory)
       .replaceAll("${maxLines}", String(Truncate.MAX_LINES))
       .replaceAll("${maxBytes}", String(Truncate.MAX_BYTES)),
     parameters: z.object({
