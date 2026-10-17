@@ -53,8 +53,9 @@ aictrl run --output-schema result.schema.json --output-schema-retries 2 \
 - `--deadline <instant>`: wall-clock limit for the run, as an ISO-8601 date-time
   with an offset (`2026-10-17T12:00:00Z`) or epoch milliseconds; invalid or past
   values fail with `INVOCATION_INVALID_ARGUMENTS`. When the time left after a step
-  drops below a wrap-up margin (twice the slowest step so far, at least one minute,
-  at most a fifth of the run's window), the next turn forces `StructuredOutput`
+  drops below a wrap-up margin (twice the slowest step so far, raised to at least
+  one minute, then capped at a fifth of the run's window, so windows under five
+  minutes get less than a minute), the next turn forces `StructuredOutput`
   once with a short reminder; it counts as an ordinary attempt. If the deadline
   passes first, the in-flight step is aborted and the run ends
   `failed / deadline` with exit **3**. Without `--output-schema` the deadline only

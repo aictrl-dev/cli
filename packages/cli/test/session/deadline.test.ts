@@ -36,6 +36,19 @@ test("wrap-up is due once, when the time left falls within the margin", () => {
   expect(deadline.expired).toBe(false)
 })
 
+test("a deadline moved earlier restarts the window the margin is capped by", () => {
+  setSystemTime(T0)
+  using deadline = Deadline.watch(new AbortController().signal, T0 + 120 * MINUTE)
+  setSystemTime(T0 + 50 * MINUTE)
+  deadline.observe(4 * MINUTE)
+  deadline.limit(T0 + 60 * MINUTE)
+  // 7 of the joiner's 10 minutes are left: a 2-minute cap (a fifth of 10), not 8 minutes.
+  setSystemTime(T0 + 53 * MINUTE)
+  expect(deadline.wrapUp()).toBe(false)
+  setSystemTime(T0 + 58 * MINUTE + 30_000)
+  expect(deadline.wrapUp()).toBe(true)
+})
+
 test("a minute floor applies before any step is observed", () => {
   setSystemTime(T0)
   using deadline = Deadline.watch(new AbortController().signal, T0 + 10 * MINUTE)
@@ -236,6 +249,63 @@ test("a deadline that passes during cleanup does not reclassify how the loop end
   }
 }, 20000)
 
+test("a passed deadline is reported even when cleanup fails", async () => {
+  const server = Bun.serve({
+    port: 0,
+    fetch: () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              new TextEncoder().encode(
+                'data: {"choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}\n\n',
+              ),
+            )
+          },
+        }),
+        { headers: { "Content-Type": "text/event-stream" } },
+      ),
+  })
+  const prune = spyOn(SessionCompaction, "prune").mockImplementation(async () => {
+    throw new Error("Fixture prune failed")
+  })
+  try {
+    await using tmp = await tmpdir({
+      config: {
+        enabled_providers: ["alibaba"],
+        provider: { alibaba: { options: { apiKey: "test-key", baseURL: `${server.url.origin}/v1` } } },
+        agent: { title: { disable: true } },
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "Deadline prune fixture" })
+        const errors: string[] = []
+        const unsubscribe = Bus.subscribe(Session.Event.Error, (event) => {
+          if (event.properties.sessionID === session.id && event.properties.error)
+            errors.push(event.properties.error.name)
+        })
+        try {
+          const result = SessionPrompt.prompt({
+            sessionID: session.id,
+            model: { providerID: "alibaba", modelID: "qwen-plus" },
+            deadline: Date.now() + 300,
+            parts: [{ type: "text", text: "Return a result." }],
+          })
+          await expect(result).rejects.toThrow("Fixture prune failed")
+          expect(errors).toEqual(["DeadlineExceededError"])
+        } finally {
+          unsubscribe()
+        }
+      },
+    })
+  } finally {
+    prune.mockRestore()
+    server.stop(true)
+  }
+}, 20000)
+
 test("the prompt and command inputs carry the deadline to the loop", () => {
   const sessionID = "ses_0123456789abcdefghijklmnop"
   expect(SessionPrompt.PromptInput.parse({ sessionID, parts: [], deadline: T0 }).deadline).toBe(T0)
@@ -267,6 +337,12 @@ for (const value of [
     expect(() => parseDeadline(value, T0)).toThrow("--deadline must be an ISO-8601 date-time")
   })
 }
+
+test("--deadline names the unit when an epoch looks like seconds", () => {
+  expect(() => parseDeadline(String(Math.floor(T0 / 1000) + 3600), T0)).toThrow(
+    "--deadline must be in the future (epoch values are milliseconds, not seconds)",
+  )
+})
 
 test("--deadline rejects an instant that is not in the future", () => {
   expect(() => parseDeadline(String(T0), T0)).toThrow("--deadline must be in the future")

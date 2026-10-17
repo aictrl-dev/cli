@@ -9,7 +9,9 @@ export function parseDeadline(value: unknown, now = Date.now()) {
     throw new Error(
       "--deadline must be an ISO-8601 date-time with an offset (e.g. 2026-10-17T12:00:00Z) or epoch milliseconds",
     )
-  if (instant <= now) throw new Error("--deadline must be in the future")
+  // An epoch in seconds reads as a 1970 instant in milliseconds; name the unit.
+  const unit = typeof value === "string" && /^\d+$/.test(value) ? " (epoch values are milliseconds, not seconds)" : ""
+  if (instant <= now) throw new Error(`--deadline must be in the future${unit}`)
   return instant
 }
 

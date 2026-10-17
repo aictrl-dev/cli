@@ -922,8 +922,9 @@ export namespace SessionPrompt {
     // Classify by why the loop ended, not by a deadline or cancel that lands during cleanup.
     const expired = !outcome && deadline.expired
     const aborted = abort.aborted
-    await SessionCompaction.prune({ sessionID })
+    // Reported before cleanup, so a failing prune cannot drop it.
     if (expired) await Bus.publish(Session.Event.Error, { sessionID, error: deadline.error })
+    await SessionCompaction.prune({ sessionID })
     if (contract) {
       await Bus.publish(Session.Event.StructuredOutput, {
         sessionID,

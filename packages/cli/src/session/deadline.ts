@@ -12,9 +12,9 @@ export namespace Deadline {
 
   // Wrap-up margin: the time left at which a schema run must stop exploring and
   // submit. A final submission can take two steps (write the result file, then call
-  // StructuredOutput), so the margin is twice the slowest step seen so far, at least
-  // one minute for a slow first reply, and at most a fifth of the whole window so a
-  // short deadline still leaves most of its time for the task itself.
+  // StructuredOutput), so the margin is twice the slowest step seen so far, raised to
+  // one minute for a slow first reply. A fifth of the whole window caps it, and the
+  // cap wins, so a short deadline still leaves most of its time for the task itself.
   const FLOOR = 60_000
   const SHARE = 0.2
   export function margin(window: number, slowest: number) {
@@ -36,7 +36,7 @@ export namespace Deadline {
    * deadline it only follows the parent and nothing is ever due.
    */
   export function watch(parent: AbortSignal, initial?: number) {
-    const started = Date.now()
+    let started = Date.now()
     const controller = new AbortController()
     let deadline = initial
     let slowest = 0
@@ -62,6 +62,8 @@ export namespace Deadline {
       /** Moves the deadline earlier, never later: a caller that joins the running loop brings its own. */
       limit(at: number) {
         if (deadline !== undefined && deadline <= at) return
+        // The margin's window is the budget this caller grants, not the loop's whole run.
+        started = Date.now()
         deadline = at
         arm()
       },

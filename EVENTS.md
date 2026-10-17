@@ -641,8 +641,10 @@ validation with `INVOCATION_INVALID_ARGUMENTS`. After each step, when the time l
 falls below a wrap-up margin, the next turn forces the StructuredOutput tool
 choice once, with the reminder
 `Time is nearly up. Using what you already have, write the final result as JSON to a file in the working directory, then call StructuredOutput with its path now`.
-The margin is twice the slowest step so far, at least one minute and at most a
-fifth of the time between the run's start and the deadline. Running tools finish
+The margin is twice the slowest step so far, raised to at least one minute, then
+capped at a fifth of the time between the run's start and the deadline; the cap
+wins, so windows shorter than five minutes get a margin under one minute. A
+deadline moved earlier by a joining prompt restarts that window. Running tools finish
 first; the wrap-up turn is an ordinary attempt against the corrective budget, so
 validation and repair still apply, and no extra `structured_output_rejected` is
 emitted for it. A corrective turn that is already due goes first; the wrap-up

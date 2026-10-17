@@ -472,9 +472,10 @@ export const RunCommand = cmd({
       )
     })
 
-    const deadline = await (async () => parseDeadline(args.deadline))().catch((error: unknown): Promise<never> => {
-      return fail(error instanceof Error ? error.message : "Invalid --deadline", "INVOCATION_INVALID_ARGUMENTS")
-    })
+    // parseDeadline throws only Errors with a user-facing message.
+    const deadline = await (async () => parseDeadline(args.deadline))().catch((error: Error) =>
+      fail(error.message, "INVOCATION_INVALID_ARGUMENTS"),
+    )
 
     const files: { type: "file"; url: string; filename: string; mime: string }[] = []
     if (args.file) {
