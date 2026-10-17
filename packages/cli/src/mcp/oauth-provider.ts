@@ -48,12 +48,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
   async clientInformation(): Promise<OAuthClientInformation | undefined> {
     // Check config first (pre-registered client)
-    if (this.config.clientId) {
-      return {
-        client_id: this.config.clientId,
-        client_secret: this.config.clientSecret,
-      }
-    }
+    if (this.config.clientId) return this.configuredClientInformation(this.config.clientId)
 
     // Check stored client info (from dynamic registration)
     // Use getForUrl to validate credentials are for the current server URL
@@ -76,9 +71,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   async saveClientInformation(info: OAuthClientInformationFull): Promise<void> {
-    // Configured credentials are the source of truth and are never read from storage, so
-    // do not copy them to disk when the SDK binds them to the authorization server.
-    if (this.config.clientId) return
+    if (this.config.clientId) return this.bindConfiguredClient(this.config.clientId, info)
 
     await McpAuth.updateClientInfo(
       this.mcpName,
@@ -95,6 +88,38 @@ export class McpOAuthProvider implements OAuthClientProvider {
       mcpName: this.mcpName,
       clientId: info.client_id,
     })
+  }
+
+  /**
+   * Configured credentials, stamped with the authorization server they were first accepted by.
+   * The SDK refuses to present a stamped client secret to any other authorization server.
+   */
+  private async configuredClientInformation(clientId: string): Promise<OAuthClientInformation> {
+    const entry = await McpAuth.getForUrl(this.mcpName, this.serverUrl)
+    const binding = entry?.clientInfo?.clientId === clientId ? entry.clientInfo.issuer : undefined
+    return {
+      client_id: clientId,
+      client_secret: this.config.clientSecret,
+      issuer: binding,
+    }
+  }
+
+  /**
+   * Stores only the authorization-server binding of configured credentials; the secret stays
+   * in config. A different client_id is a registration with another authorization server,
+   * which the configured client never uses, so it is not stored.
+   */
+  private async bindConfiguredClient(clientId: string, info: OAuthClientInformationFull): Promise<void> {
+    if (info.client_id !== clientId) {
+      log.warn("configured OAuth client is bound to another authorization server; not using it", {
+        mcpName: this.mcpName,
+        advertisedIssuer: info.issuer,
+        hint: `run \`aictrl mcp logout ${this.mcpName}\` if the authorization server has moved`,
+      })
+      return
+    }
+    await McpAuth.updateClientInfo(this.mcpName, { clientId, issuer: info.issuer }, this.serverUrl)
+    log.info("bound configured client to authorization server", { mcpName: this.mcpName, issuer: info.issuer })
   }
 
   async tokens(): Promise<OAuthTokens | undefined> {
@@ -165,11 +190,19 @@ export class McpOAuthProvider implements OAuthClientProvider {
       return
     }
 
+    // The binding of configured credentials outlives invalidation: the secret is still in
+    // config, and dropping the binding would let the next authorization server receive it.
+    const keepBinding = Boolean(this.config.clientId)
     switch (type) {
       case "all":
+        if (keepBinding) {
+          await McpAuth.set(this.mcpName, { clientInfo: entry.clientInfo, serverUrl: entry.serverUrl })
+          break
+        }
         await McpAuth.remove(this.mcpName)
         break
       case "client":
+        if (keepBinding) break
         delete entry.clientInfo
         await McpAuth.set(this.mcpName, entry)
         break
