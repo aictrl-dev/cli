@@ -241,7 +241,7 @@ export namespace SessionProcessor {
                           input: value.input,
                         },
                         always: [value.toolName],
-                        ruleset: agent.permission,
+                        ruleset: PermissionNext.merge(agent.permission, streamInput.permission ?? []),
                       })
                     }
                   }

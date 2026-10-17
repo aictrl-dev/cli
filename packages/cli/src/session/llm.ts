@@ -35,7 +35,7 @@ export namespace LLM {
     sessionID: string
     model: Provider.Model
     agent: Agent.Info
-    // session rules layered over the agent's, e.g. the denies `aictrl run` creates its session with
+    // session rules layered over the agent's, e.g. the denies the task tool gives subagent sessions
     permission?: PermissionNext.Ruleset
     system: string[]
     abort: AbortSignal

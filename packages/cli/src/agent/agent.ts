@@ -18,8 +18,11 @@ import { mergeDeep, pipe, sortBy, values } from "remeda"
 import path from "path"
 import { Plugin } from "@/plugin"
 import { Skill } from "../skill"
+import { Log } from "@/util/log"
 
 export namespace Agent {
+  const log = Log.create({ service: "agent" })
+
   export const Info = z
     .object({
       name: z.string(),
@@ -176,6 +179,11 @@ export namespace Agent {
     }
 
     for (const [key, value] of Object.entries(cfg.agent ?? {})) {
+      // the plan agent was removed: an old override of it must not become a custom agent with full permissions
+      if (key === "plan") {
+        log.warn("ignoring config for the removed plan agent; restrict an agent through `permission` instead")
+        continue
+      }
       if (value.disable) {
         delete result[key]
         continue

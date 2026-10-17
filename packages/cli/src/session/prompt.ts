@@ -1174,8 +1174,22 @@ export namespace SessionPrompt {
     return Object.assign(result, { id: "StructuredOutput" as const })
   }
 
+  // a client can still name an agent that no longer exists, such as the removed plan agent
+  async function requireAgent(name: string, sessionID: string) {
+    const agent = await Agent.get(name)
+    if (agent) return agent
+    const available = await Agent.list().then((agents) => agents.filter((a) => !a.hidden).map((a) => a.name))
+    const hint = available.length ? ` Available agents: ${available.join(", ")}` : ""
+    const error = new NamedError.Unknown({ message: `Agent not found: "${name}".${hint}` })
+    Bus.publish(Session.Event.Error, {
+      sessionID,
+      error: error.toObject(),
+    })
+    throw error
+  }
+
   async function createUserMessage(input: PromptInput) {
-    const agent = await Agent.get(input.agent ?? (await Agent.defaultAgent()))
+    const agent = await requireAgent(input.agent ?? (await Agent.defaultAgent()), input.sessionID)
 
     const model = input.model ?? agent.model ?? (await lastModel(input.sessionID))
     const full =
@@ -1880,17 +1894,7 @@ export namespace SessionPrompt {
       }
       throw e
     }
-    const agent = await Agent.get(agentName)
-    if (!agent) {
-      const available = await Agent.list().then((agents) => agents.filter((a) => !a.hidden).map((a) => a.name))
-      const hint = available.length ? ` Available agents: ${available.join(", ")}` : ""
-      const error = new NamedError.Unknown({ message: `Agent not found: "${agentName}".${hint}` })
-      Bus.publish(Session.Event.Error, {
-        sessionID: input.sessionID,
-        error: error.toObject(),
-      })
-      throw error
-    }
+    const agent = await requireAgent(agentName, input.sessionID)
 
     const templateParts = await resolvePromptParts(template)
     const isSubtask = (agent.mode === "subagent" && command.subtask !== false) || command.subtask === true

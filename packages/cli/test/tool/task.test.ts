@@ -1,6 +1,7 @@
 import { describe, expect, spyOn, test } from "bun:test"
 import { Identifier } from "../../src/id/id"
-import type { PermissionNext } from "../../src/permission/next"
+import { Agent } from "../../src/agent/agent"
+import { PermissionNext } from "../../src/permission/next"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
 import { LLM } from "../../src/session/llm"
@@ -135,7 +136,7 @@ describe("task tool child result", () => {
 })
 
 describe("task tool subagent session", () => {
-  test("applies the caller session's rules to the subagent, beneath the subagent denies", async () => {
+  test("applies the caller session's denies to the subagent without widening its agent", async () => {
     await using tmp = await tmpdir({
       git: true,
       config: {
@@ -152,11 +153,14 @@ describe("task tool subagent session", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const inherited: PermissionNext.Ruleset = [
-          { permission: "webfetch", action: "deny", pattern: "*" },
-          { permission: "task", action: "allow", pattern: "*" },
-        ]
-        const parent = await Session.create({ title: "Caller", permission: inherited })
+        const parent = await Session.create({
+          title: "Caller",
+          permission: [
+            { permission: "webfetch", action: "deny", pattern: "*" },
+            { permission: "edit", action: "allow", pattern: "*" },
+            { permission: "task", action: "allow", pattern: "*" },
+          ],
+        })
         const caller = await Session.updateMessage({
           id: Identifier.ascending("message"),
           parentID: Identifier.ascending("message"),
@@ -187,7 +191,7 @@ describe("task tool subagent session", () => {
         try {
           const tool = await TaskTool.init()
           const result = await tool.execute(
-            { description: "Explore", prompt: "Look around", subagent_type: "general" },
+            { description: "Explore", prompt: "Look around", subagent_type: "explore" },
             {
               sessionID: parent.id,
               messageID: caller.id,
@@ -202,14 +206,19 @@ describe("task tool subagent session", () => {
           const child = await Session.get(result.metadata.sessionId)
           const subagent = requests.filter((request) => request.sessionID === child.id)
           expect(subagent).toHaveLength(1)
-          expect(subagent[0].permission).toEqual([
-            ...inherited,
-            { permission: "todowrite", action: "deny", pattern: "*" },
-            { permission: "todoread", action: "deny", pattern: "*" },
-            { permission: "task", action: "deny", pattern: "*" },
-            // primary-only tools stay unavailable to subagents
-            { permission: "websearch", action: "deny", pattern: "*" },
-          ])
+          // the ruleset the subagent's tool list and tool calls are both checked against
+          const explore = await Agent.get("explore")
+          const ruleset = PermissionNext.merge(explore.permission, subagent[0].permission ?? [])
+          const action = (permission: string) => PermissionNext.evaluate(permission, "*", ruleset).action
+          // the caller's deny reaches the subagent, over the explore agent's own allow
+          expect(action("webfetch")).toBe("deny")
+          // the caller's allows don't widen the explore agent, which denies edits
+          expect(action("edit")).toBe("deny")
+          // the subagent denies still win over the caller's allow
+          expect(action("task")).toBe("deny")
+          // primary-only tools stay unavailable to subagents
+          expect(action("websearch")).toBe("deny")
+          expect(action("read")).toBe("allow")
         } finally {
           stream.mockRestore()
           await Session.remove(parent.id)

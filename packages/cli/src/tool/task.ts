@@ -92,12 +92,12 @@ export const TaskTool = Tool.define("task", async (ctx) => {
           if (found) return found
         }
 
-        const caller = await Session.get(ctx.sessionID)
+        // only denies apply down the subagent tree: a caller's allow must not widen the subagent's agent
+        const inherited = (await Session.get(ctx.sessionID)).permission?.filter((rule) => rule.action === "deny") ?? []
         return await Session.create({
           parentID: ctx.sessionID,
           title: params.description + ` (@${agent.name} subagent)`,
-          // the caller's session rules apply down the subagent tree; the subagent denies come last and win
-          permission: PermissionNext.merge(caller.permission ?? [], [
+          permission: PermissionNext.merge(inherited, [
             {
               permission: "todowrite",
               pattern: "*",

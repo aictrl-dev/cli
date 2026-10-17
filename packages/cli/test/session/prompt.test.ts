@@ -261,6 +261,29 @@ describe("session.prompt session permission", () => {
   })
 })
 
+describe("session.prompt unknown agent", () => {
+  test("names the missing agent when a client still asks for the removed plan agent", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        await expect(
+          SessionPrompt.prompt({
+            sessionID: session.id,
+            agent: "plan",
+            noReply: true,
+            parts: [{ type: "text", text: "Plan the change" }],
+          }),
+        ).rejects.toMatchObject({
+          data: { message: expect.stringContaining('Agent not found: "plan". Available agents:') },
+        })
+        await Session.remove(session.id)
+      },
+    })
+  })
+})
+
 describe("session.prompt removed tools", () => {
   test("continues a session whose history calls the removed question and plan tools", async () => {
     const requests: Record<string, unknown>[] = []
@@ -278,7 +301,10 @@ describe("session.prompt removed tools", () => {
             usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
           },
         ]
-        const body = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}`).concat("data: [DONE]").join("\n\n")
+        const body = chunks
+          .map((chunk) => `data: ${JSON.stringify(chunk)}`)
+          .concat("data: [DONE]")
+          .join("\n\n")
         return new Response(body + "\n\n", { status: 200, headers: { "Content-Type": "text/event-stream" } })
       },
     })

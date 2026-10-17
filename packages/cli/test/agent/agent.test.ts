@@ -44,6 +44,22 @@ test("build agent has correct default properties", async () => {
   })
 })
 
+test("a leftover plan agent config does not become an agent with full permissions", async () => {
+  await using tmp = await tmpdir({
+    config: {
+      agent: { plan: { description: "Read-only planning", steps: 10 } },
+      mode: { plan: { description: "Read-only planning" } },
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      expect(await Agent.get("plan")).toBeUndefined()
+      expect((await Agent.list()).map((agent) => agent.name)).not.toContain("plan")
+    },
+  })
+})
+
 test("removed question and plan permission keys still load as no-ops", async () => {
   await using tmp = await tmpdir({
     config: {
