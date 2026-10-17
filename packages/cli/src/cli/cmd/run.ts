@@ -430,8 +430,9 @@ export const RunCommand = cmd({
       process.exit(exit)
     }
 
-    const words = [...args.message, ...(args["--"] || [])]
-    let message = words.map((arg) => (arg.includes(" ") ? `"${arg.replace(/"/g, '\\"')}"` : arg)).join(" ")
+    let message = [...args.message, ...(args["--"] || [])]
+      .map((arg) => (arg.includes(" ") ? `"${arg.replace(/"/g, '\\"')}"` : arg))
+      .join(" ")
 
     const directory = await (async () => {
       if (!args.dir) return undefined
@@ -526,7 +527,8 @@ export const RunCommand = cmd({
 
       if (baseID) return baseID
 
-      const title = sessionTitle({ title: args.title, prompt: words.join(" "), message, command: args.command })
+      const prompt = [...args.message, ...(args["--"] || [])].join(" ")
+      const title = sessionTitle({ title: args.title, prompt, message, command: args.command })
       const result = await sdk.session.create(input(undefined, { title, permission: rules }))
       return result.data?.id
     }
