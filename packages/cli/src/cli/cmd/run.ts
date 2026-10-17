@@ -303,6 +303,36 @@ function normalizePath(input?: string) {
   return input
 }
 
+function truncatedTitle(text: string) {
+  // Count code points so an emoji or other astral character is never split in half.
+  const chars = [...text]
+  return chars.slice(0, 50).join("") + (chars.length > 50 ? "..." : "")
+}
+
+/**
+ * Title for a session the run creates. Giving every new session a non-default
+ * title keeps the prompt loop from sending the first message to the title agent
+ * (SessionPrompt `ensureTitle`): an extra request nobody reads in headless runs,
+ * whose tokens bypass usage accounting (#145).
+ *
+ * @internal exported for unit-testing only
+ */
+export function sessionTitle(input: {
+  title?: string
+  /** The positional words as typed, before they are re-quoted for the model. */
+  prompt: string
+  /** The message sent to the model: the re-quoted prompt plus any stdin. */
+  message: string
+  command?: string
+}) {
+  if (input.title) return input.title
+  // `--title ""` predates the default and keeps titling with the raw message.
+  if (input.title === "") return truncatedTitle(input.message)
+  const readable = input.prompt.trim() || input.message.trim()
+  if (input.command) return truncatedTitle(`/${input.command} ${readable}`.trimEnd())
+  return truncatedTitle(readable)
+}
+
 export const RunCommand = cmd({
   command: "run [message..]",
   describe: "run aictrl with a message",
@@ -369,7 +399,7 @@ export const RunCommand = cmd({
       })
       .option("title", {
         type: "string",
-        describe: "title for the session (uses truncated prompt if no value provided)",
+        describe: "title for the session (defaults to the truncated prompt, or /<command> <args> for command runs)",
       })
       .option("attach", {
         type: "string",
@@ -484,12 +514,6 @@ export const RunCommand = cmd({
       },
     ]
 
-    function title() {
-      if (args.title === undefined) return
-      if (args.title !== "") return args.title
-      return message.slice(0, 50) + (message.length > 50 ? "..." : "")
-    }
-
     function input(id?: string, body?: Record<string, unknown>) {
       if (!args.attach) return { ...(id ? { sessionID: id } : {}), ...body }
       return { ...(id ? { path: { id } } : {}), ...(body ? { body } : {}), throwOnError: true }
@@ -505,8 +529,9 @@ export const RunCommand = cmd({
 
       if (baseID) return baseID
 
-      const name = title()
-      const result = await sdk.session.create(input(undefined, { title: name, permission: rules }))
+      const prompt = [...args.message, ...(args["--"] || [])].join(" ")
+      const title = sessionTitle({ title: args.title, prompt, message, command: args.command })
+      const result = await sdk.session.create(input(undefined, { title, permission: rules }))
       return result.data?.id
     }
 
