@@ -651,7 +651,10 @@ the deadline passes, the in-flight step (model stream and running tools) is
 aborted, `session_error` reports `deadline`, the terminal event is
 `{ "status": "failed", "reason": "deadline" }` and the process exits 3. Without
 `--output-schema`, `--deadline` only stops the run: no wrap-up turn,
-`session_error` reason `deadline`, exit 1.
+`session_error` reason `deadline`, exit 1. SDK prompt and command requests take
+the same instant as `deadline` (epoch ms, any positive integer); a past value
+ends the run at once with `deadline`, and a prompt that joins a session's running
+loop moves that loop's deadline earlier, never later.
 Other tools remain usable until a valid final result; their outputs are not final
 results. Only the `{ path }` tool schema is sent to the provider; local validation
 of the file always uses the canonical schema.

@@ -1,8 +1,15 @@
-import { afterEach, expect, setSystemTime, test } from "bun:test"
+import { afterEach, expect, setSystemTime, spyOn, test } from "bun:test"
 import { Deadline } from "../../src/session/deadline"
 import { MessageV2 } from "../../src/session/message-v2"
 import { SessionPrompt } from "../../src/session/prompt"
 import { parseDeadline } from "../../src/cli/cmd/run.deadline"
+import { Instance } from "../../src/project/instance"
+import { Session } from "../../src/session"
+import { Bus } from "../../src/bus"
+import { tmpdir } from "../fixture/fixture"
+import { schema } from "../fixture/output-schema"
+import { SessionCompaction } from "../../src/session/compaction"
+import { OutputSchema } from "../../src/session/output-schema"
 
 const MINUTE = 60_000
 const T0 = Date.parse("2026-10-17T12:00:00Z")
@@ -38,14 +45,42 @@ test("a minute floor applies before any step is observed", () => {
   expect(deadline.wrapUp()).toBe(true)
 })
 
-test("without a deadline the parent signal is used unchanged and nothing is due", () => {
+test("without a deadline the signal only follows the parent and nothing is due", () => {
   const parent = new AbortController()
   using deadline = Deadline.watch(parent.signal)
-  expect(deadline.signal).toBe(parent.signal)
   deadline.observe(10 * MINUTE)
   expect(deadline.wrapUp()).toBe(false)
-  expect(deadline.expired).toBe(false)
   expect(deadline.error).toBeUndefined()
+  const reason = new Error("cancelled")
+  parent.abort(reason)
+  expect(deadline.signal.reason).toBe(reason)
+  expect(deadline.expired).toBe(false)
+})
+
+test("limit moves the deadline earlier, never later", async () => {
+  using deadline = Deadline.watch(new AbortController().signal, Date.now() + MINUTE)
+  deadline.limit(Date.now() + 2 * MINUTE)
+  await Bun.sleep(20)
+  expect(deadline.expired).toBe(false)
+  const at = Date.now() + 30
+  deadline.limit(at)
+  await new Promise((resolve) => deadline.signal.addEventListener("abort", resolve, { once: true }))
+  expect(deadline.error).toMatchObject({ data: { deadline: at } })
+})
+
+test("limit arms a watch that started without a deadline", async () => {
+  using deadline = Deadline.watch(new AbortController().signal)
+  deadline.limit(Date.now() + 30)
+  await new Promise((resolve) => deadline.signal.addEventListener("abort", resolve, { once: true }))
+  expect(deadline.expired).toBe(true)
+})
+
+test("a disposed watch ignores later limits", async () => {
+  const watch = Deadline.watch(new AbortController().signal)
+  watch[Symbol.dispose]()
+  watch.limit(Date.now() + 10)
+  await Bun.sleep(40)
+  expect(watch.expired).toBe(false)
 })
 
 test("the signal aborts with a DeadlineError when the deadline passes", async () => {
@@ -74,6 +109,132 @@ test("a deadline beyond the timer range does not fire early", async () => {
   await Bun.sleep(20)
   expect(deadline.expired).toBe(false)
 })
+
+test("a prompt that joins a running loop brings its deadline to that loop", async () => {
+  let started: () => void = () => {}
+  const first = new Promise<void>((resolve) => {
+    started = resolve
+  })
+  // The provider stream starts and never finishes, so only a deadline can end the loop.
+  const server = Bun.serve({
+    port: 0,
+    async fetch() {
+      started()
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              new TextEncoder().encode(
+                'data: {"choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}\n\n',
+              ),
+            )
+          },
+        }),
+        { headers: { "Content-Type": "text/event-stream" } },
+      )
+    },
+  })
+  try {
+    await using tmp = await tmpdir({
+      config: {
+        enabled_providers: ["alibaba"],
+        provider: { alibaba: { options: { apiKey: "test-key", baseURL: `${server.url.origin}/v1` } } },
+        agent: { title: { disable: true } },
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "Deadline join fixture" })
+        const errors: string[] = []
+        const unsubscribe = Bus.subscribe(Session.Event.Error, (event) => {
+          if (event.properties.sessionID === session.id && event.properties.error)
+            errors.push(event.properties.error.name)
+        })
+        const model = { providerID: "alibaba", modelID: "qwen-plus" }
+        const owner = SessionPrompt.prompt({ sessionID: session.id, model, parts: [{ type: "text", text: "First." }] })
+        await first
+        const deadline = Date.now() + 300
+        const joined = SessionPrompt.prompt({
+          sessionID: session.id,
+          model,
+          deadline,
+          parts: [{ type: "text", text: "Second." }],
+        })
+        const timeout = setTimeout(() => SessionPrompt.cancel(session.id), 10_000)
+        try {
+          const [a, b] = await Promise.all([owner, joined])
+          expect(Date.now() - deadline).toBeLessThan(5000)
+          expect(a.info.role === "assistant" && a.info.error?.name).toBe("DeadlineExceededError")
+          expect(b.info.id).toBe(a.info.id)
+          expect(errors).toEqual(["DeadlineExceededError"])
+        } finally {
+          clearTimeout(timeout)
+          unsubscribe()
+        }
+      },
+    })
+  } finally {
+    server.stop(true)
+  }
+}, 20000)
+
+test("a deadline that passes during cleanup does not reclassify how the loop ended", async () => {
+  // A non-retryable provider failure ends the schema loop as "error"; the deadline
+  // then passes while the loop is still pruning.
+  const server = Bun.serve({
+    port: 0,
+    fetch: () => Response.json({ error: { message: "Fixture provider failed" } }, { status: 400 }),
+  })
+  const deadline = { at: 0 }
+  const prune = spyOn(SessionCompaction, "prune").mockImplementation(async () => {
+    await Bun.sleep(Math.max(0, deadline.at - Date.now()) + 50)
+  })
+  try {
+    await using tmp = await tmpdir({
+      config: {
+        enabled_providers: ["alibaba"],
+        provider: { alibaba: { options: { apiKey: "test-key", baseURL: `${server.url.origin}/v1` } } },
+        agent: { title: { disable: true } },
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "Deadline cleanup fixture" })
+        const errors: string[] = []
+        const outcomes: OutputSchema.Outcome[] = []
+        const unsubscribe = [
+          Bus.subscribe(Session.Event.Error, (event) => {
+            if (event.properties.sessionID === session.id && event.properties.error)
+              errors.push(event.properties.error.name)
+          }),
+          Bus.subscribe(Session.Event.StructuredOutput, (event) => {
+            outcomes.push(event.properties.outcome)
+          }),
+        ]
+        try {
+          deadline.at = Date.now() + 1000
+          await SessionPrompt.prompt({
+            sessionID: session.id,
+            model: { providerID: "alibaba", modelID: "qwen-plus" },
+            deadline: deadline.at,
+            format: { type: "json_schema", schema, retryCount: 0 },
+            parts: [{ type: "text", text: "Return a result." }],
+          })
+          expect(Date.now()).toBeGreaterThan(deadline.at)
+          expect(outcomes).toMatchObject([{ status: "failed", reason: "error" }])
+          expect(errors).not.toContain("DeadlineExceededError")
+        } finally {
+          unsubscribe.forEach((fn) => fn())
+        }
+      },
+    })
+  } finally {
+    prune.mockRestore()
+    server.stop(true)
+  }
+}, 20000)
 
 test("the prompt and command inputs carry the deadline to the loop", () => {
   const sessionID = "ses_0123456789abcdefghijklmnop"

@@ -65,7 +65,8 @@ for (const name of ["SessionPromptData", "SessionPromptAsyncData", "SessionComma
     throw new Error(`Legacy ${name} declaration not found; update the SDK schema bridge`)
   const body = source.slice(start, end)
   // Prompt options added after the legacy client was generated.
-  const fields = ["format?: OutputFormat", "deadline?: number"].filter((field) => !body.includes(field))
+  // In the order the committed bodies use, so a fresh insert matches them.
+  const fields = ["deadline?: number", "format?: OutputFormat"].filter((field) => !body.includes(field))
   if (!fields.length) continue
   if (!body.includes("  body?: {"))
     throw new Error(`Legacy ${name} body anchor not found; update the SDK schema bridge`)

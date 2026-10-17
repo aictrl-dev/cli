@@ -28,32 +28,42 @@ export namespace Deadline {
     return new MessageV2.DeadlineError({ message: "Run deadline reached before a final result", deadline })
   }
 
+  export type Watch = ReturnType<typeof watch>
+
   /**
    * Watches `deadline` for one loop. `signal` aborts with a DeadlineError when it
-   * passes (and with the parent's reason when the parent aborts first). Without a
-   * deadline it is the parent signal itself and nothing else changes.
+   * passes, or with the parent's reason when the parent aborts first. Without a
+   * deadline it only follows the parent and nothing is ever due.
    */
-  export function watch(parent: AbortSignal, deadline?: number) {
+  export function watch(parent: AbortSignal, initial?: number) {
     const started = Date.now()
-    const reason = deadline === undefined ? undefined : error(deadline)
     const controller = new AbortController()
+    let deadline = initial
     let slowest = 0
     let wrapped = false
+    let closed = false
     let timer: ReturnType<typeof setTimeout> | undefined
     const arm = () => {
-      if (deadline === undefined) return
+      clearTimeout(timer)
+      if (deadline === undefined || closed) return
       const left = deadline - Date.now()
-      if (left <= 0) return controller.abort(reason)
+      if (left <= 0) return controller.abort(error(deadline))
       timer = setTimeout(arm, Math.min(left, MAX_TIMER))
     }
     arm()
     return {
-      signal: deadline === undefined ? parent : AbortSignal.any([parent, controller.signal]),
+      signal: AbortSignal.any([parent, controller.signal]),
       get expired() {
         return controller.signal.aborted
       },
       get error() {
-        return reason?.toObject()
+        return deadline === undefined ? undefined : error(deadline).toObject()
+      },
+      /** Moves the deadline earlier, never later: a caller that joins the running loop brings its own. */
+      limit(at: number) {
+        if (deadline !== undefined && deadline <= at) return
+        deadline = at
+        arm()
       },
       /** Records how long one model step took, tools included. */
       observe(ms: number) {
@@ -66,6 +76,7 @@ export namespace Deadline {
         return wrapped
       },
       [Symbol.dispose]() {
+        closed = true
         clearTimeout(timer)
       },
     }

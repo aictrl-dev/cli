@@ -113,6 +113,7 @@ export namespace SessionPrompt {
         {
           abort: AbortController
           loop: boolean
+          deadline?: Deadline.Watch
           callbacks: {
             resolve(input: MessageV2.WithParts): void
             reject(reason?: any): void
@@ -334,6 +335,8 @@ export namespace SessionPrompt {
 
     const cancellation = resume_existing ? resume(sessionID) : start(sessionID, true)
     if (!cancellation) {
+      // A caller joining the running loop gets that loop's result, so the loop must meet its deadline too.
+      if (input.deadline) state()[sessionID].deadline?.limit(input.deadline)
       return new Promise<MessageV2.WithParts>((resolve, reject) => {
         const callbacks = state()[sessionID].callbacks
         callbacks.push({ resolve, reject })
@@ -347,6 +350,7 @@ export namespace SessionPrompt {
       SessionStatus.set(sessionID, { type: "idle" })
     })
     using deadline = Deadline.watch(cancellation, input.deadline)
+    state()[sessionID].deadline = deadline
     const abort = deadline.signal
 
     // Structured output state
@@ -915,8 +919,9 @@ export namespace SessionPrompt {
       if (result === "stop") break
       continue
     }
-    // Only a deadline that ended the loop is reported, not one that passes during cleanup.
+    // Classify by why the loop ended, not by a deadline or cancel that lands during cleanup.
     const expired = !outcome && deadline.expired
+    const aborted = abort.aborted
     await SessionCompaction.prune({ sessionID })
     if (expired) await Bus.publish(Session.Event.Error, { sessionID, error: deadline.error })
     if (contract) {
@@ -924,7 +929,7 @@ export namespace SessionPrompt {
         sessionID,
         outcome: outcome ?? {
           status: "failed",
-          reason: expired ? "deadline" : abort.aborted ? "aborted" : failed ? "error" : "missing",
+          reason: expired ? "deadline" : aborted ? "aborted" : failed ? "error" : "missing",
           attempts,
         },
       })
