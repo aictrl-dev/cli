@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
 import os from "os"
@@ -6,6 +6,8 @@ import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { ToolRegistry } from "../../src/tool/registry"
 import { Config } from "../../src/config/config"
+import { Agent } from "../../src/agent/agent"
+import { HeadlessRun } from "../../src/flag/headless-run"
 
 describe("tool.registry", () => {
   test("loads tools from .aictrl/tool (singular)", async () => {
@@ -177,5 +179,49 @@ describe("tool.registry", () => {
     } finally {
       await fs.unlink(evilToolPath).catch(() => {})
     }
+  })
+})
+
+describe("tool.registry todo tools (#155)", () => {
+  afterEach(() => {
+    HeadlessRun.disable()
+    delete process.env.AICTRL_HEADLESS_RUN
+    delete process.env.AICTRL_ENABLE_TODO_TOOL
+  })
+
+  async function toolIDs() {
+    await using tmp = await tmpdir()
+    return Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const agent = await Agent.get("build")
+        const tools = await ToolRegistry.tools({ providerID: "anthropic", modelID: "claude-sonnet-4" }, agent)
+        return tools.map((tool) => tool.id)
+      },
+    })
+  }
+
+  test("a headless run gets neither todowrite nor todoread", async () => {
+    HeadlessRun.enable()
+    const ids = await toolIDs()
+    expect(ids).toContain("bash")
+    expect(ids).not.toContain("todowrite")
+    expect(ids).not.toContain("todoread")
+  })
+
+  test("a headless run has no environment switch back to todowrite", async () => {
+    HeadlessRun.enable()
+    process.env.AICTRL_ENABLE_TODO_TOOL = "1"
+    expect(await toolIDs()).not.toContain("todowrite")
+  })
+
+  test("sessions outside a headless run keep todowrite", async () => {
+    expect(await toolIDs()).toContain("todowrite")
+  })
+
+  test("the environment cannot mark a session as a headless run", async () => {
+    // A run's child processes and stray shell exports must not drop the tool elsewhere.
+    process.env.AICTRL_HEADLESS_RUN = "true"
+    expect(await toolIDs()).toContain("todowrite")
   })
 })

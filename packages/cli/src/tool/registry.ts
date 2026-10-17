@@ -23,6 +23,7 @@ import { Plugin } from "../plugin"
 import { WebSearchTool } from "./websearch"
 import { CodeSearchTool } from "./codesearch"
 import { Flag } from "@/flag/flag"
+import { HeadlessRun } from "@/flag/headless-run"
 import { Log } from "@/util/log"
 import { LspTool } from "./lsp"
 import { Truncate } from "./truncation"
@@ -111,10 +112,20 @@ export namespace ToolRegistry {
     custom.push(tool)
   }
 
+  /**
+   * todowrite keeps a progress list for someone watching the session. A headless
+   * `aictrl run` has no such reader, and the tool definition costs ~2.4k tokens on
+   * every step, so a headless run does not offer it (#155).
+   */
+  function todoEnabled() {
+    return !HeadlessRun.enabled()
+  }
+
   async function all(): Promise<Tool.Info[]> {
     const custom = await state().then((x) => x.custom)
     const config = await Config.get()
     const question = ["app", "cli", "desktop"].includes(Flag.AICTRL_CLIENT) || Flag.AICTRL_ENABLE_QUESTION_TOOL
+    const todo = todoEnabled()
 
     return [
       InvalidTool,
@@ -127,7 +138,7 @@ export namespace ToolRegistry {
       WriteTool,
       TaskTool,
       WebFetchTool,
-      TodoWriteTool,
+      ...(todo ? [TodoWriteTool] : []),
       // TodoReadTool,
       WebSearchTool,
       CodeSearchTool,

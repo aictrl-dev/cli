@@ -10,6 +10,7 @@ import { terminal } from "./run.terminal"
 import { buildToolCatalogItems } from "./tool-catalog"
 import { withTimeout } from "../../util/timeout"
 import { Flag } from "../../flag/flag"
+import { HeadlessRun } from "../../flag/headless-run"
 import { bootstrap } from "../bootstrap"
 import { EOL } from "os"
 import { Filesystem } from "../../util/filesystem"
@@ -1098,6 +1099,8 @@ export const RunCommand = cmd({
       return await invocation.run(() => execute(createAictrlClient({ baseUrl: args.attach, directory })))
     }
 
+    // Sessions this process serves belong to the headless run until it finishes.
+    HeadlessRun.enable()
     const execution = bootstrap(process.cwd(), async () => {
       const sdk = {
         session: {
@@ -1190,6 +1193,6 @@ export const RunCommand = cmd({
       }
       await execute(sdk)
     })
-    await invocation.run(execution)
+    await invocation.run(execution).finally(() => HeadlessRun.disable())
   },
 })
