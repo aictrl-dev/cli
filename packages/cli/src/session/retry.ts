@@ -89,8 +89,8 @@ export namespace SessionRetry {
     return Math.min(RETRY_INITIAL_DELAY * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1), RETRY_MAX_DELAY_NO_HEADERS)
   }
 
-  // A usage limit that resets later than the whole retry budget would wait at
-  // the header-less delay cap (5 minutes) cannot be retried within the run.
+  // A 429 asking for a single wait longer than every attempt would spend at
+  // the header-less delay cap (5 minutes) is a usage limit, not a rate limit.
   export const USAGE_LIMIT_MAX_WAIT = MAX_RETRY_ATTEMPTS * RETRY_MAX_DELAY_NO_HEADERS
   export const USAGE_LIMIT_CODE = "PROVIDER_USAGE_LIMIT"
 
@@ -99,8 +99,8 @@ export namespace SessionRetry {
     resetAt?: number
   }
 
-  // Recognises a provider usage or quota limit that will not reset within the
-  // retry budget: a 429 asking for a longer wait, or a known quota shape.
+  // Recognises a provider usage or quota limit that will not reset soon: a 429
+  // asking for a wait over USAGE_LIMIT_MAX_WAIT, or a known quota shape.
   export function usageLimit(error: ReturnType<NamedError["toObject"]>): UsageLimit | undefined {
     if (!MessageV2.APIError.isInstance(error)) return undefined
     if (error.data.statusCode !== 429) return undefined
@@ -160,7 +160,7 @@ export namespace SessionRetry {
   export function retryable(error: ReturnType<NamedError["toObject"]>) {
     // context overflow errors should not be retried
     if (MessageV2.ContextOverflowError.isInstance(error)) return undefined
-    // a usage limit cannot reset within the retry budget
+    // a usage limit will not reset soon enough to retry
     if (usageLimit(error)) return undefined
     if (MessageV2.APIError.isInstance(error)) {
       if (!error.data.isRetryable) return undefined

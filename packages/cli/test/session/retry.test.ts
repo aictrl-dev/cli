@@ -186,7 +186,7 @@ describe("session.retry.usageLimit", () => {
   test.each([
     ["retry-after seconds", { "retry-after": "18000" }, 18_000_000],
     ["retry-after-ms", { "retry-after-ms": "3600000" }, 3_600_000],
-  ])("treats a 429 whose %s exceeds the retry budget as a usage limit", (_, headers, wait) => {
+  ])("treats a 429 whose %s exceeds the usage-limit bound as a usage limit", (_, headers, wait) => {
     const before = Date.now()
     const limit = SessionRetry.usageLimit(providerError({ statusCode: 429, headers }))
     expect(limit?.resetAt).toBeGreaterThanOrEqual(before + wait)
@@ -203,7 +203,7 @@ describe("session.retry.usageLimit", () => {
   test.each([
     ["no reset hint", {}],
     ["a seconds-long reset", { "retry-after": "30" }],
-    ["a reset at the retry budget", { "retry-after-ms": String(SessionRetry.USAGE_LIMIT_MAX_WAIT) }],
+    ["a reset at the usage-limit bound", { "retry-after-ms": String(SessionRetry.USAGE_LIMIT_MAX_WAIT) }],
   ])("keeps retrying a short rate limit with %s", (_, headers) => {
     const error = providerError({ statusCode: 429, body: '{"error":{"message":"Rate limit exceeded"}}', headers })
     expect(SessionRetry.usageLimit(error)).toBeUndefined()
