@@ -443,13 +443,11 @@ aictrl.server.close()
 /session/:id/permissions/:permissionID
 /session/:id/prompt_async
 /session/:id/revert
-/session/:id/share
 /session/:id/shell
 /session/:id/summarize
 /session/:id/todo
 /session/:id/unrevert
 /session/status
-/share
 /summarize
 /theme
 /undo

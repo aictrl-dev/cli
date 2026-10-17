@@ -69,7 +69,6 @@ describe("JsonMigration PRAGMA restoration", () => {
     await fs.mkdir(path.join(storageDir, "part"), { recursive: true })
     await fs.mkdir(path.join(storageDir, "todo"), { recursive: true })
     await fs.mkdir(path.join(storageDir, "permission"), { recursive: true })
-    await fs.mkdir(path.join(storageDir, "session_share"), { recursive: true })
 
     await JsonMigration.run(sqlite)
 
@@ -92,7 +91,6 @@ describe("JsonMigration PRAGMA restoration", () => {
     await fs.mkdir(path.join(storageDir, "part"), { recursive: true })
     await fs.mkdir(path.join(storageDir, "todo"), { recursive: true })
     await fs.mkdir(path.join(storageDir, "permission"), { recursive: true })
-    await fs.mkdir(path.join(storageDir, "session_share"), { recursive: true })
 
     // Monkey-patch sqlite.exec to throw on COMMIT, simulating a mid-flight error
     const origExec = sqlite.exec.bind(sqlite)
