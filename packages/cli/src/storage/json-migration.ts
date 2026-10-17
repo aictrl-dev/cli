@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite"
 import { Global } from "../global"
 import { Log } from "../util/log"
 import { ProjectTable } from "../project/project.sql"
-import { SessionTable, MessageTable, PartTable, TodoTable, PermissionTable } from "../session/session.sql"
+import { SessionTable, MessageTable, PartTable, PermissionTable } from "../session/session.sql"
 import path from "path"
 import { existsSync } from "fs"
 import { Filesystem } from "../util/filesystem"
@@ -32,7 +32,6 @@ export namespace JsonMigration {
         sessions: 0,
         messages: 0,
         parts: 0,
-        todos: 0,
         permissions: 0,
         errors: [] as string[],
       }
@@ -53,13 +52,11 @@ export namespace JsonMigration {
       sessions: 0,
       messages: 0,
       parts: 0,
-      todos: 0,
       permissions: 0,
       errors: [] as string[],
     }
     const orphans = {
       sessions: 0,
-      todos: 0,
       permissions: 0,
     }
     const errs = stats.errors
@@ -103,12 +100,11 @@ export namespace JsonMigration {
 
     // Pre-scan all files upfront to avoid repeated glob operations
     log.info("scanning files...")
-    const [projectFiles, sessionFiles, messageFiles, partFiles, todoFiles, permFiles] = await Promise.all([
+    const [projectFiles, sessionFiles, messageFiles, partFiles, permFiles] = await Promise.all([
       list("project/*.json"),
       list("session/*/*.json"),
       list("message/*/*.json"),
       list("part/*/*.json"),
-      list("todo/*.json"),
       list("permission/*.json"),
     ])
 
@@ -117,7 +113,6 @@ export namespace JsonMigration {
       sessions: sessionFiles.length,
       messages: messageFiles.length,
       parts: partFiles.length,
-      todos: todoFiles.length,
       permissions: permFiles.length,
     })
 
@@ -127,7 +122,6 @@ export namespace JsonMigration {
         sessionFiles.length +
         messageFiles.length +
         partFiles.length +
-        todoFiles.length +
         permFiles.length,
     )
     const progress = options?.progress
@@ -299,46 +293,6 @@ export namespace JsonMigration {
       }
       log.info("migrated parts", { count: stats.parts })
 
-      // Migrate todos
-      const todoSessions = todoFiles.map((file) => path.basename(file, ".json"))
-      for (let i = 0; i < todoFiles.length; i += batchSize) {
-        const end = Math.min(i + batchSize, todoFiles.length)
-        const batch = await read(todoFiles, i, end)
-        const values = [] as any[]
-        for (let j = 0; j < batch.length; j++) {
-          const data = batch[j]
-          if (!data) continue
-          const sessionID = todoSessions[i + j]
-          if (!sessionIds.has(sessionID)) {
-            orphans.todos++
-            continue
-          }
-          if (!Array.isArray(data)) {
-            errs.push(`todo not an array: ${todoFiles[i + j]}`)
-            continue
-          }
-          for (let position = 0; position < data.length; position++) {
-            const todo = data[position]
-            if (!todo?.content || !todo?.status || !todo?.priority) continue
-            values.push({
-              session_id: sessionID,
-              content: todo.content,
-              status: todo.status,
-              priority: todo.priority,
-              position,
-              time_created: now,
-              time_updated: now,
-            })
-          }
-        }
-        stats.todos += insert(values, TodoTable, "todo")
-        step("todos", end - i)
-      }
-      log.info("migrated todos", { count: stats.todos })
-      if (orphans.todos > 0) {
-        log.warn("skipped orphaned todos", { count: orphans.todos })
-      }
-
       // Migrate permissions
       const permProjects = permFiles.map((file) => path.basename(file, ".json"))
       const permValues = [] as any[]
@@ -381,7 +335,6 @@ export namespace JsonMigration {
       sessions: stats.sessions,
       messages: stats.messages,
       parts: stats.parts,
-      todos: stats.todos,
       permissions: stats.permissions,
       errorCount: stats.errors.length,
       duration: Math.round(performance.now() - start),

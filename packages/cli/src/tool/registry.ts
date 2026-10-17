@@ -5,7 +5,6 @@ import { GrepTool } from "./grep"
 import { BatchTool } from "./batch"
 import { ReadTool } from "./read"
 import { TaskTool } from "./task"
-import { TodoWriteTool, TodoReadTool } from "./todo"
 import { WebFetchTool } from "./webfetch"
 import { WriteTool } from "./write"
 import { InvalidTool } from "./invalid"
@@ -21,7 +20,6 @@ import { Plugin } from "../plugin"
 import { WebSearchTool } from "./websearch"
 import { CodeSearchTool } from "./codesearch"
 import { Flag } from "@/flag/flag"
-import { HeadlessRun } from "@/flag/headless-run"
 import { Log } from "@/util/log"
 import { Truncate } from "./truncation"
 
@@ -109,19 +107,9 @@ export namespace ToolRegistry {
     custom.push(tool)
   }
 
-  /**
-   * todowrite keeps a progress list for someone watching the session. A headless
-   * `aictrl run` has no such reader, and the tool definition costs ~2.4k tokens on
-   * every step, so a headless run does not offer it (#155).
-   */
-  function todoEnabled() {
-    return !HeadlessRun.enabled()
-  }
-
   async function all(): Promise<Tool.Info[]> {
     const custom = await state().then((x) => x.custom)
     const config = await Config.get()
-    const todo = todoEnabled()
 
     return [
       InvalidTool,
@@ -133,8 +121,6 @@ export namespace ToolRegistry {
       WriteTool,
       TaskTool,
       WebFetchTool,
-      ...(todo ? [TodoWriteTool] : []),
-      // TodoReadTool,
       WebSearchTool,
       CodeSearchTool,
       SkillTool,

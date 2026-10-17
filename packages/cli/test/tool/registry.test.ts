@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
 import os from "os"
@@ -7,7 +7,7 @@ import { Instance } from "../../src/project/instance"
 import { ToolRegistry } from "../../src/tool/registry"
 import { Config } from "../../src/config/config"
 import { Agent } from "../../src/agent/agent"
-import { HeadlessRun } from "../../src/flag/headless-run"
+import { PermissionNext } from "../../src/permission/next"
 
 describe("tool.registry", () => {
   test("loads tools from .aictrl/tool (singular)", async () => {
@@ -182,46 +182,38 @@ describe("tool.registry", () => {
   })
 })
 
-describe("tool.registry todo tools (#155)", () => {
-  afterEach(() => {
-    HeadlessRun.disable()
-    delete process.env.AICTRL_HEADLESS_RUN
-    delete process.env.AICTRL_ENABLE_TODO_TOOL
-  })
+describe("legacy todo config keys (#182)", () => {
+  const legacyConfig = {
+    tools: { todowrite: false, todoread: false },
+    permission: { todowrite: "deny", todoread: "deny" },
+    agent: { build: { tools: { todowrite: true }, permission: { todoread: "allow" } } },
+  } as Partial<Config.Info>
 
-  async function toolIDs() {
-    await using tmp = await tmpdir()
+  /** Tool IDs the build agent is offered, after its permissions drop disabled tools. */
+  async function offered(config?: Partial<Config.Info>) {
+    await using tmp = await tmpdir({ config })
     return Instance.provide({
       directory: tmp.path,
       fn: async () => {
         const agent = await Agent.get("build")
         const tools = await ToolRegistry.tools({ providerID: "anthropic", modelID: "claude-sonnet-4" }, agent)
-        return tools.map((tool) => tool.id)
+        const ids = tools.map((tool) => tool.id)
+        const disabled = PermissionNext.disabled(ids, agent.permission)
+        return { config: await Config.get(), tools: ids.filter((id) => !disabled.has(id)) }
       },
     })
   }
 
-  test("a headless run gets neither todowrite nor todoread", async () => {
-    HeadlessRun.enable()
-    const ids = await toolIDs()
-    expect(ids).toContain("bash")
-    expect(ids).not.toContain("todowrite")
-    expect(ids).not.toContain("todoread")
-  })
+  test("todowrite/todoread keys still load and change no offered tool", async () => {
+    const baseline = await offered()
+    const legacy = await offered(legacyConfig)
 
-  test("a headless run has no environment switch back to todowrite", async () => {
-    HeadlessRun.enable()
-    process.env.AICTRL_ENABLE_TODO_TOOL = "1"
-    expect(await toolIDs()).not.toContain("todowrite")
-  })
-
-  test("sessions outside a headless run keep todowrite", async () => {
-    expect(await toolIDs()).toContain("todowrite")
-  })
-
-  test("the environment cannot mark a session as a headless run", async () => {
-    // A run's child processes and stray shell exports must not drop the tool elsewhere.
-    process.env.AICTRL_HEADLESS_RUN = "true"
-    expect(await toolIDs()).toContain("todowrite")
+    expect(legacy.config.tools).toEqual({ todowrite: false, todoread: false })
+    expect(legacy.config.permission).toMatchObject({ todowrite: "deny", todoread: "deny" })
+    expect(legacy.config.agent?.build?.tools).toEqual({ todowrite: true })
+    expect(legacy.tools).toEqual(baseline.tools)
+    expect(legacy.tools).toContain("bash")
+    expect(legacy.tools).not.toContain("todowrite")
+    expect(legacy.tools).not.toContain("todoread")
   })
 })

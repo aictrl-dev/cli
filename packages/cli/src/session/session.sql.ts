@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index, primaryKey } from "drizzle-orm/sqlite-core"
+import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core"
 import { ProjectTable } from "../project/project.sql"
 import type { MessageV2 } from "./message-v2"
 import type { PermissionNext } from "@/permission/next"
@@ -65,24 +65,6 @@ export const PartTable = sqliteTable(
     data: text({ mode: "json" }).notNull().$type<PartData>(),
   },
   (table) => [index("part_message_idx").on(table.message_id), index("part_session_idx").on(table.session_id)],
-)
-
-export const TodoTable = sqliteTable(
-  "todo",
-  {
-    session_id: text()
-      .notNull()
-      .references(() => SessionTable.id, { onDelete: "cascade" }),
-    content: text().notNull(),
-    status: text().notNull(),
-    priority: text().notNull(),
-    position: integer().notNull(),
-    ...Timestamps,
-  },
-  (table) => [
-    primaryKey({ columns: [table.session_id, table.position] }),
-    index("todo_session_idx").on(table.session_id),
-  ],
 )
 
 export const PermissionTable = sqliteTable("permission", {
