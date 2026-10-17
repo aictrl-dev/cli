@@ -33,6 +33,7 @@ async function run(
     queued?: boolean
     followup?: boolean
     denied?: boolean
+    beside?: boolean
     invalid?: boolean
   } = {},
 ) {
@@ -92,10 +93,14 @@ async function run(
           : { name: "StructuredOutput", arguments: pathArgs(directory, args, `so_${requests.length}_${index}.json`) },
       }))
       if ((options.queued || options.denied) && requests.length === 1) {
-        calls[0].function = {
+        const read = {
           name: "read",
           arguments: JSON.stringify({ filePath: options.denied ? "/outside-fixture.txt" : "aictrl.json" }),
         }
+        // `beside` keeps the first StructuredOutput call and adds the read next to it.
+        if (options.beside)
+          calls.push({ index: calls.length, id: `read_${requests.length}`, type: "function", function: read })
+        else calls[0].function = read
       }
       const chunks = [
         { choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }] },
@@ -620,7 +625,7 @@ test("permission rejection with zero retries spends the only attempt as missing 
     data: { message: "Model did not produce structured output", retries: 0 },
   })
   expect(result.info.structured).toBeUndefined()
-  expect(result.rejected).toMatchObject([{ attempt: 1, maxAttempts: 1, errors: [{ path: "", keyword: "denied" }] }])
+  expect(result.rejected).toMatchObject([{ attempt: 1, maxAttempts: 1, errors: [{ path: "", keyword: "rejected" }] }])
   expect(result.outcomes).toEqual([{ status: "failed", reason: "missing", attempts: 1 }])
 }, 15000)
 
@@ -631,13 +636,28 @@ test("permission rejection gets a named corrective turn before an accepted resul
     "required",
     { type: "function", function: { name: "StructuredOutput" } },
   ])
-  // The reminder names the denied tool but never the arguments the model sent.
+  // The reminder names the rejected tool but never the arguments the model sent.
   const reminder = JSON.stringify((result.requests[1].messages as unknown[]).at(-1))
-  expect(reminder).toContain("Permission denied for read. Using what you already have")
+  expect(reminder).toContain("Tool call rejected: read. Using what you already have")
   expect(reminder).not.toContain("outside-fixture")
   expect(result.info.structured).toEqual({ result: "accepted" })
-  expect(result.rejected).toMatchObject([{ attempt: 1, maxAttempts: 3, errors: [{ keyword: "denied" }] }])
+  expect(result.rejected).toMatchObject([{ attempt: 1, maxAttempts: 3, errors: [{ keyword: "rejected" }] }])
   expect(result.outcomes).toEqual([{ status: "accepted", attempts: 2, value: { result: "accepted" } }])
+}, 15000)
+
+test("permission rejection beside an invalid StructuredOutput call spends one attempt", async () => {
+  const result = await run(["{}", '{"result":"accepted"}'], 1, { denied: true, beside: true })
+  expect(result.requests).toHaveLength(2)
+  expect(result.requests[1].tool_choice).toEqual({ type: "function", function: { name: "StructuredOutput" } })
+  expect(result.rejected).toMatchObject([{ attempt: 1, maxAttempts: 2, errors: [{ keyword: "required" }] }])
+  expect(result.outcomes).toEqual([{ status: "accepted", attempts: 2, value: { result: "accepted" } }])
+}, 15000)
+
+test("permission rejection beside an invalid call with no budget left reports exhaustion", async () => {
+  const result = await run(["{}"], 0, { denied: true, beside: true })
+  expect(result.requests).toHaveLength(1)
+  expect(result.rejected).toMatchObject([{ attempt: 1, errors: [{ keyword: "required" }] }])
+  expect(result.outcomes).toEqual([{ status: "failed", reason: "exhausted", attempts: 1 }])
 }, 15000)
 
 test("permission rejection without a schema still stops the loop", async () => {

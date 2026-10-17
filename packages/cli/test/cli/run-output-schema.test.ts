@@ -763,8 +763,8 @@ test("JSON mode without output-result carries the accepted value only in termina
   ])
 }, 25000)
 
-const DENIED_REMINDER =
-  "<system-reminder>Permission denied for read. Using what you already have, write the final result as JSON to a file in the working directory, then call StructuredOutput with its path</system-reminder>"
+const REJECTED_REMINDER =
+  "<system-reminder>Tool call rejected: read. Using what you already have, write the final result as JSON to a file in the working directory, then call StructuredOutput with its path</system-reminder>"
 
 test("headless permission rejection gets a corrective turn that can still succeed", async () => {
   const result = await run({
@@ -778,8 +778,8 @@ test("headless permission rejection gets a corrective turn that can still succee
     { type: "function", function: { name: "StructuredOutput" } },
   ])
   const messages = result.requests[1].messages as { role: string; content: unknown }[]
-  expect(messages.filter((message) => JSON.stringify(message.content).includes("Permission denied"))).toEqual([
-    { role: "user", content: DENIED_REMINDER },
+  expect(messages.filter((message) => JSON.stringify(message.content).includes("Tool call rejected"))).toEqual([
+    { role: "user", content: REJECTED_REMINDER },
   ])
   expect(result.result).toBe(JSON.stringify({ result: "accepted" }, null, 2) + "\n")
   expect(result.events.filter((event) => event.type === "permission_rejected")).toHaveLength(1)
@@ -791,9 +791,9 @@ test("headless permission rejection gets a corrective turn that can still succee
       errors: [
         {
           path: "",
-          keyword: "denied",
+          keyword: "rejected",
           message:
-            "a tool call was denied; write the final result as JSON to a file in the working directory, then call StructuredOutput with its path",
+            "a tool call was rejected; write the final result as JSON to a file in the working directory, then call StructuredOutput with its path",
         },
       ],
     },
@@ -818,9 +818,9 @@ test("repeated headless permission rejections spend the budget as missing output
       .filter((event) => event.type === "structured_output_rejected")
       .map((event) => [event.attempt, (event.errors as { keyword: string }[])[0].keyword]),
   ).toEqual([
-    [1, "denied"],
-    [2, "denied"],
-    [3, "denied"],
+    [1, "rejected"],
+    [2, "rejected"],
+    [3, "rejected"],
   ])
   expect(result.events.filter((event) => event.type === "structured_output")).toMatchObject([
     { status: "failed", reason: "missing", attempts: 3 },

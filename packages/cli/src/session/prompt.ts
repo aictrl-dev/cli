@@ -58,7 +58,7 @@ IMPORTANT:
 const STRUCTURED_OUTPUT_MISSING =
   "write the final result as JSON to a file in the working directory, then call StructuredOutput with its path"
 
-const STRUCTURED_OUTPUT_DENIED = `a tool call was denied; ${STRUCTURED_OUTPUT_MISSING}`
+const STRUCTURED_OUTPUT_REJECTED = `a tool call was rejected; ${STRUCTURED_OUTPUT_MISSING}`
 
 const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested structured output. Write your final result as JSON to a file in the working directory, then call the StructuredOutput tool with that file's path. Do NOT respond with plain text.`
 
@@ -86,14 +86,15 @@ export namespace SessionPrompt {
     return !hasToolCalls(await load())
   }
 
-  // A schema turn that stops without a result costs one attempt and earns a
-  // corrective reminder: a prose-only finish, or a headless permission
-  // rejection (#135). The reminder names the denied tools, never their input.
+  // A schema turn that stops without a result earns a corrective reminder: a
+  // prose-only finish, or a rejected tool call (a permission auto-rejected in
+  // headless mode, or a dismissed question; #135). The reminder names the
+  // rejected tools, never their input.
   async function missingResult(processor: SessionProcessor.Info) {
     if (processor.blocked.length && !processor.message.error)
       return {
-        diagnostic: { path: "", keyword: "denied", message: STRUCTURED_OUTPUT_DENIED },
-        reminder: `Permission denied for ${processor.blocked.join(", ")}. Using what you already have, ${STRUCTURED_OUTPUT_MISSING}`,
+        diagnostic: { path: "", keyword: "rejected", message: STRUCTURED_OUTPUT_REJECTED },
+        reminder: `Tool call rejected: ${processor.blocked.join(", ")}. Using what you already have, ${STRUCTURED_OUTPUT_MISSING}`,
       }
     if (await missingStructuredOutput(processor.message, () => MessageV2.parts(processor.message.id)))
       return {
@@ -805,6 +806,7 @@ export namespace SessionPrompt {
         system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
       }
 
+      const prior = attempts
       const result = await processor.process({
         user: lastUser,
         agent,
@@ -879,18 +881,20 @@ export namespace SessionPrompt {
 
       const missing = contract ? await missingResult(processor) : undefined
       reminder = missing?.reminder
-      if (missing) await rejection([missing.diagnostic])
+      // A rejected StructuredOutput call in the same step already spent its attempt.
+      const missed = missing !== undefined && attempts === prior
+      if (missed) await rejection([missing.diagnostic])
 
       if (contract && !processor.message.error && rejected > contract.format.retryCount) {
         processor.message.error = new MessageV2.StructuredOutputError({
-          message: reminder
+          message: missed
             ? "Model did not produce structured output"
             : "Structured output corrective attempts exhausted",
           retries: Math.max(0, attempts - 1),
         }).toObject()
         await Session.updateMessage(processor.message)
         await Bus.publish(Session.Event.Error, { sessionID, error: processor.message.error })
-        outcome = { status: "failed", reason: reminder ? "missing" : "exhausted", attempts }
+        outcome = { status: "failed", reason: missed ? "missing" : "exhausted", attempts }
         break
       }
 

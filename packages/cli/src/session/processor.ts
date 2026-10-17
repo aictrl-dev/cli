@@ -34,7 +34,7 @@ export namespace SessionProcessor {
     abort: AbortSignal
   }) {
     const toolcalls: Record<string, MessageV2.ToolPart> = {}
-    // Tools whose rejected permission stopped the loop.
+    // Tools whose rejected permission or dismissed question stopped the loop.
     const blocked = new Set<string>()
     let attempt = 0
     let needsCompaction = false
