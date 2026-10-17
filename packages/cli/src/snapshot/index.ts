@@ -13,6 +13,8 @@ export namespace Snapshot {
   const log = Log.create({ service: "snapshot" })
   const hour = 60 * 60 * 1000
   const prune = "7.days"
+  // Applies when config leaves `snapshot` unset; a headless `aictrl run` turns it off.
+  let byDefault = true
 
   export function init() {
     Scheduler.register({
@@ -23,10 +25,25 @@ export namespace Snapshot {
     })
   }
 
-  export async function cleanup() {
-    if (Instance.project.vcs !== "git" || Flag.AICTRL_CLIENT === "acp") return
+  /** Sets whether this process snapshots the worktree when config leaves `snapshot` unset. */
+  export function setDefault(enabled: boolean) {
+    byDefault = enabled
+  }
+
+  /**
+   * Whether this instance snapshots the worktree. Config `snapshot` decides when it
+   * is set; otherwise the process default applies, which `aictrl run` turns off:
+   * nothing in a run reads snapshots, and each one stages the whole worktree (#146).
+   */
+  export async function enabled() {
+    if (Instance.project.vcs !== "git" || Flag.AICTRL_CLIENT === "acp") return false
     const cfg = await Config.get()
-    if (cfg.snapshot === false) return
+    if (cfg.snapshot !== undefined) return cfg.snapshot
+    return byDefault
+  }
+
+  export async function cleanup() {
+    if (!(await enabled())) return
     const git = gitdir()
     const exists = await fs
       .stat(git)
@@ -49,9 +66,7 @@ export namespace Snapshot {
   }
 
   export async function track() {
-    if (Instance.project.vcs !== "git" || Flag.AICTRL_CLIENT === "acp") return
-    const cfg = await Config.get()
-    if (cfg.snapshot === false) return
+    if (!(await enabled())) return
     const git = gitdir()
     if (await fs.mkdir(git, { recursive: true })) {
       await $`git init`

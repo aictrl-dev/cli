@@ -23,6 +23,7 @@ import { PermissionNext } from "../../permission/next"
 import { Session } from "../../session"
 import type { MessageV2 } from "../../session/message-v2"
 import { SessionPrompt } from "../../session/prompt"
+import { Snapshot } from "../../snapshot"
 import { Config } from "../../config/config"
 import { GlobalBus } from "../../bus/global"
 import { Instance } from "../../project/instance"
@@ -1094,6 +1095,10 @@ export const RunCommand = cmd({
       await Shutdown.flush()
     }
 
+    // Nothing in a run reads snapshots, patches or session diffs, so local sessions skip
+    // them unless config sets `snapshot: true` (#146).
+    // consolidate with HeadlessRun (#152)
+    Snapshot.setDefault(false)
     invocation.phase("bootstrap")
     if (args.attach) {
       return await invocation.run(() => execute(createAictrlClient({ baseUrl: args.attach, directory })))
