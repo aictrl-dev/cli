@@ -1,8 +1,10 @@
 import path from "path"
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import { fileURLToPath } from "url"
+import type { PermissionNext } from "../../src/permission/next"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
+import { LLM } from "../../src/session/llm"
 import { MessageV2 } from "../../src/session/message-v2"
 import { SessionPrompt } from "../../src/session/prompt"
 import { Log } from "../../src/util/log"
@@ -207,5 +209,53 @@ describe("session.prompt agent variant", () => {
       if (prev === undefined) delete process.env.OPENAI_API_KEY
       else process.env.OPENAI_API_KEY = prev
     }
+  })
+})
+
+describe("session.prompt session permission", () => {
+  test("passes the session's permission rules to the model request", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        provider: {
+          fixture: {
+            npm: "@ai-sdk/google",
+            options: { apiKey: "fixture" },
+            models: { "gemini-fixture": { name: "fixture", limit: { context: 100000, output: 1000 } } },
+          },
+        },
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const permission: PermissionNext.Ruleset = [{ permission: "question", action: "deny", pattern: "*" }]
+        const session = await Session.create({ title: "Session permission", permission })
+        const requests: LLM.StreamInput[] = []
+        const stream = spyOn(LLM, "stream").mockImplementation(async (input) => {
+          requests.push(input)
+          return {
+            fullStream: (async function* () {
+              yield { type: "start-step" }
+              yield { type: "finish-step", finishReason: "stop", usage: { inputTokens: 1, outputTokens: 1 } }
+            })(),
+          } as unknown as Awaited<ReturnType<typeof LLM.stream>>
+        })
+        try {
+          await SessionPrompt.prompt({
+            sessionID: session.id,
+            agent: "build",
+            model: { providerID: "fixture", modelID: "gemini-fixture" },
+            parts: [{ type: "text", text: "Finish the task" }],
+          })
+          const turns = requests.filter((request) => request.agent.name === "build")
+          expect(turns).toHaveLength(1)
+          expect(turns[0].permission).toEqual(permission)
+        } finally {
+          stream.mockRestore()
+          await Session.remove(session.id)
+        }
+      },
+    })
   })
 })
