@@ -92,8 +92,8 @@ async function extractEmbeddedCommands(
 }
 
 /**
- * Every run gets the git safety rules. The commit and pull request procedure is
- * opt-in through `git.write`, because whether an agent may write to git is the caller's decision.
+ * Every run gets the git safety rules. `git.write` opts in to the full commit and
+ * pull request procedure. It only changes the prompt; permission rules restrict which git commands run.
  */
 async function gitInstructions() {
   const config = await Config.get()
@@ -105,9 +105,11 @@ async function gitInstructions() {
 export const BashTool = Tool.define("bash", async () => {
   const shell = Shell.acceptable()
   log.info("bash tool using shell", { shell })
+  const git = await gitInstructions()
 
   return {
-    description: DESCRIPTION.replace("${git}", await gitInstructions())
+    // A replacer function inserts the git text literally, without `$` pattern expansion
+    description: DESCRIPTION.replace("${git}", () => git)
       .replaceAll("${directory}", Instance.directory)
       .replaceAll("${maxLines}", String(Truncate.MAX_LINES))
       .replaceAll("${maxBytes}", String(Truncate.MAX_BYTES)),

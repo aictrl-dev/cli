@@ -43,7 +43,9 @@ describe("tool.bash", () => {
 })
 
 describe("tool.bash description", () => {
-  // The bash description before the git procedure became opt-in (#156).
+  // Golden copy of bash.txt as it was before the git procedure became opt-in (#156).
+  // It is kept separate from the shipped assets on purpose, so the git.write test proves the
+  // opt-in reproduces that text. Update it together with any change to bash.txt or bash-git.txt.
   const withGit = path.join(__dirname, "fixtures/bash-description-with-git.txt")
 
   async function description(config?: Partial<Config.Info>) {
@@ -70,6 +72,8 @@ describe("tool.bash description", () => {
     expect(result.text).not.toContain("# Creating pull requests")
     expect(result.text).toContain("# Git safety")
     expect(result.text).toContain("NEVER skip hooks")
+    expect(result.text).toContain("NEVER commit likely secrets")
+    expect(result.text).toContain("unless the user explicitly asks")
     expect(result.text).toContain("# Other common operations")
     expect(result.text).not.toContain("${")
   })

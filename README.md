@@ -77,8 +77,9 @@ Set `AICTRL_HEADLESS=true` in your environment to force headless behavior even i
 ### Git Commits and Pull Requests
 
 By default the `bash` tool description carries only a short set of git safety
-rules: never commit, push or open a pull request unless the task asks, never
-skip hooks, never force push or amend unless asked, and never change git config.
+rules, for example: never commit, push or open a pull request unless the user
+asks, never commit secrets, never skip hooks, never force push or amend unless
+asked, and never change git config.
 The built-in commit and pull request procedure is opt-in. Enable it when your
 agents should commit or open PRs:
 

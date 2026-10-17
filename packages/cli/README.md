@@ -142,10 +142,12 @@ thinking; model `options` can also set `reasoning_effort: "none"` directly.
 Whether an agent may commit, push or open pull requests is the caller's decision.
 By default the `bash` tool description includes only the git safety rules:
 
-- never commit, push or open pull requests unless the task explicitly asks for it;
+- never commit, push or open pull requests unless the user explicitly asks;
+- never commit likely secrets (`.env`, `credentials.json`);
 - never skip hooks (`--no-verify`, `--no-gpg-sign`);
-- never force push, amend or run destructive git commands unless explicitly asked;
-- never update the git config.
+- never force push, amend or run destructive git commands unless the user explicitly asks;
+- never update the git config or use interactive flags (`-i`);
+- use `gh` for GitHub tasks.
 
 To include the built-in step-by-step commit and pull request procedure, set
 `git.write` in `aictrl.json`, or pass it inline with `AICTRL_CONFIG_CONTENT`:
