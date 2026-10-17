@@ -439,7 +439,7 @@ export const RunCommand = cmd({
       process.exit(exit)
     }
 
-    if (args.share !== undefined) {
+    if (args.share === true) {
       await fail("--share was removed: session sharing is no longer supported", "INVOCATION_INVALID_ARGUMENTS")
     }
 

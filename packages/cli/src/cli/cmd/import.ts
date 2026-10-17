@@ -8,6 +8,7 @@ import { SessionTable, MessageTable, PartTable } from "../../session/session.sql
 import { Instance } from "../../project/instance"
 import { EOL } from "os"
 import { Filesystem } from "../../util/filesystem"
+import { UI } from "../ui"
 
 export const ImportCommand = cmd({
   command: "import <file>",
@@ -22,8 +23,7 @@ export const ImportCommand = cmd({
   handler: async (args) => {
     // Importing from a share URL was removed with session sharing (#189).
     if (args.file.startsWith("http://") || args.file.startsWith("https://")) {
-      process.stdout.write(`Importing from a share URL was removed: session sharing is no longer supported`)
-      process.stdout.write(EOL)
+      UI.error("Importing from a share URL was removed: session sharing is no longer supported")
       process.exitCode = 1
       return
     }

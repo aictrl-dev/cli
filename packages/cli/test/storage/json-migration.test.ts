@@ -596,6 +596,8 @@ describe("JSON to SQLite migration", () => {
         url: "https://share.example.com/ses_test456def",
       }),
     )
+    // Unreadable share files were reported as migration errors before #189.
+    await Bun.write(path.join(storageDir, "session_share", "ses_broken.json"), "{ nope")
 
     const stats = await JsonMigration.run(sqlite)
 

@@ -158,6 +158,16 @@ describe("session sharing removed (#189)", () => {
     })
   }, 20000)
 
+  test("`run --no-share` still runs, since it asks for what is now the only behaviour", async () => {
+    await fixture(async (input) => {
+      const result = await run(input, ["--no-share", "Say done."])
+
+      expect(result.exit, result.output).toBe(0)
+      expect(result.events.filter((event) => event.type === "session_complete"), result.output).toHaveLength(1)
+      expect(input.shareRequests).toEqual([])
+    })
+  }, 20000)
+
   test("config `share`, `autoshare` and `enterprise` load as no-ops with one warning and send nothing", async () => {
     await fixture(async (input) => {
       await addShareConfig(input)

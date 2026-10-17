@@ -29,10 +29,15 @@ test("importing from a share URL fails with a removed error and makes no request
       stdout: "pipe",
       stderr: "pipe",
     })
-    const [stdout, exit] = await Promise.all([new Response(proc.stdout).text(), proc.exited])
+    const [stdout, stderr, exit] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ])
 
     expect(exit).toBe(1)
-    expect(stdout).toContain("Importing from a share URL was removed: session sharing is no longer supported")
+    expect(stderr).toContain("Importing from a share URL was removed: session sharing is no longer supported")
+    expect(stdout).toBe("")
     expect(requests).toEqual([])
   } finally {
     share.stop(true)
