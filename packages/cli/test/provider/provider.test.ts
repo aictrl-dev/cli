@@ -350,7 +350,7 @@ test("getModel throws ModelNotFoundError for invalid provider", async () => {
   })
 })
 
-test("removed github-copilot provider is unavailable despite GITHUB_TOKEN and stored auth", async () => {
+test("removed github-copilot provider is unavailable despite GITHUB_TOKEN, stored auth and an auth plugin", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Bun.write(
@@ -358,6 +358,20 @@ test("removed github-copilot provider is unavailable despite GITHUB_TOKEN and st
         JSON.stringify({
           $schema: "https://aictrl.ai/config.json",
         }),
+      )
+      // A leftover Copilot auth plugin whose loader expects a catalog entry.
+      await Bun.write(
+        path.join(dir, ".aictrl", "plugin", "copilot-auth.ts"),
+        [
+          "export default async () => ({",
+          "  auth: {",
+          '    provider: "github-copilot",',
+          '    methods: [{ type: "api", label: "Copilot" }],',
+          "    loader: async (_auth, provider) => ({ models: Object.keys(provider.models) }),",
+          "  },",
+          "})",
+          "",
+        ].join("\n"),
       )
     },
   })

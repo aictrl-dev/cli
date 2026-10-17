@@ -1006,9 +1006,11 @@ export namespace Provider {
       const providerID = plugin.auth.provider
       if (disabled.has(providerID)) continue
       if (!plugin.auth.loader) continue
+      const provider = database[providerID]
+      if (!provider) continue
       if (!(await Auth.get(providerID))) continue
 
-      const options = await plugin.auth.loader(() => Auth.get(providerID) as any, database[providerID])
+      const options = await plugin.auth.loader(() => Auth.get(providerID) as any, provider)
       const opts = options ?? {}
       const patch: Partial<Info> = providers[providerID] ? { options: opts } : { source: "custom", options: opts }
       mergeProvider(providerID, patch)
