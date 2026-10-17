@@ -161,7 +161,8 @@ function readPackageVersion(packageDir) {
 // Only a platform package of this wrapper's own release may run. An older one
 // left in an ancestor node_modules (CI images, npx caches) would otherwise run
 // silently whenever npm skipped the optional platform package.
-const wrapperVersion = readPackageVersion(path.join(scriptDir, ".."))
+const wrapperPackageDir = path.resolve(scriptDir, "..")
+const wrapperVersion = readPackageVersion(wrapperPackageDir)
 
 // Every installed platform binary, nearest first. The walk starts in the
 // wrapper's own package, so its own install tree is searched before any
@@ -190,18 +191,42 @@ function matchesWrapperVersion(platformBinary) {
   return wrapperVersion !== undefined && platformBinary.version === wrapperVersion
 }
 
-function missingBinaryMessage(skipped) {
-  const pin = wrapperVersion ? "@" + wrapperVersion : ""
+// A package spec pinned to this wrapper's release, so following the advice
+// installs a binary the version check accepts.
+function pinnedSpec(name) {
+  return wrapperVersion ? `${name}@${wrapperVersion}` : name
+}
+
+// Versions and paths come from arbitrary ancestor node_modules, so strip
+// control characters before echoing them to the terminal.
+function printable(text) {
+  return String(text).replace(/[\u0000-\u001f\u007f-\u009f]/g, "")
+}
+
+function unknownWrapperVersionMessage() {
+  return [
+    `Could not read the @aictrl/cli version from ${path.join(wrapperPackageDir, "package.json")}, so no platform binary can be verified.`,
+    "Reinstall @aictrl/cli, or set AICTRL_BIN_PATH to the binary to run.",
+  ].join("\n")
+}
+
+function missingBinaryMessage(candidates) {
+  if (!wrapperVersion) return unknownWrapperVersionMessage()
+
   const lines = [
     "It seems that your package manager failed to install the right version of the aictrl CLI for your platform.",
-    `@aictrl/cli ${wrapperVersion || "(unknown version)"} needs a platform package of the same version.`,
+    `@aictrl/cli ${wrapperVersion} needs a platform package of the same version.`,
   ]
-  if (skipped.length > 0) {
+  if (candidates.length > 0) {
     lines.push("Skipped platform packages with a different version:")
-    for (const entry of skipped) lines.push(`  ${entry.name}@${entry.version || "unknown"} at ${entry.packageDir}`)
+    for (const entry of candidates) {
+      lines.push(`  ${entry.name}@${printable(entry.version || "unknown")} at ${printable(entry.packageDir)}`)
+    }
   }
-  lines.push(`Reinstall @aictrl/cli${pin}, or install the platform package manually: npm install ${names[0]}${pin}`)
-  const otherPackages = names.slice(1).map((n) => `"${n}${pin}"`)
+  lines.push(
+    `Reinstall ${pinnedSpec("@aictrl/cli")}, or install the platform package manually: npm install "${pinnedSpec(names[0])}"`,
+  )
+  const otherPackages = names.slice(1).map((n) => `"${pinnedSpec(n)}"`)
   if (otherPackages.length > 0) {
     lines.push("Other packages for this platform: " + otherPackages.join(", "))
   }
@@ -228,7 +253,7 @@ if (fs.existsSync(bunEntry)) {
       console.error(
         "No compiled binary found for your platform and Bun is not installed.\n" +
           "Either install Bun (https://bun.sh) or install the platform package: " +
-          names.map((n) => `"${n}"`).join(" or "),
+          names.map((n) => `"${pinnedSpec(n)}"`).join(" or "),
       )
     } else {
       console.error(result.error.message)

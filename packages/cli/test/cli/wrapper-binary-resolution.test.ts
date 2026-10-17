@@ -17,20 +17,28 @@ const staleVersion = "0.0.1-stale-test"
 const platformName = ({ darwin: "darwin", linux: "linux", win32: "windows" } as Record<string, string>)[os.platform()]
 const platformPackage = `@aictrl/cli-${platformName ?? os.platform()}-${os.arch()}`
 
-async function installWrapper(projectDir: string) {
+// The advice names the host's preferred variant (plain, -baseline or -musl),
+// pinned to the wrapper's version.
+const pinnedAdvice = new RegExp(`npm install "@aictrl/cli-[^"]+@${wrapperVersion.replace(/\./g, "\\.")}"`)
+
+async function installWrapper(projectDir: string, options: { versioned?: boolean; source?: boolean } = {}) {
   const packageDir = path.join(projectDir, "node_modules", "@aictrl", "cli")
   await fs.mkdir(path.join(packageDir, "bin"), { recursive: true })
   await fs.copyFile(wrapperSource, path.join(packageDir, "bin", "aictrl"))
-  await Bun.write(
-    path.join(packageDir, "package.json"),
-    JSON.stringify({ name: "@aictrl/cli", version: wrapperVersion }),
-  )
+  if (options.versioned !== false) {
+    await Bun.write(
+      path.join(packageDir, "package.json"),
+      JSON.stringify({ name: "@aictrl/cli", version: wrapperVersion }),
+    )
+  }
+  // A source checkout, which makes the wrapper fall back to running with Bun.
+  if (options.source) await Bun.write(path.join(packageDir, "src", "index.ts"), "")
   return path.join(packageDir, "bin", "aictrl")
 }
 
 // A stub binary that prints which install it came from, so a test can tell
 // which candidate the wrapper executed.
-async function installPlatformBinary(modulesDir: string, version: string | undefined, label: string) {
+async function installPlatformBinary(modulesDir: string, version: unknown, label: string) {
   const packageDir = path.join(modulesDir, platformPackage)
   const binary = path.join(packageDir, "bin", "aictrl")
   await fs.mkdir(path.dirname(binary), { recursive: true })
@@ -42,8 +50,8 @@ async function installPlatformBinary(modulesDir: string, version: string | undef
 }
 
 async function runWrapper(wrapper: string, env: Record<string, string> = {}) {
-  const proc = Bun.spawn(["node", wrapper, "--version"], {
-    env: { PATH: process.env.PATH, ...env },
+  const proc = Bun.spawn([Bun.which("node")!, wrapper, "--version"], {
+    env: { PATH: process.env.PATH!, ...env },
     stdout: "pipe",
     stderr: "pipe",
   })
@@ -67,7 +75,51 @@ describe.skipIf(process.platform === "win32")("npm wrapper platform binary resol
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain(`@aictrl/cli ${wrapperVersion}`)
     expect(result.stderr).toContain(`${platformPackage}@${staleVersion} at ${stale}`)
-    expect(result.stderr).toContain(`npm install ${platformPackage}@${wrapperVersion}`)
+    expect(result.stderr).toMatch(pinnedAdvice)
+  })
+
+  test("strips control characters from a skipped package's version", async () => {
+    await using tmp = await tmpdir()
+    const wrapper = await installWrapper(path.join(tmp.path, "project"))
+    const spoofed = "0.0.1\u001b]8;;https://example.invalid\u0007\nnpm install spoofed"
+    await installPlatformBinary(path.join(tmp.path, "node_modules"), spoofed, "spoofed")
+
+    const result = await runWrapper(wrapper)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).not.toContain("\u001b")
+    expect(result.stderr).not.toContain("\u0007")
+    expect(result.stderr).not.toContain("\nnpm install spoofed")
+    expect(result.stderr).toContain(`${platformPackage}@0.0.1]8;;https://example.invalidnpm install spoofed at`)
+  })
+
+  test("refuses every binary when the wrapper's own version is unreadable, without unpinned advice", async () => {
+    await using tmp = await tmpdir()
+    const wrapper = await installWrapper(path.join(tmp.path, "project"), { versioned: false })
+    await installPlatformBinary(path.join(tmp.path, "project", "node_modules"), wrapperVersion, "unverifiable")
+
+    const result = await runWrapper(wrapper)
+
+    expect(result.stdout).not.toContain("ran unverifiable")
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("Could not read the @aictrl/cli version from")
+    expect(result.stderr).not.toContain("npm install")
+  })
+
+  test("the Bun-missing hint of a source checkout pins the platform packages", async () => {
+    await using tmp = await tmpdir()
+    const wrapper = await installWrapper(path.join(tmp.path, "project"), { source: true })
+    // A PATH holding only node, so the Bun fallback fails with ENOENT.
+    const nodeOnly = path.join(tmp.path, "node-only-bin")
+    await fs.mkdir(nodeOnly)
+    await fs.symlink(Bun.which("node")!, path.join(nodeOnly, "node"))
+
+    const result = await runWrapper(wrapper, { PATH: nodeOnly })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("Bun is not installed")
+    expect(result.stderr).toContain(`"${platformPackage}@${wrapperVersion}"`)
+    expect(result.stderr).not.toMatch(/"@aictrl\/cli-[^"@]+"/)
   })
 
   test("refuses a platform package without a readable version", async () => {
