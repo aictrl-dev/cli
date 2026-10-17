@@ -76,20 +76,13 @@ Set `AICTRL_HEADLESS=true` in your environment to force headless behavior even i
 
 ### Git Commits and Pull Requests
 
-By default the `bash` tool description carries only a short set of git safety
-rules, for example: never commit, push or open a pull request unless the user
+The `bash` tool description carries only a short set of git safety rules, for
+example: never commit, push or open a pull request unless the user
 asks, never commit secrets, never skip hooks, never force push or amend unless
-asked, and never change git config.
-The built-in commit and pull request procedure is opt-in. Enable it when your
-agents should commit or open PRs; it replaces the short rules with the full
-procedure, which has its own safety protocol:
-
-```json
-{ "git": { "write": true } }
-```
-
-Or supply your own procedure through skills, `AGENTS.md` or `instructions`, so
-it follows your own conventions. See the
+asked, and never change git config. It does not include a commit or pull
+request procedure. If your agents should commit or open PRs, supply your own
+procedure through skills, `AGENTS.md` or `instructions`; `permission.bash`
+controls which git commands may run. See the
 [configuration reference](packages/cli/README.md#git-commits-and-pull-requests).
 
 ### Model Stream Idle Timeout

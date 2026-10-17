@@ -140,7 +140,7 @@ thinking; model `options` can also set `reasoning_effort: "none"` directly.
 ### Git Commits and Pull Requests
 
 Whether an agent may commit, push or open pull requests is the caller's decision.
-By default the `bash` tool description includes only the git safety rules:
+The `bash` tool description includes only these git safety rules:
 
 - never commit, push or open pull requests unless the user explicitly asks;
 - never commit likely secrets (`.env`, `credentials.json`);
@@ -149,19 +149,10 @@ By default the `bash` tool description includes only the git safety rules:
 - never update the git config or use interactive flags (`-i`);
 - use `gh` for GitHub tasks.
 
-To use the built-in step-by-step commit and pull request procedure instead, set
-`git.write` in `aictrl.json`, or pass it inline with `AICTRL_CONFIG_CONTENT`. It
-replaces the short rules above with the full procedure and its own git safety
-protocol, as in earlier releases:
-
-```json
-{ "git": { "write": true } }
-```
-
-Alternatively, leave it off and supply your own procedure through a skill,
-`AGENTS.md` or the `instructions` config, so commits and PRs follow your own
-conventions. `git.write` only changes the prompt; use `permission.bash` to
-restrict which git commands may actually run.
+There is no built-in commit or pull request procedure. If your agents should
+commit or open PRs, supply your own procedure through a skill, `AGENTS.md` or the
+`instructions` config, so it follows your own conventions. `permission.bash`
+controls which git commands may run.
 
 ## Local Development
 

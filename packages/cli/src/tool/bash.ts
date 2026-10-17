@@ -4,9 +4,7 @@ import { Tool } from "./tool"
 import path from "path"
 import DESCRIPTION from "./bash.txt"
 import GIT_SAFETY from "./bash-git-safety.txt"
-import GIT_PROCEDURE from "./bash-git-procedure.txt"
 import { Log } from "../util/log"
-import { Config } from "../config/config"
 import { Instance } from "../project/instance"
 import { lazy } from "@/util/lazy"
 import { Language } from "web-tree-sitter"
@@ -91,26 +89,14 @@ async function extractEmbeddedCommands(
   return commands
 }
 
-/**
- * By default the description carries the short git safety block. `git.write` replaces it with the
- * full commit and pull request procedure (the pre-opt-in text, which has its own safety protocol).
- * It only changes the prompt; permission rules restrict which git commands run.
- */
-async function gitInstructions() {
-  const config = await Config.get()
-  if (config.git?.write) return GIT_PROCEDURE.trimEnd()
-  return GIT_SAFETY.trimEnd()
-}
-
 // TODO: we may wanna rename this tool so it works better on other shells
 export const BashTool = Tool.define("bash", async () => {
   const shell = Shell.acceptable()
   log.info("bash tool using shell", { shell })
-  const git = await gitInstructions()
 
   return {
     // Replacer functions insert values literally, without `$` pattern expansion
-    description: DESCRIPTION.replace("${git}", () => git)
+    description: DESCRIPTION.replace("${git}", () => GIT_SAFETY.trimEnd())
       .replaceAll("${directory}", () => Instance.directory)
       .replaceAll("${maxLines}", () => String(Truncate.MAX_LINES))
       .replaceAll("${maxBytes}", () => String(Truncate.MAX_BYTES)),

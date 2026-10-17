@@ -6,7 +6,6 @@ import { Instance } from "../../src/project/instance"
 import { Filesystem } from "../../src/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
 import type { PermissionNext } from "../../src/permission/next"
-import type { Config } from "../../src/config/config"
 import { Truncate } from "../../src/tool/truncation"
 
 const ctx = {
@@ -43,50 +42,36 @@ describe("tool.bash", () => {
 })
 
 describe("tool.bash description", () => {
-  // Golden copy of bash.txt as it was before the git procedure became opt-in (#156).
-  // It is kept separate from the shipped assets on purpose, so the git.write test proves the
-  // opt-in reproduces that text. Update it together with any change to bash.txt or bash-git-procedure.txt.
-  const withGit = path.join(__dirname, "fixtures/bash-description-with-git.txt")
-
-  async function description(config?: Partial<Config.Info>) {
-    await using tmp = await tmpdir({ config })
+  async function description(directory: string) {
     return Instance.provide({
-      directory: tmp.path,
-      fn: async () => {
-        const bash = await BashTool.init()
-        return { text: bash.description, directory: tmp.path }
-      },
+      directory,
+      fn: async () => (await BashTool.init()).description,
     })
   }
 
-  function render(template: string, directory: string) {
-    return template
-      .replaceAll("${directory}", directory)
-      .replaceAll("${maxLines}", String(Truncate.MAX_LINES))
-      .replaceAll("${maxBytes}", String(Truncate.MAX_BYTES))
-  }
-
-  test("omits the commit and pull request procedure by default", async () => {
-    const result = await description()
-    expect(result.text).not.toContain("# Committing changes with git")
-    expect(result.text).not.toContain("# Creating pull requests")
-    expect(result.text).toContain("# Git safety")
-    expect(result.text).toContain("NEVER skip hooks")
-    expect(result.text).toContain("NEVER commit likely secrets")
-    expect(result.text).toContain("unless the user explicitly asks")
-    expect(result.text).toContain("# Other common operations")
-    expect(result.text).not.toContain("${")
+  test("carries the git safety block instead of a commit and pull request procedure", async () => {
+    await using tmp = await tmpdir()
+    const text = await description(tmp.path)
+    expect(text).not.toContain("# Committing changes with git")
+    expect(text).not.toContain("# Creating pull requests")
+    expect(text).toContain("# Git safety")
+    expect(text).toContain("NEVER skip hooks")
+    expect(text).toContain("NEVER commit likely secrets")
+    expect(text).toContain("unless the user explicitly asks")
+    expect(text).toContain("# Other common operations")
+    expect(text).not.toContain("${")
   })
 
-  test("omits the procedure when git.write is false", async () => {
-    const result = await description({ git: { write: false } })
-    expect(result.text).not.toContain("# Committing changes with git")
-    expect(result.text).toContain("# Git safety")
-  })
-
-  test("reproduces the full commit and pull request procedure when git.write is true", async () => {
-    const result = await description({ git: { write: true } })
-    expect(result.text).toBe(render(await Bun.file(withGit).text(), result.directory))
+  test("inserts the working directory literally", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const nested = path.join(dir, "a$&b")
+        await Bun.write(path.join(nested, ".keep"), "")
+        return nested
+      },
+    })
+    const text = await description(tmp.extra)
+    expect(text).toContain(`All commands run in ${tmp.extra} by default`)
   })
 })
 

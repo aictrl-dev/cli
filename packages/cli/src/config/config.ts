@@ -1127,16 +1127,6 @@ export namespace Config {
       layout: Layout.optional().describe("@deprecated Always uses stretch layout."),
       permission: Permission.optional(),
       tools: z.record(z.string(), z.boolean()).optional(),
-      git: z
-        .object({
-          write: z
-            .boolean()
-            .optional()
-            .describe(
-              "Replace the short git safety rules in the bash tool description with the full built-in commit and pull request procedure (default: false)",
-            ),
-        })
-        .optional(),
       enterprise: z
         .object({
           url: z.string().optional().describe("Enterprise URL"),
