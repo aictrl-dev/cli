@@ -105,10 +105,12 @@ export namespace SessionRetry {
     if (!MessageV2.APIError.isInstance(error)) return undefined
     if (error.data.statusCode !== 429) return undefined
     const wait = error.data.responseHeaders ? retryAfter(error.data.responseHeaders) : undefined
-    const resetAt = resetTime(wait)
-    if (wait !== undefined && wait > USAGE_LIMIT_MAX_WAIT) return { resetAt }
-    if (zaiUsageLimit(error)) return { resetAt }
-    return undefined
+    if (wait !== undefined && wait > USAGE_LIMIT_MAX_WAIT) return { resetAt: resetTime(wait) }
+    const quota = zaiUsageLimit(error)
+    if (!quota) return undefined
+    // A quota that resets within the bound is retried like a short rate limit.
+    if (quota.resetAt !== undefined && quota.resetAt - Date.now() <= USAGE_LIMIT_MAX_WAIT) return undefined
+    return quota
   }
 
   // The reset time for a provider-requested wait, unless the wait is too large
@@ -121,13 +123,33 @@ export namespace SessionRetry {
 
   // Z.ai GLM Coding Plan reports its rolling five-hour (1308) and
   // weekly/monthly (1310) quotas as a 429 without Retry-After. The reset time
-  // is only in the message, in an unstated time zone, so it is not parsed.
+  // is only in the message, as "reset at YYYY-MM-DD HH:MM:SS" with no time
+  // zone. Production telemetry across four incidents is consistent only with
+  // UTC+8 (China has no DST), so it is read with a fixed +08:00 offset.
   const ZAI_USAGE_LIMIT_CODES = ["1308", "1310"]
+  const ZAI_RESET_AT = /reset at (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})/i
 
-  function zaiUsageLimit(error: MessageV2.APIError) {
+  function zaiUsageLimit(error: MessageV2.APIError): UsageLimit | undefined {
+    if (!isZaiQuota(error)) return undefined
+    return { resetAt: zaiResetTime(error.data.message) }
+  }
+
+  function isZaiQuota(error: MessageV2.APIError) {
     const code = responseErrorCode(error.data.responseBody)
     if (code && ZAI_USAGE_LIMIT_CODES.includes(code)) return true
     return /usage limit reached for \d+ hour/i.test(error.data.message)
+  }
+
+  const UTC_PLUS_8 = 8 * 60 * 60 * 1000
+
+  function zaiResetTime(message: string) {
+    const match = message.match(ZAI_RESET_AT)
+    if (!match) return undefined
+    const local = `${match[1]}T${match[2]}`
+    const resetAt = Date.parse(`${local}+08:00`)
+    if (Number.isNaN(resetAt)) return undefined
+    // Date.parse rolls impossible dates over (Feb 30 becomes Mar 2); reject them.
+    return new Date(resetAt + UTC_PLUS_8).toISOString().startsWith(local) ? resetAt : undefined
   }
 
   function responseErrorCode(body: string | undefined) {

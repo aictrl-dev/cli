@@ -18,11 +18,14 @@ type Event = {
 
 type Rejection = { status: number; headers?: Record<string, string>; body: unknown }
 
-// Z.ai GLM Coding Plan response once its rolling five-hour quota is spent.
+// Z.ai GLM Coding Plan response once its rolling five-hour quota is spent,
+// resetting two hours from now. Z.ai writes the reset time in UTC+8.
+const ZAI_RESET_AT = Math.floor(Date.now() / 1000) * 1000 + 2 * 60 * 60 * 1000
+const ZAI_RESET = new Date(ZAI_RESET_AT + 8 * 60 * 60 * 1000).toISOString().slice(0, 19).replace("T", " ")
 const ZAI_FIVE_HOUR_LIMIT: Rejection = {
   status: 429,
   body: {
-    error: { code: "1308", message: "Usage limit reached for 5 hour. Your limit will reset at 2026-06-16 19:56:23" },
+    error: { code: "1308", message: `Usage limit reached for 5 hour. Your limit will reset at ${ZAI_RESET}` },
   },
 }
 
@@ -111,12 +114,12 @@ describe("headless provider usage limits (#112)", () => {
     expect(errors[0]).toMatchObject({ reason: "usage_limit", code: "PROVIDER_USAGE_LIMIT" })
     expect(errors[0].message).toContain("Provider usage limit reached")
     expect(errors[0].message).toContain("Usage limit reached for 5 hour")
-    expect(errors[0].resetAt).toBeUndefined()
+    expect(errors[0].resetAt).toBe(ZAI_RESET_AT)
     expect(result.events.find((event) => event.type === "message_complete")?.status).toBe("error")
     expect(result.events.find((event) => event.type === "invocation_complete")?.status).toBe("error")
   }, 20000)
 
-  test("reports the reset time of a 429 whose Retry-After exceeds the retry budget", async () => {
+  test("reports the reset time of a 429 whose Retry-After exceeds the usage-limit bound", async () => {
     const before = Date.now()
     const result = await run([
       { status: 429, headers: { "retry-after": "18000" }, body: { error: { message: "Too many requests" } } },
