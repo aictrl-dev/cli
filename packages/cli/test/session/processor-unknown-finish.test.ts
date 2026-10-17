@@ -10,7 +10,6 @@ import { SessionProcessor } from "../../src/session/processor"
 import { SessionRetry } from "../../src/session/retry"
 import { tmpdir } from "../fixture/fixture"
 import path from "path"
-import { Bus } from "../../src/bus"
 import { PermissionNext } from "../../src/permission/next"
 
 describe("processor unknown finish", () => {
@@ -76,11 +75,6 @@ describe("processor unknown finish", () => {
           text: "Continue the task.",
         })
         await Session.updateMessage(message)
-        const patches: string[] = []
-        const unsub = Bus.subscribe(MessageV2.Event.PartUpdated, (event) => {
-          const part = event.properties.part
-          if (part.messageID === message.id && part.type === "patch") patches.push(part.id)
-        })
         const requests: LLM.StreamInput["messages"][] = []
         const stream = spyOn(LLM, "stream").mockImplementation(async (input) => {
           requests.push(input.messages)
@@ -216,7 +210,7 @@ describe("processor unknown finish", () => {
           expect(
             rollbacks.every(
               (item) =>
-                item.parts === (scenario === "midstream" || scenario === "provider-exhaust" ? 1 : 0) &&
+                item.parts === 0 &&
                 item.finish === undefined &&
                 item.cost === 0 &&
                 JSON.stringify(item.tokens) ===
@@ -254,15 +248,7 @@ describe("processor unknown finish", () => {
           }
           if (scenario === "recover" || scenario === "midstream" || scenario === "pending" || scenario === "doom") {
             const parts = await MessageV2.parts(message.id)
-            if (scenario === "midstream") {
-              expect(patches.length).toBeGreaterThan(0)
-              expect(parts.some((part) => patches.includes(part.id))).toBe(true)
-            }
-            expect(parts.map((part) => part.type)).toEqual(
-              scenario === "midstream"
-                ? ["patch", "step-start", "reasoning", "text", "step-finish"]
-                : ["step-start", "reasoning", "text", "step-finish"],
-            )
+            expect(parts.map((part) => part.type)).toEqual(["step-start", "reasoning", "text", "step-finish"])
             expect(parts.find((part) => part.type === "reasoning")?.text).toBe("Successful thought")
             expect(parts.find((part) => part.type === "text")?.text).toBe("Answer")
             expect(parts.find((part) => part.type === "step-finish")?.reason).toBe("stop")
@@ -277,7 +263,6 @@ describe("processor unknown finish", () => {
           stream.mockRestore()
           sleep.mockRestore()
           ask.mockRestore()
-          unsub()
         }
       },
     })

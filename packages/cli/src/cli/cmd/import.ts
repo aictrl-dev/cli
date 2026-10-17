@@ -15,7 +15,6 @@ export type ShareData =
   | { type: "session"; data: SDKSession }
   | { type: "message"; data: Message }
   | { type: "part"; data: Part }
-  | { type: "session_diff"; data: unknown }
   | { type: "model"; data: unknown }
 
 /** Extract share ID from a share URL like https://opncd.ai/share/abc123 */

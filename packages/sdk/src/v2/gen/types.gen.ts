@@ -11,7 +11,6 @@ export type StepFinishPart = {
   type: "step-finish"
   reason: string
   termination?: ProviderTermination
-  snapshot?: string
   cost: number
   tokens: {
     total?: number

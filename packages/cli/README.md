@@ -104,13 +104,6 @@ the agent to keep one in a file.
 
 Aictrl reads config from `.aictrl/` (project) or `~/.config/aictrl/` (global).
 
-### Snapshots
-
-Sessions snapshot the git worktree at each model step, which backs patches, session
-diffs and revert. `aictrl run` (without `--attach`) skips them, because nothing in a
-headless run reads them and each one stages the whole worktree. Set `"snapshot": true`
-in config to keep them in a run, or `"snapshot": false` to turn them off everywhere.
-
 ### Models
 
 | Provider | Env Var |

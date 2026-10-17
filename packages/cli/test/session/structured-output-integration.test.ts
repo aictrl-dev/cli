@@ -76,9 +76,6 @@ describe("StructuredOutput Integration", () => {
           // Verify no error was set
           expect(result.info.error).toBeUndefined()
         }
-
-        // Clean up
-        // Note: Not removing session to avoid race with background SessionSummary.summarize
       })
     },
     60000,
@@ -140,9 +137,6 @@ describe("StructuredOutput Integration", () => {
           // Verify no error was set
           expect(result.info.error).toBeUndefined()
         }
-
-        // Clean up
-        // Note: Not removing session to avoid race with background SessionSummary.summarize
       })
     },
     60000,
@@ -176,9 +170,6 @@ describe("StructuredOutput Integration", () => {
 
         // Verify we got a response with parts
         expect(result.parts.length).toBeGreaterThan(0)
-
-        // Clean up
-        // Note: Not removing session to avoid race with background SessionSummary.summarize
       })
     },
     60000,
@@ -224,9 +215,6 @@ describe("StructuredOutput Integration", () => {
             expect(userMessage.info.format.retryCount).toBe(3)
           }
         }
-
-        // Clean up
-        // Note: Not removing session to avoid race with background SessionSummary.summarize
       })
     },
     60000,

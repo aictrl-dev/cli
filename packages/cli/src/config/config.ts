@@ -217,6 +217,9 @@ export namespace Config {
 
     if (!result.username) result.username = os.userInfo().username
 
+    // `snapshot` toggled the removed worktree snapshots (#181). It stays valid so old configs still load.
+    if (result.snapshot !== undefined) log.warn("config key `snapshot` is deprecated and ignored")
+
     // Handle migration from autoshare to share field
     if (result.autoshare === true && !result.share) {
       result.share = "auto"
@@ -998,7 +1001,10 @@ export namespace Config {
         })
         .optional(),
       plugin: z.string().array().optional(),
-      snapshot: z.boolean().optional(),
+      snapshot: z
+        .boolean()
+        .optional()
+        .describe("@deprecated Worktree snapshots were removed; this key is accepted and ignored."),
       share: z
         .enum(["manual", "auto", "disabled"])
         .optional()

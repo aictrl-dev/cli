@@ -4,8 +4,6 @@ import { Log } from "@/util/log"
 import { Identifier } from "@/id/id"
 import { Session } from "."
 import { Agent } from "@/agent/agent"
-import { Snapshot } from "@/snapshot"
-import { SessionSummary } from "./summary"
 import { Bus } from "@/bus"
 import { SessionRetry } from "./retry"
 import { SessionStatus } from "./status"
@@ -36,27 +34,10 @@ export namespace SessionProcessor {
     abort: AbortSignal
   }) {
     const toolcalls: Record<string, MessageV2.ToolPart> = {}
-    let snapshot: string | undefined
     let blocked = false
     let attempt = 0
     let needsCompaction = false
     const retried: MessageV2.ToolPart[] = []
-
-    async function patch() {
-      if (!snapshot) return
-      const result = await Snapshot.patch(snapshot)
-      if (result.files.length) {
-        await Session.updatePart({
-          id: Identifier.ascending("part"),
-          messageID: input.assistantMessage.id,
-          sessionID: input.sessionID,
-          type: "patch",
-          hash: result.hash,
-          files: result.files,
-        })
-      }
-      snapshot = undefined
-    }
 
     function terminal(
       error: NonNullable<MessageV2.Assistant["error"]>,
@@ -317,14 +298,12 @@ export namespace SessionProcessor {
                   throw value.error
 
                 case "start-step":
-                  snapshot = await Snapshot.track()
                   const start = Identifier.ascending("part")
                   parts.add(start)
                   await Session.updatePart({
                     id: start,
                     messageID: input.assistantMessage.id,
                     sessionID: input.sessionID,
-                    snapshot,
                     type: "step-start",
                   })
                   break
@@ -365,7 +344,6 @@ export namespace SessionProcessor {
                     id: finish,
                     reason: value.finishReason,
                     termination: ProviderTermination.from(value.providerMetadata),
-                    snapshot: await Snapshot.track(),
                     messageID: input.assistantMessage.id,
                     sessionID: input.assistantMessage.sessionID,
                     type: "step-finish",
@@ -387,13 +365,6 @@ export namespace SessionProcessor {
                     })
                     break
                   }
-                  await patch()
-                  SessionSummary.summarize({
-                    sessionID: input.sessionID,
-                    messageID: input.assistantMessage.parentID,
-                  }).catch((error) => {
-                    log.error("summarize failed", { sessionID: input.sessionID, error })
-                  })
                   if (await SessionCompaction.isOverflow({ tokens: usage.tokens, model: input.model })) {
                     needsCompaction = true
                   }
@@ -479,8 +450,6 @@ export namespace SessionProcessor {
             const retry = SessionRetry.retryable(error)
             if (retry !== undefined) {
               reset?.()
-              // Keep the failed attempt's file changes available to revert tooling.
-              await patch()
               retried.push(
                 ...(await MessageV2.parts(input.assistantMessage.id)).filter(
                   (part): part is MessageV2.ToolPart => part.type === "tool" && delivered.has(part.id),
@@ -537,7 +506,6 @@ export namespace SessionProcessor {
               })
             }
           }
-          await patch()
           const p = await MessageV2.parts(input.assistantMessage.id)
           for (const part of p) {
             if (part.type === "tool" && part.state.status !== "completed" && part.state.status !== "error") {

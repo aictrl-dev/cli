@@ -15,7 +15,6 @@ Current baseline from audit:
 - Largest hotspots:
   - `src/worktree/index.ts` (22)
   - `src/installation/index.ts` (20)
-  - `src/snapshot/index.ts` (18)
 
 ## Decisions
 
@@ -78,7 +77,6 @@ Migrate these first:
 
 - `src/worktree/index.ts`
 - `src/installation/index.ts`
-- `src/snapshot/index.ts`
 
 Within each file, migrate git paths first where applicable.
 
@@ -89,7 +87,6 @@ Migrate git-centric call sites to `Process.git*` helpers:
 - `src/file/index.ts`
 - `src/project/vcs.ts`
 - `src/file/watcher.ts`
-- `src/storage/storage.ts`
 
 ### Phase 3: Remaining non-git files
 
@@ -110,7 +107,7 @@ Migrate residual non-git usages:
 
 - Unit tests for new `Process` methods and options.
 - Integration tests on hotspot modules.
-- Smoke tests for install, snapshot, and worktree flows.
+- Smoke tests for install and worktree flows.
 - Regression checks for output parsing behavior.
 
 ## Risk mitigation

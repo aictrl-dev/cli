@@ -7,7 +7,6 @@ import { Filesystem } from "../util/filesystem"
 import { Identifier } from "../id/id"
 import { MessageV2 } from "./message-v2"
 import { Log } from "../util/log"
-import { SessionRevert } from "./revert"
 import { Session } from "."
 import { Agent } from "../agent/agent"
 import { Provider } from "../provider/provider"
@@ -33,7 +32,6 @@ import { spawn } from "child_process"
 import { Command } from "../command"
 import { $, fileURLToPath, pathToFileURL } from "bun"
 import { ConfigMarkdown } from "../config/markdown"
-import { SessionSummary } from "./summary"
 import { NamedError } from "@aictrl/util/error"
 import { fn } from "@/util/fn"
 import { SessionProcessor } from "./processor"
@@ -187,7 +185,6 @@ export namespace SessionPrompt {
   export const prompt = fn(PromptInput, async (input) => {
     if (input.format?.type === "json_schema") OutputSchema.compile(input.format.schema)
     const session = await Session.get(input.sessionID)
-    await SessionRevert.cleanup(session)
 
     const message = await createUserMessage(input)
     await Session.touch(input.sessionID)
@@ -759,15 +756,6 @@ export namespace SessionPrompt {
             attempts++
             structuredOutput = output
           },
-        })
-      }
-
-      if (step === 1) {
-        SessionSummary.summarize({
-          sessionID: sessionID,
-          messageID: lastUser.id,
-        }).catch((error) => {
-          log.error("summarize failed", { sessionID, error })
         })
       }
 
@@ -1691,10 +1679,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       }
     })
 
-    const session = await Session.get(input.sessionID)
-    if (session.revert) {
-      await SessionRevert.cleanup(session)
-    }
     const agent = await Agent.get(input.agent)
     const model = input.model ?? agent.model ?? (await lastModel(input.sessionID))
     const userMsg: MessageV2.User = {
