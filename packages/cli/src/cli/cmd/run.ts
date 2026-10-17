@@ -302,7 +302,9 @@ function normalizePath(input?: string) {
 }
 
 function truncatedTitle(text: string) {
-  return text.slice(0, 50) + (text.length > 50 ? "..." : "")
+  // Count code points so an emoji or other astral character is never split in half.
+  const chars = [...text]
+  return chars.slice(0, 50).join("") + (chars.length > 50 ? "..." : "")
 }
 
 /**
@@ -313,13 +315,20 @@ function truncatedTitle(text: string) {
  *
  * @internal exported for unit-testing only
  */
-export function sessionTitle(input: { title?: string; message: string; command?: string }) {
+export function sessionTitle(input: {
+  title?: string
+  /** The positional words as typed, before they are re-quoted for the model. */
+  prompt: string
+  /** The message sent to the model: the re-quoted prompt plus any stdin. */
+  message: string
+  command?: string
+}) {
   if (input.title) return input.title
-  // `--title ""` predates the default and keeps titling with the raw prompt.
+  // `--title ""` predates the default and keeps titling with the raw message.
   if (input.title === "") return truncatedTitle(input.message)
-  const prompt = input.message.trim()
-  if (input.command) return truncatedTitle(`/${input.command} ${prompt}`.trimEnd())
-  return truncatedTitle(prompt)
+  const readable = input.prompt.trim() || input.message.trim()
+  if (input.command) return truncatedTitle(`/${input.command} ${readable}`.trimEnd())
+  return truncatedTitle(readable)
 }
 
 export const RunCommand = cmd({
@@ -388,7 +397,7 @@ export const RunCommand = cmd({
       })
       .option("title", {
         type: "string",
-        describe: "title for the session (defaults to the truncated prompt)",
+        describe: "title for the session (defaults to the truncated prompt, or /<command> <args> for command runs)",
       })
       .option("attach", {
         type: "string",
@@ -421,9 +430,8 @@ export const RunCommand = cmd({
       process.exit(exit)
     }
 
-    let message = [...args.message, ...(args["--"] || [])]
-      .map((arg) => (arg.includes(" ") ? `"${arg.replace(/"/g, '\\"')}"` : arg))
-      .join(" ")
+    const words = [...args.message, ...(args["--"] || [])]
+    let message = words.map((arg) => (arg.includes(" ") ? `"${arg.replace(/"/g, '\\"')}"` : arg)).join(" ")
 
     const directory = await (async () => {
       if (!args.dir) return undefined
@@ -518,7 +526,7 @@ export const RunCommand = cmd({
 
       if (baseID) return baseID
 
-      const title = sessionTitle({ title: args.title, message, command: args.command })
+      const title = sessionTitle({ title: args.title, prompt: words.join(" "), message, command: args.command })
       const result = await sdk.session.create(input(undefined, { title, permission: rules }))
       return result.data?.id
     }
