@@ -530,7 +530,7 @@ export namespace SessionProcessor {
               }
             }
             if (retry === undefined) {
-              input.assistantMessage.error = terminal(error)
+              input.assistantMessage.error = SessionRetry.usageLimitError(error) ?? terminal(error)
               await Bus.publish(Session.Event.Error, {
                 sessionID: input.assistantMessage.sessionID,
                 error: input.assistantMessage.error,

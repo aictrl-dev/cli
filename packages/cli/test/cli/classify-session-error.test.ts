@@ -32,6 +32,41 @@ describe("classifySessionError (#63)", () => {
     expect(res.message).toContain("Rate limit")
   })
 
+  test("stored provider usage limit → usage_limit with its reset time", () => {
+    const res = classifySessionError({
+      name: "APIError",
+      data: {
+        message: "Provider usage limit reached, resets at 2026-10-17T18:00:00.000Z: Too Many Requests",
+        statusCode: 429,
+        isRetryable: false,
+        metadata: { code: "PROVIDER_USAGE_LIMIT", resetAt: "1792260000000" },
+      },
+    })
+    expect(res).toEqual({
+      reason: "usage_limit",
+      code: "PROVIDER_USAGE_LIMIT",
+      message: "Provider usage limit reached, resets at 2026-10-17T18:00:00.000Z: Too Many Requests",
+      resetAt: 1792260000000,
+    })
+  })
+
+  test("stored provider usage limit without a reset time omits resetAt", () => {
+    const res = classifySessionError({
+      name: "APIError",
+      data: {
+        message: "Provider usage limit reached: Usage limit reached for 5 hour.",
+        statusCode: 429,
+        isRetryable: false,
+        metadata: { code: "PROVIDER_USAGE_LIMIT" },
+      },
+    })
+    expect(res).toStrictEqual({
+      reason: "usage_limit",
+      code: "PROVIDER_USAGE_LIMIT",
+      message: "Provider usage limit reached: Usage limit reached for 5 hour.",
+    })
+  })
+
   test("HTTP 401 → auth", () => {
     const res = classifySessionError({ status: 401, message: "Invalid API key" })
     expect(res.reason).toBe("auth")
