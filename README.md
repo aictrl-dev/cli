@@ -98,39 +98,7 @@ resets after every stream event, so responses that keep making progress are unaf
 Tool execution (local or provider-executed) uses a ceiling twelve times the
 configured model timeout, capped at 2147483647 ms (one hour for a five-minute timeout).
 
-## GitHub Integration
-
-Aictrl includes a specialized GitHub agent that can be installed into your repositories to automate PR reviews, issue triage, and code generation.
-
-### Setup
-
-```bash
-# Install the GitHub agent in the current repo
-aictrl github install
-```
-
-### Features
-
-- **Auto-Push:** The agent can commit and push changes directly to your branches.
-- **PR Creation:** It can automatically open Pull Requests for its changes.
-- **Context Aware:** In GitHub Actions, it automatically fetches PR diffs, issue comments, and review history.
-- **Social Cards:** Generates visual summaries of agent sessions.
-
 ## Developer Workflow
-
-### PR Checkout
-
-Engineers can quickly checkout a PR and import the associated agent session:
-
-```bash
-aictrl pr 123
-```
-
-This command will:
-
-1. Fetch and checkout PR #123.
-2. Detect if an Aictrl session was used to generate the PR.
-3. Import that session locally so you can continue the conversation.
 
 ### MCP & Custom Tools
 

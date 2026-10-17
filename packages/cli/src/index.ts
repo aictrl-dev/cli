@@ -16,15 +16,14 @@ import { Filesystem } from "./util/filesystem"
 import { DebugCommand } from "./cli/cmd/debug"
 import { StatsCommand } from "./cli/cmd/stats"
 import { McpCommand } from "./cli/cmd/mcp"
-import { GithubCommand } from "./cli/cmd/github"
 import { ExportCommand } from "./cli/cmd/export"
 import { ImportCommand } from "./cli/cmd/import"
 import { AcpCommand } from "./cli/cmd/acp"
 import { EOL } from "os"
-import { PrCommand } from "./cli/cmd/pr"
 import { SessionCommand } from "./cli/cmd/session"
 import { DbCommand } from "./cli/cmd/db"
 import { EventsCommand } from "./cli/cmd/events"
+import { RemovedCommand } from "./cli/cmd/removed"
 import path from "path"
 import { Global } from "./global"
 import { JsonMigration } from "./storage/json-migration"
@@ -148,11 +147,11 @@ let cli = yargs(hideBin(process.argv))
   .command(StatsCommand)
   .command(ExportCommand)
   .command(ImportCommand)
-  .command(GithubCommand)
-  .command(PrCommand)
   .command(SessionCommand)
   .command(DbCommand)
   .command(EventsCommand)
+  .command(RemovedCommand("github", "Run `aictrl run` in your own workflow instead."))
+  .command(RemovedCommand("pr", "Run `aictrl run` in your own workflow instead."))
 
 cli = cli
   .fail((msg, err) => {

@@ -10,10 +10,9 @@ Keep behavior stable while improving safety, testability, and observability.
 
 Current baseline from audit:
 
-- 143 runtime command invocations across 17 files
-- 84 are git commands
+- 104 runtime command invocations across 15 files
+- 48 are git commands
 - Largest hotspots:
-  - `src/cli/cmd/github.ts` (33)
   - `src/worktree/index.ts` (22)
   - `src/lsp/server.ts` (21)
   - `src/installation/index.ts` (20)
@@ -78,7 +77,6 @@ Standard result shape:
 
 Migrate these first:
 
-- `src/cli/cmd/github.ts`
 - `src/worktree/index.ts`
 - `src/lsp/server.ts`
 - `src/installation/index.ts`
@@ -94,7 +92,6 @@ Migrate git-centric call sites to `Process.git*` helpers:
 - `src/project/vcs.ts`
 - `src/file/watcher.ts`
 - `src/storage/storage.ts`
-- `src/cli/cmd/pr.ts`
 
 ### Phase 3: Remaining non-git files
 

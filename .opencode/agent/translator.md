@@ -340,9 +340,6 @@ aictrl auth login
 aictrl auth logout
 aictrl auth ls
 aictrl export [sessionID]
-aictrl github [command]
-aictrl github install
-aictrl github run
 aictrl import <file>
 aictrl import https://opncd.ai/s/abc123
 aictrl import session.json
