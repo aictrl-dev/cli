@@ -74,16 +74,13 @@ In headless mode, Aictrl automatically rejects all interactive permission reques
 
 Set `AICTRL_HEADLESS=true` in your environment to force headless behavior even in pseudo-TTYs.
 
-### Git Commits and Pull Requests
+### Restricting Dangerous Commands
 
-The `bash` tool description carries only a short set of git safety rules, for
-example: never commit, push or open a pull request unless the user
-asks, never commit secrets, never skip hooks, never force push or amend unless
-asked, and never change git config. It does not include a commit or pull
-request procedure. If your agents should commit or open PRs, supply your own
-procedure through skills, `AGENTS.md` or `instructions`; `permission.bash`
-controls which git commands may run. See the
-[configuration reference](packages/cli/README.md#git-commits-and-pull-requests).
+Tool descriptions describe tools; they are not a security boundary. Block
+dangerous commands with `permission.bash` rules, for example denying force
+pushes, hook skipping and git config changes. See the
+[configuration reference](packages/cli/README.md#restricting-dangerous-commands)
+for an example.
 
 ### Model Stream Idle Timeout
 

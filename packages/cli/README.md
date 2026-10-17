@@ -137,22 +137,36 @@ Use `--variant` to select provider-specific reasoning effort. For OpenAI-compati
 Ollama models, `--variant none` sends `reasoning_effort: "none"` to disable
 thinking; model `options` can also set `reasoning_effort: "none"` directly.
 
-### Git Commits and Pull Requests
+### Restricting Dangerous Commands
 
-Whether an agent may commit, push or open pull requests is the caller's decision.
-The `bash` tool description includes only these git safety rules:
+Prompt text is not a security boundary, so the `bash` tool description does not
+carry git policy or a commit/PR procedure. Block dangerous commands with
+`permission.bash` rules in `aictrl.json` (or inline via `AICTRL_CONFIG_CONTENT`):
 
-- never commit, push or open pull requests unless the user explicitly asks;
-- never commit likely secrets (`.env`, `credentials.json`);
-- never skip hooks (`--no-verify`, `--no-gpg-sign`);
-- never force push, amend or run destructive git commands unless the user explicitly asks;
-- never update the git config or use interactive flags (`-i`);
-- use `gh` for GitHub tasks.
+```json
+{
+  "permission": {
+    "bash": {
+      "git push *--force*": "deny",
+      "git push -f*": "deny",
+      "git push * -f*": "deny",
+      "git * --no-verify*": "deny",
+      "git config *": "deny"
+    }
+  }
+}
+```
 
-There is no built-in commit or pull request procedure. If your agents should
-commit or open PRs, supply your own procedure through a skill, `AGENTS.md` or the
-`instructions` config, so it follows your own conventions. `permission.bash`
-controls which git commands may run.
+Each command in a bash call (including each part of `a && b`) is matched against
+the patterns. `*` matches any text, and a trailing ` *` also matches the bare
+command (`git config *` matches `git config`). When several rules match, the last
+one in the config wins. Commands that match no rule keep the agent's default
+(`allow` for `bash` in the default `build` agent). Patterns match the command text, so they cannot catch every
+spelling (for example `git -c ... push` or a script that runs git).
+
+If your agents should commit or open PRs, supply your own procedure through a
+skill, `AGENTS.md` or the `instructions` config, and run the CLI in an isolated
+environment with credentials scoped to what the task needs.
 
 ## Local Development
 

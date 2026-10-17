@@ -3,7 +3,6 @@ import { spawn } from "child_process"
 import { Tool } from "./tool"
 import path from "path"
 import DESCRIPTION from "./bash.txt"
-import GIT_SAFETY from "./bash-git-safety.txt"
 import { Log } from "../util/log"
 import { Instance } from "../project/instance"
 import { lazy } from "@/util/lazy"
@@ -96,8 +95,7 @@ export const BashTool = Tool.define("bash", async () => {
 
   return {
     // Replacer functions insert values literally, without `$` pattern expansion
-    description: DESCRIPTION.replace("${git}", () => GIT_SAFETY.trimEnd())
-      .replaceAll("${directory}", () => Instance.directory)
+    description: DESCRIPTION.replaceAll("${directory}", () => Instance.directory)
       .replaceAll("${maxLines}", () => String(Truncate.MAX_LINES))
       .replaceAll("${maxBytes}", () => String(Truncate.MAX_BYTES)),
     parameters: z.object({

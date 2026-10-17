@@ -45,8 +45,3 @@ Usage notes:
     <bad-example>
     cd /foo/bar && pytest tests
     </bad-example>
-
-${git}
-
-# Other common operations
-- View comments on a GitHub PR: gh api repos/foo/bar/pulls/123/comments
