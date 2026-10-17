@@ -92,10 +92,12 @@ export const TaskTool = Tool.define("task", async (ctx) => {
           if (found) return found
         }
 
+        const caller = await Session.get(ctx.sessionID)
         return await Session.create({
           parentID: ctx.sessionID,
           title: params.description + ` (@${agent.name} subagent)`,
-          permission: [
+          // the caller's session rules apply down the subagent tree; the subagent denies come last and win
+          permission: PermissionNext.merge(caller.permission ?? [], [
             {
               permission: "todowrite",
               pattern: "*",
@@ -117,10 +119,10 @@ export const TaskTool = Tool.define("task", async (ctx) => {
                 ]),
             ...(config.experimental?.primary_tools?.map((t) => ({
               pattern: "*",
-              action: "allow" as const,
+              action: "deny" as const,
               permission: t,
             })) ?? []),
-          ],
+          ]),
         })
       })
 
@@ -163,12 +165,6 @@ export const TaskTool = Tool.define("task", async (ctx) => {
           providerID: model.providerID,
         },
         agent: agent.name,
-        tools: {
-          todowrite: false,
-          todoread: false,
-          ...(hasTaskPermission ? {} : { task: false }),
-          ...Object.fromEntries((config.experimental?.primary_tools ?? []).map((t) => [t, false])),
-        },
         parts: promptParts,
       })
 
