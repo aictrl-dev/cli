@@ -628,7 +628,6 @@ zod
 24601/aictrl-zellij-namer
 angristan/aictrl-wakatime
 anomalyco/aictrl
-apps/aictrl-agent
 athal7/aictrl-devcontainers
 awesome-aictrl/awesome-aictrl
 backnotprop/plannotator
