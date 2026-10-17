@@ -99,7 +99,6 @@ Migrate git-centric call sites to `Process.git*` helpers:
 Migrate residual non-git usages:
 
 - `src/cli/cmd/tui/util/clipboard.ts`
-- `src/util/archive.ts`
 - `src/file/ripgrep.ts`
 - `src/tool/bash.ts`
 - `src/cli/cmd/uninstall.ts`

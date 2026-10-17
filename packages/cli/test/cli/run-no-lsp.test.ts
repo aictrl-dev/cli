@@ -91,6 +91,10 @@ async function aictrl(args: string[], cwd: string, env: Record<string, string | 
   }
 }
 
+function isRipgrep(name: string) {
+  return name === "rg" || name === "rg.exe" || name.startsWith("ripgrep-")
+}
+
 function declaredTools(request: any): string[] {
   return (request.tools ?? []).flatMap((tool: any) => tool.functionDeclarations ?? []).map((tool: any) => tool.name)
 }
@@ -130,7 +134,10 @@ describe("headless run without the LSP subsystem (#144)", () => {
       for (const part of tools) expect(part.state.metadata).not.toHaveProperty("diagnostics")
       expect(result.stdout).not.toContain("<diagnostics")
       expect(declaredTools(model.requests[0])).not.toContain("lsp")
-      expect(await fs.readdir(ws.binDir).catch(() => [])).toEqual([])
+      // The bin dir is also where ripgrep lands on hosts without a system `rg`; anything else
+      // there would be a downloaded language server.
+      const installed = await fs.readdir(ws.binDir).catch(() => [])
+      expect(installed.filter((name) => !isRipgrep(name))).toEqual([])
     } finally {
       model.server.stop(true)
     }

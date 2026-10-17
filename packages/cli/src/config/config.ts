@@ -1177,15 +1177,14 @@ export namespace Config {
     return load(text, { path: filepath })
   }
 
-  // The LSP subsystem was removed (#144). Configs written before then may still set
-  // the `lsp` block or an `lsp` permission rule; both load as no-ops with one warning.
-  function withoutDeprecatedLsp(config: Record<string, unknown>, source: string) {
+  // The LSP subsystem was removed (#144). Configs written before then may still set the
+  // `lsp` block or an `lsp` permission rule. The schema accepts both as no-ops and keeps
+  // them, so rewriting a config file preserves them; each config file that sets one warns once.
+  function warnDeprecatedLsp(config: Record<string, unknown>, source: string) {
     const permission = config.permission
     const hasLspPermission = typeof permission === "object" && permission !== null && "lsp" in permission
-    if (!("lsp" in config) && !hasLspPermission) return config
+    if (!("lsp" in config) && !hasLspPermission) return
     log.warn("lsp config is deprecated and ignored; the LSP subsystem was removed", { path: source })
-    const { lsp: _, ...rest } = config
-    return rest
   }
 
   async function load(text: string, options: { path: string } | { dir: string; source: string }) {
@@ -1199,7 +1198,8 @@ export namespace Config {
 
     const normalized = (() => {
       if (!data || typeof data !== "object" || Array.isArray(data)) return data
-      const copy = withoutDeprecatedLsp({ ...(data as Record<string, unknown>) }, source)
+      const copy = { ...(data as Record<string, unknown>) }
+      warnDeprecatedLsp(copy, source)
       const hadLegacy = "theme" in copy || "keybinds" in copy || "tui" in copy
       if (!hadLegacy) return copy
       delete copy.theme
