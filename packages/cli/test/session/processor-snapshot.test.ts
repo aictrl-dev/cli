@@ -2,7 +2,6 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
 import { Agent } from "../../src/agent/agent"
-import { HeadlessRun } from "../../src/flag/headless-run"
 import { Global } from "../../src/global"
 import { Identifier } from "../../src/id/id"
 import { Instance } from "../../src/project/instance"
@@ -17,7 +16,7 @@ import { Storage } from "../../src/storage/storage"
 import type { Config } from "../../src/config/config"
 import { tmpdir } from "../fixture/fixture"
 
-afterEach(() => HeadlessRun.disable())
+afterEach(() => Snapshot.setDefault(true))
 
 /**
  * Runs one model step that writes `out.txt` in a git worktree and returns what the
@@ -112,7 +111,8 @@ async function step(config: Partial<Config.Info> = {}) {
 
 describe("headless run snapshots (#146)", () => {
   test("a headless run takes no snapshot, records no patch and writes no session diff", async () => {
-    HeadlessRun.enable()
+    // what `aictrl run` sets before it bootstraps
+    Snapshot.setDefault(false)
     const result = await step()
 
     expect(result.shadow).toBe(false)
@@ -126,7 +126,8 @@ describe("headless run snapshots (#146)", () => {
   })
 
   test("config `snapshot: true` re-enables snapshots, patches and the session diff in a headless run", async () => {
-    HeadlessRun.enable()
+    // what `aictrl run` sets before it bootstraps
+    Snapshot.setDefault(false)
     const result = await step({ snapshot: true })
 
     expect(result.shadow).toBe(true)

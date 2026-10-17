@@ -124,6 +124,13 @@ Automatically fetches the PR branch and imports the agent session used to create
 
 Aictrl reads config from `.aictrl/` (project) or `~/.config/aictrl/` (global).
 
+### Snapshots
+
+Sessions snapshot the git worktree at each model step, which backs patches, session
+diffs and revert. `aictrl run` (without `--attach`) skips them, because nothing in a
+headless run reads them and each one stages the whole worktree. Set `"snapshot": true`
+in config to keep them in a run, or `"snapshot": false` to turn them off everywhere.
+
 ### Models
 
 | Provider | Env Var |
@@ -136,13 +143,6 @@ Aictrl reads config from `.aictrl/` (project) or `~/.config/aictrl/` (global).
 Use `--variant` to select provider-specific reasoning effort. For OpenAI-compatible
 Ollama models, `--variant none` sends `reasoning_effort: "none"` to disable
 thinking; model `options` can also set `reasoning_effort: "none"` directly.
-
-### Snapshots
-
-Sessions snapshot the git worktree at each model step, which backs patches, session
-diffs and revert. `aictrl run` (without `--attach`) skips them, because nothing in a
-headless run reads them and each one stages the whole worktree. Set `"snapshot": true`
-in config to keep them in a run, or `"snapshot": false` to turn them off everywhere.
 
 ## Local Development
 
