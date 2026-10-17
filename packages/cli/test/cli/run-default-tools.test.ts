@@ -45,8 +45,7 @@ async function requestedTools(entry: string, env: Record<string, string> = {}) {
     AICTRL_DISABLE_AUTOCOMPACT: "true",
     ...env,
   }
-  // The parent test process may itself run inside a headless run; only the spawned command decides.
-  delete environment.AICTRL_HEADLESS_RUN
+  // Only the opt-in passed by the test counts, not one inherited from the test process.
   if (!("AICTRL_ENABLE_TODO_TOOL" in env)) delete environment.AICTRL_ENABLE_TODO_TOOL
   const proc = Bun.spawn(
     ["bun", "run", "--conditions=browser", entry, "run", "--model", "fixture/gemini-fixture", "Check this input."],
@@ -61,7 +60,10 @@ async function requestedTools(entry: string, env: Record<string, string> = {}) {
     ])
     expect(exit, stderr + stdout).toBe(0)
     expect(requests.length, stderr + stdout).toBeGreaterThan(0)
-    const declarations: { name: string }[] = requests[0].tools?.flatMap((tool: any) => tool.functionDeclarations ?? [])
+    const declarations: { name: string }[] = (requests[0].tools ?? []).flatMap(
+      (tool: any) => tool.functionDeclarations ?? [],
+    )
+    expect(declarations.length, JSON.stringify(requests[0])).toBeGreaterThan(0)
     return declarations.map((declaration) => declaration.name)
   } finally {
     clearTimeout(timeout)

@@ -23,7 +23,6 @@ export namespace Flag {
   export declare const AICTRL_CLIENT: string
   export const AICTRL_ENABLE_QUESTION_TOOL = truthy("AICTRL_ENABLE_QUESTION_TOOL")
   export declare const AICTRL_ENABLE_TODO_TOOL: boolean
-  export declare const AICTRL_HEADLESS_RUN: boolean
   export declare const AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS: number
 
   // Experimental
@@ -97,21 +96,11 @@ Object.defineProperty(Flag, "AICTRL_CLIENT", {
 })
 
 // Dynamic getter for AICTRL_ENABLE_TODO_TOOL
-// Evaluated at access time, like AICTRL_HEADLESS_RUN, which it overrides
+// Evaluated at access time, not module load time, so tests and embedders
+// can toggle the opt-in after the registry has been imported
 Object.defineProperty(Flag, "AICTRL_ENABLE_TODO_TOOL", {
   get() {
     return truthy("AICTRL_ENABLE_TODO_TOOL")
-  },
-  enumerable: true,
-  configurable: false,
-})
-
-// Dynamic getter for AICTRL_HEADLESS_RUN
-// Set by the `run` command at runtime, whichever entry point or build started it,
-// so it must be evaluated at access time
-Object.defineProperty(Flag, "AICTRL_HEADLESS_RUN", {
-  get() {
-    return truthy("AICTRL_HEADLESS_RUN")
   },
   enumerable: true,
   configurable: false,

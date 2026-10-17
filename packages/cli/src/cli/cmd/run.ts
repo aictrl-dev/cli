@@ -10,6 +10,7 @@ import { terminal } from "./run.terminal"
 import { buildToolCatalogItems } from "./tool-catalog"
 import { withTimeout } from "../../util/timeout"
 import { Flag } from "../../flag/flag"
+import { HeadlessRun } from "../../flag/headless-run"
 import { bootstrap } from "../bootstrap"
 import { EOL } from "os"
 import { Filesystem } from "../../util/filesystem"
@@ -392,7 +393,7 @@ export const RunCommand = cmd({
       })
   },
   handler: async (args) => {
-    process.env.AICTRL_HEADLESS_RUN = "true"
+    HeadlessRun.enable()
     const invocation = createRunInvocation(args.format === "json")
 
     async function fail(message: string, code: string, exit = 1): Promise<never> {

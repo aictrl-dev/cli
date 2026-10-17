@@ -9,6 +9,7 @@ import { Skill } from "../../src/skill"
 import { SystemPrompt } from "../../src/session/system"
 import { InstructionPrompt } from "../../src/session/instruction"
 import { ToolRegistry } from "../../src/tool/registry"
+import { HeadlessRun } from "../../src/flag/headless-run"
 
 /**
  * Characters in the fixed prefix (system prompt plus tool definitions) that a
@@ -18,7 +19,11 @@ import { ToolRegistry } from "../../src/tool/registry"
  */
 const HEADLESS_PREFIX_BUDGET = 35_500
 
-const HEADLESS_ENV = { AICTRL_HEADLESS: "true", AICTRL_HEADLESS_RUN: "true" }
+// The lite build's prompt contract, with any inherited todo opt-in cleared.
+const HEADLESS_ENV: Record<string, string | undefined> = {
+  AICTRL_HEADLESS: "true",
+  AICTRL_ENABLE_TODO_TOOL: undefined,
+}
 
 type Piece = { name: string; chars: number }
 
@@ -58,13 +63,16 @@ describe("headless request prefix budget (#160)", () => {
   const previous: Record<string, string | undefined> = {}
 
   beforeAll(() => {
+    HeadlessRun.enable()
     for (const [key, value] of Object.entries(HEADLESS_ENV)) {
       previous[key] = process.env[key]
-      process.env[key] = value
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
     }
   })
 
   afterAll(() => {
+    HeadlessRun.disable()
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key]
       else process.env[key] = value

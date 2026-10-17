@@ -23,6 +23,7 @@ import { Plugin } from "../plugin"
 import { WebSearchTool } from "./websearch"
 import { CodeSearchTool } from "./codesearch"
 import { Flag } from "@/flag/flag"
+import { HeadlessRun } from "@/flag/headless-run"
 import { Log } from "@/util/log"
 import { LspTool } from "./lsp"
 import { Truncate } from "./truncation"
@@ -118,7 +119,7 @@ export namespace ToolRegistry {
    */
   function todoEnabled() {
     if (Flag.AICTRL_ENABLE_TODO_TOOL) return true
-    return !Flag.AICTRL_HEADLESS_RUN
+    return !HeadlessRun.enabled()
   }
 
   async function all(): Promise<Tool.Info[]> {
