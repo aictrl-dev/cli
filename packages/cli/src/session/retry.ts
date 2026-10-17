@@ -103,16 +103,20 @@ export namespace SessionRetry {
   // retry budget: a 429 asking for a longer wait, or a known quota shape.
   export function usageLimit(error: ReturnType<NamedError["toObject"]>): UsageLimit | undefined {
     if (!MessageV2.APIError.isInstance(error)) return undefined
-    const wait = rateLimitWait(error)
-    const resetAt = wait === undefined ? undefined : Date.now() + wait
+    if (error.data.statusCode !== 429) return undefined
+    const wait = error.data.responseHeaders ? retryAfter(error.data.responseHeaders) : undefined
+    const resetAt = resetTime(wait)
     if (wait !== undefined && wait > USAGE_LIMIT_MAX_WAIT) return { resetAt }
     if (zaiUsageLimit(error)) return { resetAt }
     return undefined
   }
 
-  function rateLimitWait(error: MessageV2.APIError) {
-    if (error.data.statusCode !== 429 || !error.data.responseHeaders) return undefined
-    return retryAfter(error.data.responseHeaders)
+  // The reset time for a provider-requested wait, unless the wait is too large
+  // to be a valid date (for example `retry-after-ms: Infinity`).
+  function resetTime(wait: number | undefined) {
+    if (wait === undefined) return undefined
+    const resetAt = Date.now() + wait
+    return Number.isNaN(new Date(resetAt).getTime()) ? undefined : resetAt
   }
 
   // Z.ai GLM Coding Plan reports its rolling five-hour (1308) and

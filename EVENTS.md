@@ -173,12 +173,12 @@ Emitted immediately before `session_complete` when the session terminates abnorm
 - `reason` (string, **required**) — one of `rate_limit`, `usage_limit`, `auth`, `timeout`, `oom`, `provider`, `interrupted`, `terminated`, `unknown`. A model stream idle timeout produces `timeout`; `SIGINT` produces `interrupted`; `SIGTERM` produces `terminated`. Signals are not inferred to be timeouts. The set is open: consumers should treat an unrecognised reason like `unknown`.
 - `code` (string, optional) — provider HTTP status code, error code, or conventional signal-derived exit code (`130` for `SIGINT`, `143` for `SIGTERM`) when available. A model stream idle timeout emits `MODEL_STREAM_IDLE_TIMEOUT` and persists a `StreamIdleTimeoutError` on the assistant message. A provider usage limit emits `PROVIDER_USAGE_LIMIT`.
 - `message` (string, **required**) — human-readable error message.
-- `resetAt` (number, optional) — for `usage_limit`, when the provider said the limit resets, in Unix milliseconds. Omitted when the provider gave no machine-readable reset time.
+- `resetAt` (number, optional) — for `usage_limit`, when the provider said the limit resets, in Unix milliseconds. Omitted when the provider gave no machine-readable reset time, or one too far away to be a valid date.
 
 **Provider usage limits.** A provider usage or quota limit that will not reset within the retry budget fails the run immediately instead of retrying. The retry budget is 5 minutes: `MAX_RETRY_ATTEMPTS` (10) times the 30-second delay cap. A limit is recognised when:
 
 - an HTTP 429 response has a `Retry-After` or `retry-after-ms` header asking for a longer wait than the budget, or
-- the response has a known quota-exhausted shape. Currently this is the Z.ai GLM Coding Plan rolling five-hour (`1308`) and weekly or monthly (`1310`) quota codes, or a `Usage limit reached for <n> hour` message.
+- an HTTP 429 response has a known quota-exhausted shape. Currently this is the Z.ai GLM Coding Plan rolling five-hour (`1308`) and weekly or monthly (`1310`) quota codes, or a `Usage limit reached for <n> hour` message.
 
 The run emits no `retry` event. The failed turn ends with an `error` status, `session_error` has `reason: "usage_limit"` and `code: "PROVIDER_USAGE_LIMIT"`, and `invocation_complete.status` is `error`. Headless execution exits 1. The message starts with `Provider usage limit reached` and keeps the provider's text, which can name its own reset time. A shorter 429, and a 429 without a reset hint, still retry as `rate_limited`.
 

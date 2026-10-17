@@ -245,6 +245,23 @@ describe("session.retry.usageLimit", () => {
     )
   })
 
+  test.each([[502], [503]])("keeps the status-based retry for a quota body on a %d", (statusCode) => {
+    const error = providerError({ statusCode, body: ZAI_FIVE_HOUR_LIMIT })
+    expect(SessionRetry.usageLimit(error)).toBeUndefined()
+    expect(SessionRetry.retryable(error)).toBeDefined()
+  })
+
+  test.each(["Infinity", "1e999", "1e300"])(
+    "treats an unrepresentable retry-after-ms of %s as a usage limit without a reset time",
+    (wait) => {
+      const error = providerError({ statusCode: 429, headers: { "retry-after-ms": wait } })
+      expect(SessionRetry.usageLimit(error)).toEqual({ resetAt: undefined })
+      const terminal = SessionRetry.usageLimitError(error) as MessageV2.APIError
+      expect(terminal.data.message).toBe("Provider usage limit reached: Too Many Requests")
+      expect(terminal.data.metadata).toEqual({ code: SessionRetry.USAGE_LIMIT_CODE })
+    },
+  )
+
   test("leaves other errors to the generic terminal path", () => {
     expect(SessionRetry.usageLimitError(providerError({ statusCode: 400, message: "Invalid request" }))).toBeUndefined()
   })
