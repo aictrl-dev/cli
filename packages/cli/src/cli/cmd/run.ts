@@ -1095,7 +1095,8 @@ export const RunCommand = cmd({
     }
 
     // Nothing in a run reads snapshots, patches or session diffs, so local sessions skip
-    // them unless config sets `snapshot: true` (#146). consolidate with HeadlessRun (#152)
+    // them unless config sets `snapshot: true` (#146).
+    // consolidate with HeadlessRun (#152)
     Snapshot.setDefault(false)
     invocation.phase("bootstrap")
     if (args.attach) {
