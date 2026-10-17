@@ -5,6 +5,7 @@ import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { Provider } from "../../src/provider/provider"
 import { Env } from "../../src/env"
+import { Auth } from "../../src/auth"
 
 test("provider loaded from env variable", async () => {
   await using tmp = await tmpdir({
@@ -347,6 +348,36 @@ test("getModel throws ModelNotFoundError for invalid provider", async () => {
       expect(Provider.getModel("nonexistent-provider", "some-model")).rejects.toThrow()
     },
   })
+})
+
+test("removed github-copilot provider is unavailable despite GITHUB_TOKEN and stored auth", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "aictrl.json"),
+        JSON.stringify({
+          $schema: "https://aictrl.ai/config.json",
+        }),
+      )
+    },
+  })
+  await Auth.set("github-copilot", { type: "oauth", refresh: "stale", access: "stale", expires: 0 })
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      init: async () => {
+        Env.set("GITHUB_TOKEN", "test-github-token")
+      },
+      fn: async () => {
+        const providers = await Provider.list()
+        expect(providers["github-copilot"]).toBeUndefined()
+        const error = await Provider.getModel("github-copilot", "gpt-4o").catch((e) => e)
+        expect(Provider.ModelNotFoundError.isInstance(error)).toBe(true)
+      },
+    })
+  } finally {
+    await Auth.remove("github-copilot")
+  }
 })
 
 test("parseModel correctly parses provider/model string", () => {

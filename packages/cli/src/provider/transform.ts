@@ -93,8 +93,6 @@ export namespace ProviderTransform {
   // Maps npm package to the key the AI SDK expects for providerOptions
   function sdkKey(npm: string): string | undefined {
     switch (npm) {
-      case "@ai-sdk/github-copilot":
-        return "copilot"
       case "@ai-sdk/openai":
       case "@ai-sdk/azure":
         return "openai"
@@ -269,9 +267,6 @@ export namespace ProviderTransform {
       },
       openaiCompatible: {
         cache_control: { type: "ephemeral" },
-      },
-      copilot: {
-        copilot_cache_control: { type: "ephemeral" },
       },
     }
 
@@ -538,32 +533,6 @@ export namespace ProviderTransform {
         }
         return Object.fromEntries(OPENAI_EFFORTS.map((effort) => [effort, { reasoningEffort: effort }]))
 
-      case "@ai-sdk/github-copilot":
-        if (model.id.includes("gemini")) {
-          // currently github copilot only returns thinking
-          return {}
-        }
-        if (model.id.includes("claude")) {
-          return {
-            thinking: { thinking_budget: 4000 },
-          }
-        }
-        const copilotEfforts = iife(() => {
-          if (id.includes("5.1-codex-max") || id.includes("5.2") || id.includes("5.3"))
-            return [...WIDELY_SUPPORTED_EFFORTS, "xhigh"]
-          return WIDELY_SUPPORTED_EFFORTS
-        })
-        return Object.fromEntries(
-          copilotEfforts.map((effort) => [
-            effort,
-            {
-              reasoningEffort: effort,
-              reasoningSummary: "auto",
-              include: ["reasoning.encrypted_content"],
-            },
-          ]),
-        )
-
       case "@ai-sdk/cerebras":
       // https://v5.ai-sdk.dev/providers/ai-sdk-providers/cerebras
       case "@ai-sdk/togetherai":
@@ -809,11 +778,7 @@ export namespace ProviderTransform {
     const result: Record<string, any> = {}
 
     // openai and providers using openai package should set store to false by default.
-    if (
-      input.model.providerID === "openai" ||
-      input.model.api.npm === "@ai-sdk/openai" ||
-      input.model.api.npm === "@ai-sdk/github-copilot"
-    ) {
+    if (input.model.providerID === "openai" || input.model.api.npm === "@ai-sdk/openai") {
       result["store"] = false
     }
 
@@ -923,11 +888,7 @@ export namespace ProviderTransform {
   }
 
   export function smallOptions(model: Provider.Model) {
-    if (
-      model.providerID === "openai" ||
-      model.api.npm === "@ai-sdk/openai" ||
-      model.api.npm === "@ai-sdk/github-copilot"
-    ) {
+    if (model.providerID === "openai" || model.api.npm === "@ai-sdk/openai") {
       if (model.api.id.includes("gpt-5")) {
         if (model.api.id.includes("5.")) {
           return { store: false, reasoningEffort: "low" }

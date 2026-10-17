@@ -308,11 +308,10 @@ export const AuthLoginCommand = cmd({
         const priority: Record<string, number> = {
           aictrl: 0,
           anthropic: 1,
-          "github-copilot": 2,
-          openai: 3,
-          google: 4,
-          openrouter: 5,
-          vercel: 6,
+          openai: 2,
+          google: 3,
+          openrouter: 4,
+          vercel: 5,
         }
         const pluginProviders = resolvePluginProviders({
           hooks: await Plugin.list(),
