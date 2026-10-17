@@ -17,7 +17,7 @@ import { HeadlessRun } from "../../src/flag/headless-run"
  * conversation content. Set just above the current size: lower it whenever a
  * change shrinks the prefix, and never raise it without a reason (#160).
  */
-const HEADLESS_PREFIX_BUDGET = 35_500
+const HEADLESS_PREFIX_BUDGET = 29_500
 
 // The lite build's prompt contract.
 const HEADLESS_ENV = { AICTRL_HEADLESS: "true" }
