@@ -114,6 +114,17 @@ async function run(input: Fixture, args: string[]) {
 
 const dataDir = (input: Fixture) => path.join(input.home, ".local/share", "aictrl")
 
+/** Whether the removed subsystem's shadow repo dir exists; any error other than ENOENT fails the test. */
+async function shadowRepoExists(input: Fixture) {
+  return fs.stat(path.join(dataDir(input), "snapshot")).then(
+    () => true,
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return false
+      throw error
+    },
+  )
+}
+
 const legacyDiff = { file: "out.txt", before: "", after: "out\n", additions: 1, deletions: 0, status: "added" }
 
 /**
@@ -183,7 +194,7 @@ describe("snapshot removal (#181)", () => {
       expect(result.exit, result.output).toBe(0)
       expect(input.requests).toHaveLength(2)
       expect(await Bun.file(path.join(input.worktree, "out.txt")).exists()).toBe(true)
-      expect(await fs.readdir(path.join(dataDir(input), "snapshot")).catch(() => [])).toEqual([])
+      expect(await shadowRepoExists(input)).toBe(false)
       const steps = result.events.filter((event) => event.type === "step_finish")
       expect(steps, result.output).toHaveLength(2)
       expect(steps.map((event) => event.part.snapshot)).toEqual([undefined, undefined])
@@ -210,8 +221,11 @@ describe("snapshot removal (#181)", () => {
         const request = input.requests.at(-1)!
         expect(request).toContain("Write out.txt.")
         expect(request).toContain("Say done.")
+        // Legacy hashes live only in the injected parts and fields, so they must never reach the model.
+        expect(request).not.toContain("1".repeat(40))
+        expect(request).not.toContain("0".repeat(40))
       }
-      expect(await fs.readdir(path.join(dataDir(input), "snapshot")).catch(() => [])).toEqual([])
+      expect(await shadowRepoExists(input)).toBe(false)
     })
   }, 60000)
 })

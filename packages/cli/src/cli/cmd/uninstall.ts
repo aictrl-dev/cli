@@ -36,7 +36,7 @@ export const UninstallCommand = {
       .option("keep-data", {
         alias: "d",
         type: "boolean",
-        describe: "keep session data and snapshots",
+        describe: "keep session data",
         default: false,
       })
       .option("dry-run", {
