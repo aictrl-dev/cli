@@ -96,7 +96,7 @@
         "@ai-sdk/xai": "2.0.51",
         "@aictrl/script": "workspace:*",
         "@aws-sdk/credential-providers": "3.993.0",
-        "@babel/core": "7.29.7",
+        "@babel/core": "catalog:",
         "@gitlab/gitlab-ai-provider": "3.6.0",
         "@octokit/webhooks-types": "7.6.1",
         "@openrouter/ai-sdk-provider": "1.5.4",
@@ -230,11 +230,12 @@
     "@openrouter/ai-sdk-provider@1.5.4": "patches/@openrouter%2Fai-sdk-provider@1.5.4.patch",
   },
   "overrides": {
-    "@babel/core": "7.29.7",
+    "@babel/core": "catalog:",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
   },
   "catalog": {
+    "@babel/core": "7.29.7",
     "@cloudflare/workers-types": "4.20251008.0",
     "@hono/zod-validator": "0.4.2",
     "@kobalte/core": "0.13.11",

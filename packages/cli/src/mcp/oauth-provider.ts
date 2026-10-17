@@ -95,28 +95,36 @@ export class McpOAuthProvider implements OAuthClientProvider {
    * The SDK refuses to present a stamped client secret to any other authorization server.
    */
   private async configuredClientInformation(clientId: string): Promise<OAuthClientInformation> {
-    const entry = await McpAuth.getForUrl(this.mcpName, this.serverUrl)
-    const binding = entry?.clientInfo?.clientId === clientId ? entry.clientInfo.issuer : undefined
     return {
       client_id: clientId,
       client_secret: this.config.clientSecret,
-      issuer: binding,
+      issuer: (await this.configuredBinding(clientId))?.issuer,
     }
   }
 
   /**
+   * The stored binding of the configured client. It pins the authorization server, not the MCP
+   * server URL, so it is read regardless of the URL the entry was saved for.
+   */
+  private async configuredBinding(clientId: string): Promise<McpAuth.ClientInfo | undefined> {
+    const clientInfo = (await McpAuth.get(this.mcpName))?.clientInfo
+    if (clientInfo?.clientId !== clientId) return undefined
+    return { clientId, issuer: clientInfo.issuer }
+  }
+
+  /**
    * Stores only the authorization-server binding of configured credentials; the secret stays
-   * in config. A different client_id is a registration with another authorization server,
-   * which the configured client never uses, so it is not stored.
+   * in config. A different client_id means the SDK registered with another authorization server
+   * because the configured client is bound elsewhere. Abort instead of starting an authorization
+   * whose code exchange would be refused.
    */
   private async bindConfiguredClient(clientId: string, info: OAuthClientInformationFull): Promise<void> {
     if (info.client_id !== clientId) {
-      log.warn("configured OAuth client is bound to another authorization server; not using it", {
-        mcpName: this.mcpName,
-        advertisedIssuer: info.issuer,
-        hint: `run \`aictrl mcp logout ${this.mcpName}\` if the authorization server has moved`,
-      })
-      return
+      const bound = (await this.configuredBinding(clientId))?.issuer
+      throw new Error(
+        `MCP server "${this.mcpName}" advertises authorization server ${info.issuer}, but its configured OAuth client ` +
+          `is bound to ${bound}. Run \`aictrl mcp logout ${this.mcpName}\` if the authorization server has moved.`,
+      )
     }
     await McpAuth.updateClientInfo(this.mcpName, { clientId, issuer: info.issuer }, this.serverUrl)
     log.info("bound configured client to authorization server", { mcpName: this.mcpName, issuer: info.issuer })
@@ -192,18 +200,18 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
     // The binding of configured credentials outlives invalidation: the secret is still in
     // config, and dropping the binding would let the next authorization server receive it.
-    const keepBinding = Boolean(this.config.clientId)
+    const binding = this.config.clientId ? await this.configuredBinding(this.config.clientId) : undefined
     switch (type) {
       case "all":
-        if (keepBinding) {
-          await McpAuth.set(this.mcpName, { clientInfo: entry.clientInfo, serverUrl: entry.serverUrl })
+        if (binding) {
+          await McpAuth.set(this.mcpName, { clientInfo: binding, serverUrl: entry.serverUrl })
           break
         }
         await McpAuth.remove(this.mcpName)
         break
       case "client":
-        if (keepBinding) break
-        delete entry.clientInfo
+        if (binding) entry.clientInfo = binding
+        else delete entry.clientInfo
         await McpAuth.set(this.mcpName, entry)
         break
       case "tokens":

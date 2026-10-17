@@ -171,9 +171,11 @@ describe("McpOAuthProvider configured client binding", () => {
     await storeConfiguredBinding(AS_A)
     const server = authServer(() => AS_B)
 
-    // The SDK registers a throwaway client with the new server instead of using the configured one,
-    expect(await auth(configuredProvider(), { serverUrl: SERVER_URL, fetchFn: server.fetchFn })).toBe("REDIRECT")
-    // and the code exchange that would carry the configured secret is refused.
+    // Aborts before redirecting to an authorization whose code exchange would be refused,
+    await expect(auth(configuredProvider(), { serverUrl: SERVER_URL, fetchFn: server.fetchFn })).rejects.toThrow(
+      `aictrl mcp logout ${MCP_NAME}`,
+    )
+    // and a code exchange that would carry the configured secret is refused by the SDK.
     await expect(
       auth(configuredProvider(), { serverUrl: SERVER_URL, authorizationCode: "code", fetchFn: server.fetchFn }),
     ).rejects.toThrow()
@@ -183,6 +185,19 @@ describe("McpOAuthProvider configured client binding", () => {
     expect(sentToB.some((r) => r.sent.includes("refresh-a"))).toBe(false)
     expect(sentToB.some((r) => r.url.pathname === "/token")).toBe(false)
     expect((await McpAuth.get(MCP_NAME))?.clientInfo).toEqual({ clientId: CONFIGURED.clientId, issuer: AS_A })
+  })
+
+  test("keeps the configured binding when the MCP server URL changes", async () => {
+    await McpAuth.set(
+      MCP_NAME,
+      { clientInfo: { clientId: CONFIGURED.clientId, issuer: AS_A } },
+      "https://old-mcp.example.com/mcp",
+    )
+    const server = authServer(() => AS_B)
+
+    expect((await configuredProvider().clientInformation())?.issuer).toBe(AS_A)
+    await expect(auth(configuredProvider(), { serverUrl: SERVER_URL, fetchFn: server.fetchFn })).rejects.toThrow()
+    expect(server.sentTo(AS_B).some((r) => r.sent.includes(CONFIGURED.clientSecret))).toBe(false)
   })
 
   test("keeps the configured binding when the SDK invalidates credentials", async () => {
@@ -196,5 +211,18 @@ describe("McpOAuthProvider configured client binding", () => {
     expect(stored?.clientInfo).toEqual({ clientId: CONFIGURED.clientId, issuer: AS_A })
     expect(stored?.tokens).toBeUndefined()
     expect((await p.clientInformation())?.issuer).toBe(AS_A)
+  })
+
+  test("invalidating all removes the entry when there is no configured binding to keep", async () => {
+    const p = configuredProvider()
+
+    await McpAuth.set(MCP_NAME, { tokens: { accessToken: "access-a" } }, SERVER_URL)
+    await p.invalidateCredentials("all")
+    expect(await McpAuth.get(MCP_NAME)).toBeUndefined()
+
+    // A client registered dynamically before `oauth.clientId` was configured is not a binding.
+    await McpAuth.set(MCP_NAME, { clientInfo: { clientId: "old-dynamic", clientSecret: "old-secret" } }, SERVER_URL)
+    await p.invalidateCredentials("all")
+    expect(await McpAuth.get(MCP_NAME)).toBeUndefined()
   })
 })
