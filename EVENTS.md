@@ -580,7 +580,8 @@ value in the terminal event below.
 ### `structured_output_rejected`
 
 Emitted once per rejected StructuredOutput attempt, including an unusable result
-file and a model turn that finishes in prose without a final tool call:
+file, a model turn that finishes in prose without a final tool call, and a step
+stopped by a headless permission rejection:
 
 ```json
 {
@@ -618,6 +619,14 @@ asks it to fix the file at the JSON-encoded path. Malformed tool arguments (not 
 A prose-only finish emits the fixed diagnostic
 `{ "path": "", "keyword": "missing", "message": "write the final result as JSON to a file in the working directory, then call StructuredOutput with its path" }`
 and receives an ephemeral reminder before the next turn while budget remains.
+A step that stops because a tool call's permission was auto-rejected (headless
+mode has no user to approve; see `permission_rejected`) is handled the same way.
+It emits the fixed diagnostic
+`{ "path": "", "keyword": "denied", "message": "a tool call was denied; write the final result as JSON to a file in the working directory, then call StructuredOutput with its path" }`.
+The reminder names the denied tools, not their arguments, and asks the model to
+finish with what it already has. Both corrective turns force the StructuredOutput
+tool choice. Without `--output-schema`, a permission rejection
+still ends the run.
 Other tools remain usable until a valid final result; their outputs are not final
 results. Only the `{ path }` tool schema is sent to the provider; local validation
 of the file always uses the canonical schema.
@@ -638,7 +647,8 @@ or:
 ```
 
 `attempts` counts StructuredOutput calls, including rejected/unparseable ones,
-and prose-only finishes without a final call. Other tool calls do not count.
+prose-only finishes without a final call, and steps stopped by a permission
+rejection. Other tool calls do not count.
 Compaction turns do not consume a missing-result attempt. Discarded provider
 streams restore the budget and captured result; their rejection events remain
 as telemetry. A valid call in a parallel step wins regardless of call order if
@@ -646,11 +656,12 @@ that step started with budget remaining. The attempt count includes every call
 in that step and can exceed `maxAttempts`; the N+1 bound applies to corrective
 turns.
 When the budget is spent, the last rejection determines the reason: `missing`
-for a prose-only finish, otherwise `exhausted`. Failure reasons are:
+for a prose-only finish or a permission rejection, otherwise `exhausted`.
+Failure reasons are:
 
 - `exhausted`: invalid or unparseable calls spent the corrective budget.
-- `missing`: prose finishes spent the budget, or the session ended normally
-  without an accepted result (including headless permission rejection).
+- `missing`: prose finishes or permission rejections spent the budget, or the
+  session ended normally without an accepted result.
 - `step_limit`: the agent reached its configured step cap without a result.
 - `aborted`: the invocation was cancelled, including SIGINT/SIGTERM.
 - `error`: a provider or session error, including stream idle timeout or an
@@ -664,4 +675,5 @@ Exit codes are **0** on accepted results, **2** for schema configuration errors,
 **3** for exhausted attempts, missing output and step limits. Provider errors and
 timeouts keep **1**; SIGINT and SIGTERM keep **130** and **143**.
 `StructuredOutputError.data.retries` records the number of corrective
-attempts used (initial attempt excluded), including prose-only corrective turns.
+attempts used (initial attempt excluded), including corrective turns after a
+prose-only finish or a permission rejection.

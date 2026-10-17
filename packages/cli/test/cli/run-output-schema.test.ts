@@ -21,7 +21,6 @@ async function run(
     queued?: boolean
     attach?: boolean
     locked?: boolean
-    denied?: boolean
   } = {},
 ) {
   await using tmp = await tmpdir()
@@ -71,12 +70,14 @@ async function run(
                           index: 0,
                           id: `call_${requests.length}`,
                           type: "function",
-                          function: options.denied
-                            ? { name: "read", arguments: JSON.stringify({ filePath: "/outside-fixture.txt" }) }
-                            : {
-                                name: "StructuredOutput",
-                                arguments: pathArgs(tmp.path, args, `so_${requests.length}.json`),
-                              },
+                          // "denied" reads outside the run directory, which headless mode auto-rejects.
+                          function:
+                            args === "denied"
+                              ? { name: "read", arguments: JSON.stringify({ filePath: "/outside-fixture.txt" }) }
+                              : {
+                                  name: "StructuredOutput",
+                                  arguments: pathArgs(tmp.path, args, `so_${requests.length}.json`),
+                                },
                         },
                       ],
                     },
@@ -85,7 +86,7 @@ async function run(
           ],
         },
         {
-          choices: [{ index: 0, delta: {}, finish_reason: options.denied ? "tool-calls" : "stop" }],
+          choices: [{ index: 0, delta: {}, finish_reason: args === "denied" ? "tool-calls" : "stop" }],
           usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
         },
       ]
@@ -762,20 +763,76 @@ test("JSON mode without output-result carries the accepted value only in termina
   ])
 }, 25000)
 
-test("headless permission rejection reports missing output with no session error", async () => {
+const DENIED_REMINDER =
+  "<system-reminder>Permission denied for read. Using what you already have, write the final result as JSON to a file in the working directory, then call StructuredOutput with its path</system-reminder>"
+
+test("headless permission rejection gets a corrective turn that can still succeed", async () => {
   const result = await run({
-    denied: true,
+    inputs: ["denied", '{"result":"accepted"}'],
+    flags: ["--output-schema", "schema.json", "--output-result", "result.json"],
+  })
+  expect(result.exit, result.stderr + result.stdout).toBe(0)
+  expect(result.requests).toHaveLength(2)
+  expect(result.requests.map((request) => request.tool_choice)).toEqual([
+    "required",
+    { type: "function", function: { name: "StructuredOutput" } },
+  ])
+  const messages = result.requests[1].messages as { role: string; content: unknown }[]
+  expect(messages.filter((message) => JSON.stringify(message.content).includes("Permission denied"))).toEqual([
+    { role: "user", content: DENIED_REMINDER },
+  ])
+  expect(result.result).toBe(JSON.stringify({ result: "accepted" }, null, 2) + "\n")
+  expect(result.events.filter((event) => event.type === "permission_rejected")).toHaveLength(1)
+  expect(result.events.filter((event) => event.type === "session_error")).toEqual([])
+  expect(result.events.filter((event) => event.type === "structured_output_rejected")).toMatchObject([
+    {
+      attempt: 1,
+      maxAttempts: 3,
+      errors: [
+        {
+          path: "",
+          keyword: "denied",
+          message:
+            "a tool call was denied; write the final result as JSON to a file in the working directory, then call StructuredOutput with its path",
+        },
+      ],
+    },
+  ])
+  expect(result.events.filter((event) => event.type === "structured_output")).toMatchObject([
+    { status: "accepted", attempts: 2, value: { result: "accepted" } },
+  ])
+}, 25000)
+
+test("repeated headless permission rejections spend the budget as missing output", async () => {
+  const result = await run({
+    inputs: ["denied"],
     existing: "untouched",
     flags: ["--output-schema", "schema.json", "--output-result", "result.json"],
   })
   expect(result.exit, result.stderr + result.stdout).toBe(3)
-  expect(result.requests).toHaveLength(1)
+  expect(result.requests).toHaveLength(3)
   expect(result.result).toBe("untouched")
-  expect(result.events.filter((event) => event.type === "permission_rejected")).toHaveLength(1)
-  expect(result.events.filter((event) => event.type === "session_error")).toEqual([])
-  expect(result.events.filter((event) => event.type === "structured_output")).toMatchObject([
-    { status: "failed", reason: "missing", attempts: 0 },
+  expect(result.events.filter((event) => event.type === "permission_rejected")).toHaveLength(3)
+  expect(
+    result.events
+      .filter((event) => event.type === "structured_output_rejected")
+      .map((event) => [event.attempt, (event.errors as { keyword: string }[])[0].keyword]),
+  ).toEqual([
+    [1, "denied"],
+    [2, "denied"],
+    [3, "denied"],
   ])
+  expect(result.events.filter((event) => event.type === "structured_output")).toMatchObject([
+    { status: "failed", reason: "missing", attempts: 3 },
+  ])
+}, 25000)
+
+test("plain run still stops after a headless permission rejection", async () => {
+  const result = await run({ inputs: ["denied"], flags: [] })
+  expect(result.exit, result.stderr + result.stdout).toBe(0)
+  expect(result.requests).toHaveLength(1)
+  expect(result.events.filter((event) => event.type === "permission_rejected")).toHaveLength(1)
+  expect(result.events.filter((event) => String(event.type).startsWith("structured_output"))).toEqual([])
 }, 25000)
 
 test("schema config NDJSON clips the specific compilation cause", async () => {

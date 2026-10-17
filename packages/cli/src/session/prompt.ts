@@ -58,6 +58,8 @@ IMPORTANT:
 const STRUCTURED_OUTPUT_MISSING =
   "write the final result as JSON to a file in the working directory, then call StructuredOutput with its path"
 
+const STRUCTURED_OUTPUT_DENIED = `a tool call was denied; ${STRUCTURED_OUTPUT_MISSING}`
+
 const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested structured output. Write your final result as JSON to a file in the working directory, then call the StructuredOutput tool with that file's path. Do NOT respond with plain text.`
 
 export namespace SessionPrompt {
@@ -82,6 +84,22 @@ export namespace SessionPrompt {
   export async function missingStructuredOutput(message: MessageV2.Assistant, load: () => Promise<MessageV2.Part[]>) {
     if (!isModelFinished(message.finish) || message.error) return false
     return !hasToolCalls(await load())
+  }
+
+  // A schema turn that stops without a result costs one attempt and earns a
+  // corrective reminder: a prose-only finish, or a headless permission
+  // rejection (#135). The reminder names the denied tools, never their input.
+  async function missingResult(processor: SessionProcessor.Info) {
+    if (processor.blocked.length && !processor.message.error)
+      return {
+        diagnostic: { path: "", keyword: "denied", message: STRUCTURED_OUTPUT_DENIED },
+        reminder: `Permission denied for ${processor.blocked.join(", ")}. Using what you already have, ${STRUCTURED_OUTPUT_MISSING}`,
+      }
+    if (await missingStructuredOutput(processor.message, () => MessageV2.parts(processor.message.id)))
+      return {
+        diagnostic: { path: "", keyword: "missing", message: STRUCTURED_OUTPUT_MISSING },
+        reminder: STRUCTURED_OUTPUT_MISSING,
+      }
   }
 
   const state = Instance.state(
@@ -329,7 +347,7 @@ export namespace SessionPrompt {
     let structuredOutput: unknown | undefined
     let attempts = 0
     let rejected = 0
-    let reminder = false
+    let reminder: string | undefined
     let user: string | undefined
     let contract:
       | {
@@ -383,7 +401,7 @@ export namespace SessionPrompt {
             : undefined
         attempts = 0
         rejected = 0
-        reminder = false
+        reminder = undefined
         structuredOutput = undefined
       }
       const lastAssistantMsg = msgs.findLast((msg) => msg.info.id === lastAssistant?.id)
@@ -799,7 +817,7 @@ export namespace SessionPrompt {
             ? [
                 {
                   role: "user" as const,
-                  content: `<system-reminder>${STRUCTURED_OUTPUT_MISSING}</system-reminder>`,
+                  content: `<system-reminder>${reminder}</system-reminder>`,
                 },
               ]
             : []),
@@ -859,11 +877,9 @@ export namespace SessionPrompt {
         continue
       }
 
-      reminder =
-        !!contract && (await missingStructuredOutput(processor.message, () => MessageV2.parts(processor.message.id)))
-      if (reminder) {
-        await rejection([{ path: "", keyword: "missing", message: STRUCTURED_OUTPUT_MISSING }])
-      }
+      const missing = contract ? await missingResult(processor) : undefined
+      reminder = missing?.reminder
+      if (missing) await rejection([missing.diagnostic])
 
       if (contract && !processor.message.error && rejected > contract.format.retryCount) {
         processor.message.error = new MessageV2.StructuredOutputError({
