@@ -8,7 +8,7 @@ const entries = {
 }
 
 /** Runs `aictrl run` against a fixture Gemini server and returns the tool names of the first request. */
-async function requestedTools(entry: string, env: Record<string, string> = {}) {
+async function requestedTools(entry: string) {
   await using tmp = await tmpdir()
   const requests: any[] = []
   const server = Bun.serve({
@@ -38,15 +38,12 @@ async function requestedTools(entry: string, env: Record<string, string> = {}) {
       agent: { title: { disable: true } },
     }),
   )
-  const environment: Record<string, string | undefined> = {
+  const environment = {
     ...process.env,
     AICTRL_DISABLE_DEFAULT_PLUGINS: "true",
     AICTRL_DISABLE_MODELS_FETCH: "true",
     AICTRL_DISABLE_AUTOCOMPACT: "true",
-    ...env,
   }
-  // Only the opt-in passed by the test counts, not one inherited from the test process.
-  if (!("AICTRL_ENABLE_TODO_TOOL" in env)) delete environment.AICTRL_ENABLE_TODO_TOOL
   const proc = Bun.spawn(
     ["bun", "run", "--conditions=browser", entry, "run", "--model", "fixture/gemini-fixture", "Check this input."],
     { cwd: tmp.path, env: environment, stdout: "pipe", stderr: "pipe" },
@@ -80,14 +77,6 @@ describe("headless run default tools (#155)", () => {
       expect(tools).toContain("bash")
       expect(tools).not.toContain("todowrite")
       expect(tools).not.toContain("todoread")
-    },
-    20000,
-  )
-
-  test(
-    "AICTRL_ENABLE_TODO_TOOL=1 brings todowrite back",
-    async () => {
-      expect(await requestedTools(entries.full, { AICTRL_ENABLE_TODO_TOOL: "1" })).toContain("todowrite")
     },
     20000,
   )

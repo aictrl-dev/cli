@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
 import os from "os"
@@ -183,17 +183,10 @@ describe("tool.registry", () => {
 })
 
 describe("tool.registry todo tools (#155)", () => {
-  const previous = process.env.AICTRL_ENABLE_TODO_TOOL
-
-  beforeEach(() => {
-    delete process.env.AICTRL_ENABLE_TODO_TOOL
-  })
-
   afterEach(() => {
     HeadlessRun.disable()
     delete process.env.AICTRL_HEADLESS_RUN
-    if (previous === undefined) delete process.env.AICTRL_ENABLE_TODO_TOOL
-    else process.env.AICTRL_ENABLE_TODO_TOOL = previous
+    delete process.env.AICTRL_ENABLE_TODO_TOOL
   })
 
   async function toolIDs() {
@@ -216,12 +209,10 @@ describe("tool.registry todo tools (#155)", () => {
     expect(ids).not.toContain("todoread")
   })
 
-  test("AICTRL_ENABLE_TODO_TOOL brings todowrite back to a headless run", async () => {
+  test("a headless run has no environment switch back to todowrite", async () => {
     HeadlessRun.enable()
     process.env.AICTRL_ENABLE_TODO_TOOL = "1"
-    const ids = await toolIDs()
-    expect(ids).toContain("todowrite")
-    expect(ids).not.toContain("todoread")
+    expect(await toolIDs()).not.toContain("todowrite")
   })
 
   test("sessions outside a headless run keep todowrite", async () => {

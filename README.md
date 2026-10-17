@@ -70,9 +70,9 @@ and [JSON event reference](EVENTS.md).
 
 In headless mode, Aictrl automatically rejects all interactive permission requests (like `question` or `plan_enter`), ensuring your pipelines never hang.
 
-`aictrl run` leaves out the `todowrite` tool by default: its definition adds about 2.4k tokens
-to every request, and a one-shot run has nobody following a todo list. Set
-`AICTRL_ENABLE_TODO_TOOL=1` to bring it back.
+`aictrl run` does not offer the `todowrite` tool: its definition adds about 2.4k tokens to
+every request, and a one-shot run has nobody following a todo list. To track a plan, instruct
+the agent to keep one in a file.
 
 ### CI/CD Integration
 

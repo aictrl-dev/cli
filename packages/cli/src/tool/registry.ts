@@ -115,10 +115,9 @@ export namespace ToolRegistry {
   /**
    * todowrite keeps a progress list for someone watching the session. A headless
    * `aictrl run` has no such reader, and the tool definition costs ~2.4k tokens on
-   * every step, so a headless run only gets it with AICTRL_ENABLE_TODO_TOOL (#155).
+   * every step, so a headless run does not offer it (#155).
    */
   function todoEnabled() {
-    if (Flag.AICTRL_ENABLE_TODO_TOOL) return true
     return !HeadlessRun.enabled()
   }
 

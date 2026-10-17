@@ -19,11 +19,8 @@ import { HeadlessRun } from "../../src/flag/headless-run"
  */
 const HEADLESS_PREFIX_BUDGET = 35_500
 
-// The lite build's prompt contract, with any inherited todo opt-in cleared.
-const HEADLESS_ENV: Record<string, string | undefined> = {
-  AICTRL_HEADLESS: "true",
-  AICTRL_ENABLE_TODO_TOOL: undefined,
-}
+// The lite build's prompt contract.
+const HEADLESS_ENV = { AICTRL_HEADLESS: "true" }
 
 type Piece = { name: string; chars: number }
 
@@ -66,8 +63,7 @@ describe("headless request prefix budget (#160)", () => {
     HeadlessRun.enable()
     for (const [key, value] of Object.entries(HEADLESS_ENV)) {
       previous[key] = process.env[key]
-      if (value === undefined) delete process.env[key]
-      else process.env[key] = value
+      process.env[key] = value
     }
   })
 

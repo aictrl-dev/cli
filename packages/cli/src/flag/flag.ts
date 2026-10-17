@@ -22,7 +22,6 @@ export namespace Flag {
   export const AICTRL_FAKE_VCS = process.env["AICTRL_FAKE_VCS"]
   export declare const AICTRL_CLIENT: string
   export const AICTRL_ENABLE_QUESTION_TOOL = truthy("AICTRL_ENABLE_QUESTION_TOOL")
-  export declare const AICTRL_ENABLE_TODO_TOOL: boolean
   export declare const AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS: number
 
   // Experimental
@@ -90,17 +89,6 @@ Object.defineProperty(Flag, "AICTRL_CONFIG_DIR", {
 Object.defineProperty(Flag, "AICTRL_CLIENT", {
   get() {
     return process.env["AICTRL_CLIENT"] ?? "cli"
-  },
-  enumerable: true,
-  configurable: false,
-})
-
-// Dynamic getter for AICTRL_ENABLE_TODO_TOOL
-// Evaluated at access time, not module load time, so tests and embedders
-// can toggle the opt-in after the registry has been imported
-Object.defineProperty(Flag, "AICTRL_ENABLE_TODO_TOOL", {
-  get() {
-    return truthy("AICTRL_ENABLE_TODO_TOOL")
   },
   enumerable: true,
   configurable: false,
