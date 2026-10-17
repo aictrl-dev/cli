@@ -3,6 +3,7 @@ import path from "path"
 import fs from "fs/promises"
 import { Log } from "../util/log"
 import { Flag } from "../flag/flag"
+import { HeadlessRun } from "../flag/headless-run"
 import { Global } from "../global"
 import z from "zod"
 import { Config } from "../config/config"
@@ -23,10 +24,20 @@ export namespace Snapshot {
     })
   }
 
-  export async function cleanup() {
-    if (Instance.project.vcs !== "git" || Flag.AICTRL_CLIENT === "acp") return
+  /**
+   * Whether this instance snapshots the worktree. Config `snapshot` decides when it
+   * is set. Otherwise a headless `aictrl run` skips snapshots: nothing in a run reads
+   * them, and each one stages the whole worktree with `git add` (#146).
+   */
+  export async function enabled() {
+    if (Instance.project.vcs !== "git" || Flag.AICTRL_CLIENT === "acp") return false
     const cfg = await Config.get()
-    if (cfg.snapshot === false) return
+    if (cfg.snapshot !== undefined) return cfg.snapshot
+    return !HeadlessRun.enabled()
+  }
+
+  export async function cleanup() {
+    if (!(await enabled())) return
     const git = gitdir()
     const exists = await fs
       .stat(git)
@@ -49,9 +60,7 @@ export namespace Snapshot {
   }
 
   export async function track() {
-    if (Instance.project.vcs !== "git" || Flag.AICTRL_CLIENT === "acp") return
-    const cfg = await Config.get()
-    if (cfg.snapshot === false) return
+    if (!(await enabled())) return
     const git = gitdir()
     if (await fs.mkdir(git, { recursive: true })) {
       await $`git init`

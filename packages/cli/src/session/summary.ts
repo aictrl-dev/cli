@@ -72,6 +72,8 @@ export namespace SessionSummary {
       messageID: z.string(),
     }),
     async (input) => {
+      // Diffs come from step snapshots; without them there is nothing to summarize.
+      if (!(await Snapshot.enabled())) return
       const all = await Session.messages({ sessionID: input.sessionID })
       await Promise.all([
         summarizeSession({ sessionID: input.sessionID, messages: all }),
