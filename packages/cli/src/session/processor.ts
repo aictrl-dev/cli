@@ -455,6 +455,8 @@ export namespace SessionProcessor {
             const retry = SessionRetry.retryable(error)
             if (retry !== undefined) {
               reset?.()
+              // The discarded attempt's rejections never reach the model's history.
+              blocked.clear()
               retried.push(
                 ...(await MessageV2.parts(input.assistantMessage.id)).filter(
                   (part): part is MessageV2.ToolPart => part.type === "tool" && delivered.has(part.id),

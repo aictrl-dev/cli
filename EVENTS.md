@@ -579,9 +579,10 @@ value in the terminal event below.
 
 ### `structured_output_rejected`
 
-Emitted once per rejected StructuredOutput attempt, including an unusable result
-file, a model turn that finishes in prose without a final tool call, and a step
-stopped by a rejected tool call (such as a headless permission rejection):
+Emitted once per rejected attempt against the corrective budget: a rejected
+StructuredOutput call (including an unusable result file), a model turn that
+finishes in prose without a final tool call, or a step stopped by a rejected
+tool call (such as a headless permission rejection):
 
 ```json
 {

@@ -660,6 +660,14 @@ test("permission rejection beside an invalid call with no budget left reports ex
   expect(result.outcomes).toEqual([{ status: "failed", reason: "exhausted", attempts: 1 }])
 }, 15000)
 
+test("permission rejection in a discarded stream does not reach the corrective turn", async () => {
+  const result = await run(["unused", "prose", '{"result":"accepted"}'], 2, { denied: true, retry: true })
+  expect(result.requests, JSON.stringify(result.info)).toHaveLength(3)
+  expect(JSON.stringify(result.requests[2].messages)).not.toContain("Tool call rejected")
+  expect(result.rejected).toMatchObject([{ attempt: 1, errors: [{ keyword: "missing" }] }])
+  expect(result.outcomes).toEqual([{ status: "accepted", attempts: 2, value: { result: "accepted" } }])
+}, 15000)
+
 test("permission rejection without a schema still stops the loop", async () => {
   const result = await run(["prose"], 0, { denied: true, plain: true })
   expect(result.requests).toHaveLength(1)
