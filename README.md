@@ -78,7 +78,8 @@ Set `AICTRL_HEADLESS=true` in your environment to force headless behavior even i
 
 Tool descriptions describe tools; they are not a security boundary. Block
 dangerous commands with `permission.bash` rules, for example denying force
-pushes, hook skipping and git config changes. See the
+pushes, hook skipping, git config changes and `git -c` overrides (`"git -c *": "deny"`,
+which also blocks harmless `-c` uses). The CLI ships no such rules by default. See the
 [configuration reference](packages/cli/README.md#restricting-dangerous-commands)
 for an example.
 

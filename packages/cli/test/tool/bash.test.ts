@@ -7,6 +7,7 @@ import { Filesystem } from "../../src/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
 import { PermissionNext } from "../../src/permission/next"
 import { Agent } from "../../src/agent/agent"
+import { Session } from "../../src/session"
 import type { Config } from "../../src/config/config"
 import { Truncate } from "../../src/tool/truncation"
 
@@ -85,22 +86,32 @@ describe("tool.bash dangerous git commands", () => {
       "git push * -f*": "deny",
       "git * --no-verify*": "deny",
       "git config *": "deny",
+      "git -c *": "deny",
     },
   } satisfies Config.Info["permission"]
 
-  async function withBuildAgent(fn: (run: (command: string) => Promise<unknown>) => Promise<void>) {
+  type Guarded = {
+    run: (command: string) => Promise<unknown>
+    ruleset: PermissionNext.Ruleset
+  }
+
+  // Wires `ask` the way session/prompt.ts does: the agent's rules merged with the session's.
+  async function withBuildAgent(fn: (guarded: Guarded) => Promise<void>) {
     await using tmp = await tmpdir({ git: true, config: { permission } })
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
         const agent = await Agent.get("build")
+        const session = await Session.create({ title: "Dangerous git commands" })
+        const ruleset = PermissionNext.merge(agent.permission, session.permission ?? [])
         const bash = await BashTool.init()
         const guarded = {
           ...ctx,
+          sessionID: session.id,
           ask: (req: Omit<PermissionNext.Request, "id" | "sessionID" | "tool">) =>
-            PermissionNext.ask({ ...req, sessionID: "session_test", ruleset: agent.permission }),
+            PermissionNext.ask({ ...req, sessionID: session.id, ruleset }),
         }
-        await fn((command) => bash.execute({ command, description: "Run git" }, guarded))
+        await fn({ run: (command) => bash.execute({ command, description: "Run git" }, guarded), ruleset })
       },
     })
   }
@@ -115,20 +126,20 @@ describe("tool.bash dangerous git commands", () => {
     "git push --no-verify",
     "git config user.name someone",
     "git config --global core.hooksPath /dev/null",
+    "git -c core.hooksPath=/dev/null commit -m wip",
     "git status && git push --force",
   ])("denies %s", async (command) => {
-    await withBuildAgent(async (run) => {
-      await expect(run(command)).rejects.toBeInstanceOf(PermissionNext.DeniedError)
+    await withBuildAgent(async (guarded) => {
+      await expect(guarded.run(command)).rejects.toBeInstanceOf(PermissionNext.DeniedError)
     })
   })
 
   test("allows other git commands", async () => {
-    await withBuildAgent(async (run) => {
-      const result = (await run("git status")) as { metadata: { exit: number } }
+    await withBuildAgent(async (guarded) => {
+      const result = (await guarded.run("git status")) as { metadata: { exit: number } }
       expect(result.metadata.exit).toBe(0)
-      const agent = await Agent.get("build")
       for (const command of ["git push origin feature-fix", "git commit -m wip", "git log --oneline"]) {
-        expect(PermissionNext.evaluate("bash", command, agent.permission).action).toBe("allow")
+        expect(PermissionNext.evaluate("bash", command, guarded.ruleset).action).toBe("allow")
       }
     })
   })

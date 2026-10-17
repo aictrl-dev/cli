@@ -151,18 +151,27 @@ carry git policy or a commit/PR procedure. Block dangerous commands with
       "git push -f*": "deny",
       "git push * -f*": "deny",
       "git * --no-verify*": "deny",
-      "git config *": "deny"
+      "git config *": "deny",
+      "git -c *": "deny"
     }
   }
 }
 ```
 
+- `git push *--force*` also denies `--force-with-lease`, on purpose.
+- `git -c *` closes overrides such as `git -c core.hooksPath=/dev/null commit`,
+  which would otherwise skip hooks without `--no-verify`. It also blocks harmless
+  `-c` uses.
+
 Each command in a bash call (including each part of `a && b`) is matched against
 the patterns. `*` matches any text, and a trailing ` *` also matches the bare
 command (`git config *` matches `git config`). When several rules match, the last
 one in the config wins. Commands that match no rule keep the agent's default
-(`allow` for `bash` in the default `build` agent). Patterns match the command text, so they cannot catch every
-spelling (for example `git -c ... push` or a script that runs git).
+(`allow` for `bash` in the default `build` agent).
+
+Patterns match the command text. They fail closed on false positives, so
+`git commit -m "remove --no-verify"` is denied too. They also cannot catch every
+spelling, for example a script that runs git.
 
 If your agents should commit or open PRs, supply your own procedure through a
 skill, `AGENTS.md` or the `instructions` config, and run the CLI in an isolated
