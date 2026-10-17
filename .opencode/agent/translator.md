@@ -340,7 +340,6 @@ aictrl auth logout
 aictrl auth ls
 aictrl export [sessionID]
 aictrl import <file>
-aictrl import https://opncd.ai/s/abc123
 aictrl import session.json
 aictrl mcp [command]
 aictrl mcp add
@@ -494,7 +493,6 @@ aictrl.server.close()
 --prompt
 --refresh
 --session
---share
 --title
 --token
 --tools
@@ -797,7 +795,6 @@ aictrl/gpt-5.1-codex
 aictrl/gpt-5.2-codex
 aictrl/kimi-k2
 openrouter/google/gemini-2.5-flash
-opncd.ai/s/<share-id>
 packages/*/AGENTS.md
 plugins/
 project/

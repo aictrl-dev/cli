@@ -438,29 +438,49 @@ test("handles command configuration", async () => {
   })
 })
 
-test("migrates autoshare to share field", async () => {
-  await using tmp = await tmpdir({
-    init: async (dir) => {
-      await Filesystem.write(
-        path.join(dir, "aictrl.json"),
-        JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
+describe("removed session-sharing config (#189)", () => {
+  test("share, autoshare and enterprise load as no-ops with one warning", async () => {
+    const warn = spyOn(Log.create({ service: "config" }), "warn")
+    await using tmp = await tmpdir({
+      init: (dir) =>
+        writeConfig(dir, {
+          model: "test/model",
+          share: "auto",
           autoshare: true,
+          enterprise: { url: "https://share.example.com" },
         }),
-      )
-    },
+    })
+    try {
+      const config = await Instance.provide({ directory: tmp.path, fn: () => Config.get() })
+      const warnings = warn.mock.calls.filter(([message]) => String(message).includes("share"))
+
+      expect(config.model).toBe("test/model")
+      expect(warnings).toHaveLength(1)
+      expect(String(warnings[0][0])).toContain("share, autoshare, enterprise")
+    } finally {
+      warn.mockRestore()
+    }
   })
-  await Instance.provide({
-    directory: tmp.path,
-    fn: async () => {
-      const config = await Config.get()
-      expect(config.share).toBe("auto")
-      expect(config.autoshare).toBe(true)
-    },
+
+  test("Config.update keeps deprecated share keys on disk", async () => {
+    await using tmp = await tmpdir({
+      init: (dir) => writeConfig(dir, { share: "auto", enterprise: { url: "https://share.example.com" } }, "config.json"),
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await Config.update({ model: "updated/model" })
+
+        const written = await Filesystem.readJson<Record<string, unknown>>(path.join(tmp.path, "config.json"))
+        expect(written.model).toBe("updated/model")
+        expect(written.share).toBe("auto")
+        expect(written.enterprise).toEqual({ url: "https://share.example.com" })
+      },
+    })
   })
 })
 
-test("accepts the deprecated `snapshot` key, ignores it and warns once (#181)", async () => {
+test("accepts the deprecated `snapshot` key, ignores it and warns once per config file (#181)", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
       await writeConfig(dir, { $schema: "https://aictrl.ai/config.json", snapshot: true })
@@ -474,8 +494,12 @@ test("accepts the deprecated `snapshot` key, ignores it and warns once (#181)", 
       fn: async () => {
         await Config.get()
         await Config.get()
-        const warnings = warn.mock.calls.filter(([message]) => String(message).includes("`snapshot`"))
-        expect(warnings).toEqual([["config key `snapshot` is deprecated and ignored"]])
+        const paths = warn.mock.calls
+          .filter(([message]) => String(message).includes("snapshot"))
+          .map(([, extra]) => extra?.path)
+        expect(paths.toSorted()).toEqual(
+          [path.join(tmp.path, ".aictrl", "aictrl.json"), path.join(tmp.path, "aictrl.json")].toSorted(),
+        )
       },
     })
   } finally {
@@ -1140,7 +1164,7 @@ test("managed settings override user settings", async () => {
       await writeConfig(dir, {
         $schema: "https://aictrl.ai/config.json",
         model: "user/model",
-        share: "auto",
+        autoupdate: true,
         username: "testuser",
       })
     },
@@ -1149,7 +1173,7 @@ test("managed settings override user settings", async () => {
   await writeManagedSettings({
     $schema: "https://aictrl.ai/config.json",
     model: "managed/model",
-    share: "disabled",
+    autoupdate: false,
   })
 
   await Instance.provide({
@@ -1157,7 +1181,7 @@ test("managed settings override user settings", async () => {
     fn: async () => {
       const config = await Config.get()
       expect(config.model).toBe("managed/model")
-      expect(config.share).toBe("disabled")
+      expect(config.autoupdate).toBe(false)
       expect(config.username).toBe("testuser")
     },
   })

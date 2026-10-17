@@ -23,7 +23,6 @@ import { PermissionNext } from "../../permission/next"
 import { Session } from "../../session"
 import type { MessageV2 } from "../../session/message-v2"
 import { SessionPrompt } from "../../session/prompt"
-import { Config } from "../../config/config"
 import { GlobalBus } from "../../bus/global"
 import { Instance } from "../../project/instance"
 import { Tool } from "../../tool/tool"
@@ -362,9 +361,10 @@ export const RunCommand = cmd({
         describe: "fork the session before continuing (requires --continue or --session)",
         type: "boolean",
       })
+      // Removed (#189); still parsed so the run can fail with a clear error.
       .option("share", {
         type: "boolean",
-        describe: "share the session",
+        hidden: true,
       })
       .option("model", {
         type: "string",
@@ -437,6 +437,10 @@ export const RunCommand = cmd({
       UI.error(message)
       await invocation.abort(message, code)
       process.exit(exit)
+    }
+
+    if (args.share !== undefined) {
+      await fail("--share was removed: session sharing is no longer supported", "INVOCATION_INVALID_ARGUMENTS")
     }
 
     let message = [...args.message, ...(args["--"] || [])]
@@ -551,21 +555,6 @@ export const RunCommand = cmd({
       const title = sessionTitle({ title: args.title, prompt, message, command: args.command })
       const result = await sdk.session.create(input(undefined, { title, permission: rules }))
       return result.data?.id
-    }
-
-    async function share(sdk: any, sessionID: string) {
-      const cfg = await sdk.config.get()
-      if (!cfg.data) return
-      if (cfg.data.share !== "auto" && !args.share) return
-      const res = await sdk.session.share(input(sessionID)).catch((error: any) => {
-        if (error instanceof Error && error.message.includes("disabled")) {
-          UI.println(UI.Style.TEXT_DANGER_BOLD + "!  " + error.message)
-        }
-        return { error }
-      })
-      if (!res.error && "data" in res && res.data?.share?.url) {
-        UI.println(UI.Style.TEXT_INFO_BOLD + "~  " + res.data.share.url)
-      }
     }
 
     // Promise variable for racing against loopDone in execute().
@@ -985,7 +974,6 @@ export const RunCommand = cmd({
         await fail("Session not found", "INVOCATION_SESSION_CREATE_FAILED")
       }
       invocation.link(sessionID)
-      await share(sdk, sessionID)
 
       emit("session_start", {
         schemaVersion: SCHEMA_VERSION,
@@ -1167,10 +1155,6 @@ export const RunCommand = cmd({
             })
             return { data: session }
           },
-          async share(opts: any) {
-            const share = await Session.share(opts.sessionID)
-            return { data: { share } }
-          },
           abort(opts: any) {
             return SessionPrompt.cancel(opts.sessionID)
           },
@@ -1194,11 +1178,6 @@ export const RunCommand = cmd({
               variant: opts.variant,
               ...(opts.format ? { format: opts.format } : {}),
             })
-          },
-        },
-        config: {
-          async get() {
-            return { data: await Config.get() }
           },
         },
         event: {

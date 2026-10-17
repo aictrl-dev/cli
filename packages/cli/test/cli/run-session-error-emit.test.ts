@@ -50,13 +50,6 @@ async function startMockServer(): Promise<{ url: string; stop: () => void }> {
         })
       }
 
-      // Get config (used by share check — empty data means auto-share is off)
-      if (req.method === "GET" && url.pathname === "/config") {
-        return new Response(JSON.stringify({}), {
-          headers: { "content-type": "application/json" },
-        })
-      }
-
       // Accept the prompt (session appears to start; any 2xx is fine)
       if (req.method === "POST" && url.pathname.endsWith("/message")) {
         return new Response(JSON.stringify({}), {

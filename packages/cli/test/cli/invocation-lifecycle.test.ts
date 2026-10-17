@@ -166,7 +166,6 @@ await invocation.guard(() => Promise.reject(new Error("stdin failed")))`,
           )
         }
         if (req.method === "POST" && url.pathname === "/session") return Response.json({ id })
-        if (req.method === "GET" && url.pathname === "/config") return Response.json({})
         if (req.method === "POST" && url.pathname.endsWith("/message")) return Response.json({})
         return Response.json({})
       },

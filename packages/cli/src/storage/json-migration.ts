@@ -4,7 +4,6 @@ import { Global } from "../global"
 import { Log } from "../util/log"
 import { ProjectTable } from "../project/project.sql"
 import { SessionTable, MessageTable, PartTable, TodoTable, PermissionTable } from "../session/session.sql"
-import { SessionShareTable } from "../share/share.sql"
 import path from "path"
 import { existsSync } from "fs"
 import { Filesystem } from "../util/filesystem"
@@ -35,7 +34,6 @@ export namespace JsonMigration {
         parts: 0,
         todos: 0,
         permissions: 0,
-        shares: 0,
         errors: [] as string[],
       }
     }
@@ -57,14 +55,12 @@ export namespace JsonMigration {
       parts: 0,
       todos: 0,
       permissions: 0,
-      shares: 0,
       errors: [] as string[],
     }
     const orphans = {
       sessions: 0,
       todos: 0,
       permissions: 0,
-      shares: 0,
     }
     const errs = stats.errors
 
@@ -107,14 +103,13 @@ export namespace JsonMigration {
 
     // Pre-scan all files upfront to avoid repeated glob operations
     log.info("scanning files...")
-    const [projectFiles, sessionFiles, messageFiles, partFiles, todoFiles, permFiles, shareFiles] = await Promise.all([
+    const [projectFiles, sessionFiles, messageFiles, partFiles, todoFiles, permFiles] = await Promise.all([
       list("project/*.json"),
       list("session/*/*.json"),
       list("message/*/*.json"),
       list("part/*/*.json"),
       list("todo/*.json"),
       list("permission/*.json"),
-      list("session_share/*.json"),
     ])
 
     log.info("file scan complete", {
@@ -124,7 +119,6 @@ export namespace JsonMigration {
       parts: partFiles.length,
       todos: todoFiles.length,
       permissions: permFiles.length,
-      shares: shareFiles.length,
     })
 
     const total = Math.max(
@@ -134,8 +128,7 @@ export namespace JsonMigration {
         messageFiles.length +
         partFiles.length +
         todoFiles.length +
-        permFiles.length +
-        shareFiles.length,
+        permFiles.length,
     )
     const progress = options?.progress
     let current = 0
@@ -209,7 +202,6 @@ export namespace JsonMigration {
             directory: data.directory ?? "",
             title: data.title ?? "",
             version: data.version ?? "",
-            share_url: data.share?.url ?? null,
             summary_additions: data.summary?.additions ?? null,
             summary_deletions: data.summary?.deletions ?? null,
             summary_files: data.summary?.files ?? null,
@@ -372,35 +364,6 @@ export namespace JsonMigration {
         log.warn("skipped orphaned permissions", { count: orphans.permissions })
       }
 
-      // Migrate session shares
-      const shareSessions = shareFiles.map((file) => path.basename(file, ".json"))
-      const shareValues = [] as any[]
-      for (let i = 0; i < shareFiles.length; i += batchSize) {
-        const end = Math.min(i + batchSize, shareFiles.length)
-        const batch = await read(shareFiles, i, end)
-        shareValues.length = 0
-        for (let j = 0; j < batch.length; j++) {
-          const data = batch[j]
-          if (!data) continue
-          const sessionID = shareSessions[i + j]
-          if (!sessionIds.has(sessionID)) {
-            orphans.shares++
-            continue
-          }
-          if (!data?.id || !data?.secret || !data?.url) {
-            errs.push(`session_share missing id/secret/url: ${shareFiles[i + j]}`)
-            continue
-          }
-          shareValues.push({ session_id: sessionID, id: data.id, secret: data.secret, url: data.url })
-        }
-        stats.shares += insert(shareValues, SessionShareTable, "session_share")
-        step("shares", end - i)
-      }
-      log.info("migrated session shares", { count: stats.shares })
-      if (orphans.shares > 0) {
-        log.warn("skipped orphaned session shares", { count: orphans.shares })
-      }
-
       sqlite.exec("COMMIT")
     } catch (e) {
       try { sqlite.exec("ROLLBACK") } catch {}
@@ -420,7 +383,6 @@ export namespace JsonMigration {
       parts: stats.parts,
       todos: stats.todos,
       permissions: stats.permissions,
-      shares: stats.shares,
       errorCount: stats.errors.length,
       duration: Math.round(performance.now() - start),
     })

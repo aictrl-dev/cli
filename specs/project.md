@@ -27,10 +27,6 @@ POST /project/:projectID/session/:sessionID/init
 
 POST /project/:projectID/session/:sessionID/abort
 
-POST /project/:projectID/session/:sessionID/share
-
-DELETE /project/:projectID/session/:sessionID/share
-
 POST /project/:projectID/session/:sessionID/compact
 
 GET /project/:projectID/session/:sessionID/message -> { info: Message, parts: Part[] }[]
