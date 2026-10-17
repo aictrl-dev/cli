@@ -514,23 +514,13 @@ export const RunCommand = cmd({
       await fail("--skill requires a skill name", "INVOCATION_INVALID_ARGUMENTS")
     }
 
-    const rules: PermissionNext.Ruleset = [
-      {
-        permission: "question",
-        action: "deny",
-        pattern: "*",
-      },
-      {
-        permission: "plan_enter",
-        action: "deny",
-        pattern: "*",
-      },
-      {
-        permission: "plan_exit",
-        action: "deny",
-        pattern: "*",
-      },
-    ]
+    // fail instead of the unknown-agent fallback: the default agent can edit files a plan run expects to stay untouched
+    if (args.agent === "plan") {
+      await fail(
+        "The plan agent was removed. For a read-only run, deny edit and bash through `permission` config.",
+        "INVOCATION_INVALID_ARGUMENTS",
+      )
+    }
 
     function input(id?: string, body?: Record<string, unknown>) {
       if (!args.attach) return { ...(id ? { sessionID: id } : {}), ...body }
@@ -549,7 +539,7 @@ export const RunCommand = cmd({
 
       const prompt = [...args.message, ...(args["--"] || [])].join(" ")
       const title = sessionTitle({ title: args.title, prompt, message, command: args.command })
-      const result = await sdk.session.create(input(undefined, { title, permission: rules }))
+      const result = await sdk.session.create(input(undefined, { title }))
       return result.data?.id
     }
 
@@ -991,7 +981,7 @@ export const RunCommand = cmd({
         schemaVersion: SCHEMA_VERSION,
         model: args.model,
         agent: agent,
-        permissions: PermissionNext.merge(agentInfo.permission, rules),
+        permissions: agentInfo.permission,
       })
 
       let aborted = false

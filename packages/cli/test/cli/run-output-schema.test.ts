@@ -510,11 +510,7 @@ test("plain run pins unchanged event types and ordering", async () => {
 test("plain attach runs a prompt through the HTTP session boundary", async () => {
   const result = await run({ attach: true, inputs: ["prose"], flags: [] })
   expect(result.attached.find((request) => request.url === "/session")?.body.title).toBe("Schema fixture")
-  expect(result.attached.find((request) => request.url === "/session")?.body.permission).toEqual([
-    { permission: "question", action: "deny", pattern: "*" },
-    { permission: "plan_enter", action: "deny", pattern: "*" },
-    { permission: "plan_exit", action: "deny", pattern: "*" },
-  ])
+  expect(result.attached.find((request) => request.url === "/session")?.body).not.toHaveProperty("permission")
   expect(result.attached.find((request) => request.url.endsWith("/message"))?.body).toMatchObject({
     model: { providerID: "alibaba", modelID: "qwen-plus" },
     parts: [{ type: "text", text: expect.stringContaining("Return a result.") }],

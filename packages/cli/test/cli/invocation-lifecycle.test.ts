@@ -119,6 +119,14 @@ await invocation.guard(() => Promise.reject(new Error("stdin failed")))`,
     expectFailure(await output(spawn(["run", "--format", "json", "--fork", "prompt"])), "validation")
   })
 
+  test("rejects the removed plan agent instead of falling back to the default agent", async () => {
+    const result = await output(spawn(["run", "--format", "json", "--agent", "plan", "prompt"]))
+    expectFailure(result, "validation")
+    expect(result.events[1].code).toBe("INVOCATION_INVALID_ARGUMENTS")
+    expect(result.stderr).toContain("The plan agent was removed")
+    expect(result.stderr).toContain("permission")
+  })
+
   test("reports bootstrap failure", async () => {
     await using tmp = await tmpdir()
     await Bun.write(path.join(tmp.path, "aictrl.json"), "{")

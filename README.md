@@ -68,7 +68,7 @@ and [JSON event reference](EVENTS.md).
 
 ### Non-Interactive Execution
 
-In headless mode, Aictrl automatically rejects all interactive permission requests (like `question` or `plan_enter`), ensuring your pipelines never hang.
+In headless mode, Aictrl automatically rejects all interactive permission requests, ensuring your pipelines never hang.
 
 `aictrl run` does not offer the `todowrite` tool: its definition adds about 2.4k tokens to
 every request, and a one-shot run has nobody following a todo list. To track a plan, instruct

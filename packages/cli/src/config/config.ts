@@ -630,7 +630,6 @@ export namespace Config {
           external_directory: PermissionRule.optional(),
           todowrite: PermissionAction.optional(),
           todoread: PermissionAction.optional(),
-          question: PermissionAction.optional(),
           webfetch: PermissionAction.optional(),
           websearch: PermissionAction.optional(),
           codesearch: PermissionAction.optional(),
@@ -1046,7 +1045,6 @@ export namespace Config {
       mode: z
         .object({
           build: Agent.optional(),
-          plan: Agent.optional(),
         })
         .catchall(Agent)
         .optional()
@@ -1054,7 +1052,6 @@ export namespace Config {
       agent: z
         .object({
           // primary
-          plan: Agent.optional(),
           build: Agent.optional(),
           // subagent
           general: Agent.optional(),

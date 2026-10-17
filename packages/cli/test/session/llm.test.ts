@@ -9,7 +9,7 @@ import { ProviderTransform } from "../../src/provider/transform"
 import { ModelsDev } from "../../src/provider/models"
 import { Filesystem } from "../../src/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
-import { Agent } from "../../src/agent/agent"
+import type { Agent } from "../../src/agent/agent"
 import type { PermissionNext } from "../../src/permission/next"
 import type { MessageV2 } from "../../src/session/message-v2"
 
@@ -837,14 +837,18 @@ describe("session.llm.stream", () => {
       directory: tmp.path,
       fn: async () => {
         const resolved = await Provider.getModel(providerID, fixture.model.id)
-        // the build agent allows question and plan_enter (and already denies plan_exit)
-        const agent = await Agent.get("build")
-        // the session rules `aictrl run` creates headless sessions with
-        const headless: PermissionNext.Ruleset = [
-          { permission: "question", action: "deny", pattern: "*" },
-          { permission: "plan_enter", action: "deny", pattern: "*" },
-          { permission: "plan_exit", action: "deny", pattern: "*" },
-        ]
+        // an explicit agent allow, so the session rules must be merged after the agent's to win
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [
+            { permission: "*", pattern: "*", action: "allow" },
+            { permission: "task", pattern: "*", action: "allow" },
+          ],
+        } satisfies Agent.Info
+        // the session rule the task tool creates subagent sessions with
+        const subagent: PermissionNext.Ruleset = [{ permission: "task", action: "deny", pattern: "*" }]
 
         async function requestTools(sessionID: string, permission?: PermissionNext.Ruleset) {
           const request = waitRequest(
@@ -876,7 +880,7 @@ describe("session.llm.stream", () => {
             system: ["You are a helpful assistant."],
             abort: new AbortController().signal,
             messages: [{ role: "user", content: "Hello" }],
-            tools: { question: stub(), plan_enter: stub(), plan_exit: stub(), read: stub() },
+            tools: { task: stub(), webfetch: stub(), read: stub() },
           })
           for await (const _ of stream.fullStream) {
           }
@@ -884,8 +888,8 @@ describe("session.llm.stream", () => {
           return (body.tools as Array<{ function: { name: string } }>).map((item) => item.function.name).sort()
         }
 
-        expect(await requestTools("session-interactive")).toEqual(["plan_enter", "question", "read"])
-        expect(await requestTools("session-headless", headless)).toEqual(["read"])
+        expect(await requestTools("session-primary")).toEqual(["read", "task", "webfetch"])
+        expect(await requestTools("session-subagent", subagent)).toEqual(["read", "webfetch"])
       },
     })
   })

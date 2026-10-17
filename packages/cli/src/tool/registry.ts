@@ -1,5 +1,3 @@
-import { PlanExitTool } from "./plan"
-import { QuestionTool } from "./question"
 import { BashTool } from "./bash"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
@@ -123,12 +121,10 @@ export namespace ToolRegistry {
   async function all(): Promise<Tool.Info[]> {
     const custom = await state().then((x) => x.custom)
     const config = await Config.get()
-    const question = ["app", "cli", "desktop"].includes(Flag.AICTRL_CLIENT) || Flag.AICTRL_ENABLE_QUESTION_TOOL
     const todo = todoEnabled()
 
     return [
       InvalidTool,
-      ...(question ? [QuestionTool] : []),
       BashTool,
       ReadTool,
       GlobTool,
@@ -144,7 +140,6 @@ export namespace ToolRegistry {
       SkillTool,
       ApplyPatchTool,
       ...(config.experimental?.batch_tool === true ? [BatchTool] : []),
-      ...(Flag.AICTRL_EXPERIMENTAL_PLAN_MODE && Flag.AICTRL_CLIENT === "cli" ? [PlanExitTool] : []),
       ...custom,
     ]
   }

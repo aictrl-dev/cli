@@ -15,7 +15,7 @@ test("agent color parsed from project config", async () => {
           $schema: "https://aictrl.ai/config.json",
           agent: {
             build: { color: "#FFA500" },
-            plan: { color: "primary" },
+            general: { color: "primary" },
           },
         }),
       )
@@ -26,7 +26,7 @@ test("agent color parsed from project config", async () => {
     fn: async () => {
       const cfg = await Config.get()
       expect(cfg.agent?.["build"]?.color).toBe("#FFA500")
-      expect(cfg.agent?.["plan"]?.color).toBe("primary")
+      expect(cfg.agent?.["general"]?.color).toBe("primary")
     },
   })
 })
@@ -39,7 +39,7 @@ test("Agent.get includes color from config", async () => {
         JSON.stringify({
           $schema: "https://aictrl.ai/config.json",
           agent: {
-            plan: { color: "#A855F7" },
+            general: { color: "#A855F7" },
             build: { color: "accent" },
           },
         }),
@@ -49,8 +49,8 @@ test("Agent.get includes color from config", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const plan = await AgentSvc.get("plan")
-      expect(plan?.color).toBe("#A855F7")
+      const general = await AgentSvc.get("general")
+      expect(general?.color).toBe("#A855F7")
       const build = await AgentSvc.get("build")
       expect(build?.color).toBe("accent")
     },

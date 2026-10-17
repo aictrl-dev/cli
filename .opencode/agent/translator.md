@@ -579,8 +579,6 @@ AICTRL_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS
 AICTRL_EXPERIMENTAL_EXA
 AICTRL_EXPERIMENTAL_OUTPUT_TOKEN_MAX
 AICTRL_EXPERIMENTAL_OXFMT
-AICTRL_EXPERIMENTAL_PLAN_MODE
-AICTRL_ENABLE_QUESTION_TOOL
 AICTRL_FAKE_VCS
 AICTRL_GIT_BASH_PATH
 AICTRL_MODEL
@@ -708,7 +706,6 @@ zenobi-us/aictrl-skillful
 .aictrl/commands/
 .aictrl/commands/test.md
 .aictrl/modes/
-.aictrl/plans/*.md
 .aictrl/plugins/
 .aictrl/skills/<name>/SKILL.md
 .aictrl/skills/git-release/SKILL.md
