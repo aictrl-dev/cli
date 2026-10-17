@@ -8,12 +8,13 @@ const entry = path.resolve(import.meta.dir, "../../src/index.ts")
 /**
  * Runs `aictrl run --format json` in a git worktree against a fixture Gemini server
  * whose first turn writes `out.txt` and whose second turn finishes. The run gets its
- * own data directory so the shadow snapshot repo, if any, can be observed.
+ * own home and XDG directories, so no outside config applies and the shadow snapshot
+ * repo, if any, can be observed.
  */
 async function run(config: Record<string, unknown> = {}) {
   await using tmp = await tmpdir({ git: true })
   // Outside the worktree, so a shadow repo never snapshots itself.
-  await using data = await tmpdir()
+  await using home = await tmpdir()
   let calls = 0
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -62,7 +63,11 @@ async function run(config: Record<string, unknown> = {}) {
       cwd: tmp.path,
       env: {
         ...process.env,
-        XDG_DATA_HOME: data.path,
+        HOME: home.path,
+        XDG_CONFIG_HOME: path.join(home.path, ".config"),
+        XDG_DATA_HOME: path.join(home.path, ".local/share"),
+        XDG_CACHE_HOME: path.join(home.path, ".cache"),
+        AICTRL_TEST_HOME: home.path,
         AICTRL_DISABLE_DEFAULT_PLUGINS: "true",
         AICTRL_DISABLE_MODELS_FETCH: "true",
         AICTRL_DISABLE_AUTOCOMPACT: "true",
@@ -83,7 +88,7 @@ async function run(config: Record<string, unknown> = {}) {
       .split("\n")
       .filter((line) => line.startsWith("{"))
       .map((line) => JSON.parse(line))
-    const shadow = await fs.readdir(path.join(data.path, "aictrl", "snapshot")).catch(() => [])
+    const shadow = await fs.readdir(path.join(home.path, ".local/share", "aictrl", "snapshot")).catch(() => [])
     return {
       exit,
       output: stderr + stdout,
