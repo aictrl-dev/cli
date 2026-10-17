@@ -51,6 +51,14 @@ async function installPlatformBinary(modulesDir: string, version: unknown, label
   return packageDir
 }
 
+// A PATH holding only node, so the wrapper's Bun fallback fails with ENOENT.
+async function nodeOnlyPath(dir: string) {
+  const bin = path.join(dir, "node-only-bin")
+  await fs.mkdir(bin)
+  await fs.symlink(Bun.which("node")!, path.join(bin, "node"))
+  return bin
+}
+
 async function runWrapper(wrapper: string, env: Record<string, string> = {}) {
   const proc = Bun.spawn([Bun.which("node")!, wrapper, "--version"], {
     env: { PATH: process.env.PATH!, ...env },
@@ -81,18 +89,18 @@ describe.skipIf(process.platform === "win32")("npm wrapper platform binary resol
     expect(adviceSpec(result.stderr)).toEndWith(`@${wrapperVersion}`)
   })
 
-  test("strips control characters from a skipped package's version", async () => {
+  test("strips control, bidi and zero-width characters from a skipped package's version", async () => {
     await using tmp = await tmpdir()
     const wrapper = await installWrapper(path.join(tmp.path, "project"))
-    const spoofed = "0.0.1\u001b]8;;https://example.invalid\u0007\nnpm install spoofed"
+    const spoofed = "0.0.1\u001b]8;;https://example.invalid\u0007‮​⁦﻿\nnpm install spoofed"
     await installPlatformBinary(path.join(tmp.path, "node_modules"), spoofed, "spoofed")
 
     const result = await runWrapper(wrapper)
 
     expect(result.exitCode).toBe(1)
-    expect(result.stderr).not.toContain("\u001b")
-    expect(result.stderr).not.toContain("\u0007")
-    expect(result.stderr).not.toContain("\nnpm install spoofed")
+    for (const hidden of ["\u001b", "\u0007", "‮", "​", "⁦", "﻿", "\nnpm install spoofed"]) {
+      expect(result.stderr).not.toContain(hidden)
+    }
     expect(result.stderr).toContain(`${platformPackage}@0.0.1]8;;https://example.invalidnpm install spoofed at`)
   })
 
@@ -112,17 +120,26 @@ describe.skipIf(process.platform === "win32")("npm wrapper platform binary resol
   test("the Bun-missing hint of a source checkout pins the platform packages", async () => {
     await using tmp = await tmpdir()
     const wrapper = await installWrapper(path.join(tmp.path, "project"), { source: true })
-    // A PATH holding only node, so the Bun fallback fails with ENOENT.
-    const nodeOnly = path.join(tmp.path, "node-only-bin")
-    await fs.mkdir(nodeOnly)
-    await fs.symlink(Bun.which("node")!, path.join(nodeOnly, "node"))
 
-    const result = await runWrapper(wrapper, { PATH: nodeOnly })
+    const result = await runWrapper(wrapper, { PATH: await nodeOnlyPath(tmp.path) })
 
     expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain(`No platform binary matching @aictrl/cli ${wrapperVersion} was found`)
     expect(result.stderr).toContain("Bun is not installed")
     expect(result.stderr).toContain(`"${platformPackage}@${wrapperVersion}"`)
     expect(result.stderr).not.toMatch(/"@aictrl\/cli-[^"@]+"/)
+  })
+
+  test("the Bun-missing hint gives no install advice when the wrapper's own version is unreadable", async () => {
+    await using tmp = await tmpdir()
+    const wrapper = await installWrapper(path.join(tmp.path, "project"), { versioned: false, source: true })
+
+    const result = await runWrapper(wrapper, { PATH: await nodeOnlyPath(tmp.path) })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("Bun is not installed")
+    expect(result.stderr).toContain("Could not read the @aictrl/cli version from")
+    expect(result.stderr).not.toContain("@aictrl/cli-")
   })
 
   test("refuses a platform package without a readable version", async () => {

@@ -192,21 +192,34 @@ function matchesWrapperVersion(platformBinary) {
 }
 
 // A package spec pinned to this wrapper's release, so following the advice
-// installs a binary the version check accepts.
+// installs a binary the version check accepts. Only called once
+// wrapperVersion is known.
 function pinnedSpec(name) {
-  return wrapperVersion ? `${name}@${wrapperVersion}` : name
+  return `${name}@${wrapperVersion}`
 }
 
 // Versions and paths come from arbitrary ancestor node_modules, so strip
-// control characters before echoing them to the terminal.
+// control, bidi-override and zero-width characters before echoing them to
+// the terminal.
 function printable(text) {
-  return String(text).replace(/[\u0000-\u001f\u007f-\u009f]/g, "")
+  return String(text).replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩﻿]/g, "")
 }
 
 function unknownWrapperVersionMessage() {
+  const manifest = printable(path.join(wrapperPackageDir, "package.json"))
   return [
-    `Could not read the @aictrl/cli version from ${path.join(wrapperPackageDir, "package.json")}, so no platform binary can be verified.`,
+    `Could not read the @aictrl/cli version from ${manifest}, so no platform binary can be verified.`,
     "Reinstall @aictrl/cli, or set AICTRL_BIN_PATH to the binary to run.",
+  ].join("\n")
+}
+
+function bunMissingMessage() {
+  if (!wrapperVersion) return "Bun is not installed.\n" + unknownWrapperVersionMessage()
+
+  return [
+    `No platform binary matching @aictrl/cli ${wrapperVersion} was found and Bun is not installed.`,
+    "Either install Bun (https://bun.sh) or install the platform package: " +
+      names.map((n) => `"${pinnedSpec(n)}"`).join(" or "),
   ].join("\n")
 }
 
@@ -250,11 +263,7 @@ if (fs.existsSync(bunEntry)) {
   )
   if (result.error) {
     if (result.error.code === "ENOENT") {
-      console.error(
-        "No compiled binary found for your platform and Bun is not installed.\n" +
-          "Either install Bun (https://bun.sh) or install the platform package: " +
-          names.map((n) => `"${pinnedSpec(n)}"`).join(" or "),
-      )
+      console.error(bunMissingMessage())
     } else {
       console.error(result.error.message)
     }
