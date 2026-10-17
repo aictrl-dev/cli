@@ -61,7 +61,6 @@ Use for core server issues in `packages/aictrl/`, excluding `packages/aictrl/src
 
 Examples:
 
-- LSP server behavior
 - Harness behavior (agent + tools)
 - Feature requests for server behavior
 - Agent context construction

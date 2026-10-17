@@ -15,7 +15,6 @@ Current baseline from audit:
 - Largest hotspots:
   - `src/cli/cmd/github.ts` (33)
   - `src/worktree/index.ts` (22)
-  - `src/lsp/server.ts` (21)
   - `src/installation/index.ts` (20)
   - `src/snapshot/index.ts` (18)
 
@@ -80,7 +79,6 @@ Migrate these first:
 
 - `src/cli/cmd/github.ts`
 - `src/worktree/index.ts`
-- `src/lsp/server.ts`
 - `src/installation/index.ts`
 - `src/snapshot/index.ts`
 

@@ -25,7 +25,6 @@ import { CodeSearchTool } from "./codesearch"
 import { Flag } from "@/flag/flag"
 import { HeadlessRun } from "@/flag/headless-run"
 import { Log } from "@/util/log"
-import { LspTool } from "./lsp"
 import { Truncate } from "./truncation"
 
 import { ApplyPatchTool } from "./apply_patch"
@@ -144,7 +143,6 @@ export namespace ToolRegistry {
       CodeSearchTool,
       SkillTool,
       ApplyPatchTool,
-      ...(Flag.AICTRL_EXPERIMENTAL_LSP_TOOL ? [LspTool] : []),
       ...(config.experimental?.batch_tool === true ? [BatchTool] : []),
       ...(Flag.AICTRL_EXPERIMENTAL_PLAN_MODE && Flag.AICTRL_CLIENT === "cli" ? [PlanExitTool] : []),
       ...custom,

@@ -44,7 +44,7 @@ function generate(schema: z.ZodType) {
     allowTrailingCommas?: boolean
   }
 
-  // used for json lsps since config supports jsonc
+  // config files are JSONC, so editors validating against this schema must allow comments
   result.allowComments = true
   result.allowTrailingCommas = true
 

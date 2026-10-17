@@ -20,7 +20,6 @@ import {
   printParseErrorCode,
 } from "jsonc-parser"
 import { Instance } from "../project/instance"
-import { LSPServer } from "../lsp/server"
 import { BunProc } from "@/bun"
 import { ConfigMarkdown } from "./markdown"
 import { constants, existsSync } from "fs"
@@ -630,7 +629,9 @@ export namespace Config {
           webfetch: PermissionAction.optional(),
           websearch: PermissionAction.optional(),
           codesearch: PermissionAction.optional(),
-          lsp: PermissionRule.optional(),
+          lsp: PermissionRule.optional().describe(
+            "@deprecated The LSP subsystem was removed; this rule has no effect.",
+          ),
           doom_loop: PermissionAction.optional(),
           skill: PermissionRule.optional(),
         })
@@ -1087,42 +1088,7 @@ export namespace Config {
           ),
         ])
         .optional(),
-      lsp: z
-        .union([
-          z.literal(false),
-          z.record(
-            z.string(),
-            z.union([
-              z.object({
-                disabled: z.literal(true),
-              }),
-              z.object({
-                command: z.array(z.string()),
-                extensions: z.array(z.string()).optional(),
-                disabled: z.boolean().optional(),
-                env: z.record(z.string(), z.string()).optional(),
-                initialization: z.record(z.string(), z.any()).optional(),
-              }),
-            ]),
-          ),
-        ])
-        .optional()
-        .refine(
-          (data) => {
-            if (!data) return true
-            if (typeof data === "boolean") return true
-            const serverIds = new Set(Object.values(LSPServer).map((s) => s.id))
-
-            return Object.entries(data).every(([id, config]) => {
-              if (config.disabled) return true
-              if (serverIds.has(id)) return true
-              return Boolean(config.extensions)
-            })
-          },
-          {
-            error: "For custom LSP servers, 'extensions' array is required.",
-          },
-        ),
+      lsp: z.unknown().optional().describe("@deprecated The LSP subsystem was removed; this key is ignored."),
       instructions: z.array(z.string()).optional().describe("Additional instruction files or patterns to include"),
       layout: Layout.optional().describe("@deprecated Always uses stretch layout."),
       permission: Permission.optional(),
@@ -1211,6 +1177,17 @@ export namespace Config {
     return load(text, { path: filepath })
   }
 
+  // The LSP subsystem was removed (#144). Configs written before then may still set
+  // the `lsp` block or an `lsp` permission rule; both load as no-ops with one warning.
+  function withoutDeprecatedLsp(config: Record<string, unknown>, source: string) {
+    const permission = config.permission
+    const hasLspPermission = typeof permission === "object" && permission !== null && "lsp" in permission
+    if (!("lsp" in config) && !hasLspPermission) return config
+    log.warn("lsp config is deprecated and ignored; the LSP subsystem was removed", { path: source })
+    const { lsp: _, ...rest } = config
+    return rest
+  }
+
   async function load(text: string, options: { path: string } | { dir: string; source: string }) {
     const original = text
     const source = "path" in options ? options.path : options.source
@@ -1222,7 +1199,7 @@ export namespace Config {
 
     const normalized = (() => {
       if (!data || typeof data !== "object" || Array.isArray(data)) return data
-      const copy = { ...(data as Record<string, unknown>) }
+      const copy = withoutDeprecatedLsp({ ...(data as Record<string, unknown>) }, source)
       const hadLegacy = "theme" in copy || "keybinds" in copy || "tui" in copy
       if (!hadLegacy) return copy
       delete copy.theme
@@ -1292,9 +1269,7 @@ export namespace Config {
   }
 
   function globalConfigFile() {
-    const candidates = ["aictrl.jsonc", "aictrl.json", "config.json"].map((file) =>
-      path.join(Global.Path.config, file),
-    )
+    const candidates = ["aictrl.jsonc", "aictrl.json", "config.json"].map((file) => path.join(Global.Path.config, file))
     for (const file of candidates) {
       if (existsSync(file)) return file
     }

@@ -1,0 +1,384 @@
+{
+  "info": {
+    "id": "ses_eb3fea7bcffek9bjINhSiASkm4",
+    "slug": "pre-lsp-removal",
+    "projectID": "__PROJECT_ID__",
+    "directory": "__DIRECTORY__",
+    "title": "Pre-#144 session with LSP history",
+    "version": "local",
+    "permission": [
+      {
+        "permission": "question",
+        "action": "deny",
+        "pattern": "*"
+      },
+      {
+        "permission": "plan_enter",
+        "action": "deny",
+        "pattern": "*"
+      },
+      {
+        "permission": "plan_exit",
+        "action": "deny",
+        "pattern": "*"
+      }
+    ],
+    "time": {
+      "created": 1792276518979,
+      "updated": 1792276519005
+    }
+  },
+  "messages": [
+    {
+      "info": {
+        "role": "user",
+        "time": {
+          "created": 1792276518998
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "fixture",
+          "modelID": "gemini-fixture"
+        },
+        "id": "msg_14c015856001yoQ56RrccFgDBq",
+        "sessionID": "ses_eb3fea7bcffek9bjINhSiASkm4"
+      },
+      "parts": [
+        {
+          "type": "text",
+          "text": "Check the types in a.ts.",
+          "id": "prt_14c015857001BZsX7aOjwSxEuq",
+          "sessionID": "ses_eb3fea7bcffek9bjINhSiASkm4",
+          "messageID": "msg_14c015856001yoQ56RrccFgDBq"
+        },
+        {
+          "type": "file",
+          "mime": "text/plain",
+          "filename": "a.ts",
+          "url": "file://__DIRECTORY__/a.ts?start=1&end=1",
+          "source": {
+            "type": "symbol",
+            "path": "__DIRECTORY__/a.ts",
+            "name": "n",
+            "kind": 13,
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 6
+              },
+              "end": {
+                "line": 0,
+                "character": 7
+              }
+            },
+            "text": {
+              "value": "@n",
+              "start": 0,
+              "end": 2
+            }
+          },
+          "id": "prt_14c015857001BZsX7aOjwSxEuZ",
+          "sessionID": "ses_eb3fea7bcffek9bjINhSiASkm4",
+          "messageID": "msg_14c015856001yoQ56RrccFgDBq"
+        }
+      ]
+    },
+    {
+      "info": {
+        "role": "assistant",
+        "time": {
+          "created": 1792276519018,
+          "completed": 1792276522235
+        },
+        "parentID": "msg_14c015856001yoQ56RrccFgDBq",
+        "modelID": "gemini-fixture",
+        "providerID": "fixture",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "__DIRECTORY__",
+          "root": "__DIRECTORY__"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 10,
+          "input": 7,
+          "output": 3,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "usageStatus": "reported",
+        "finish": "tool-calls",
+        "id": "msg_14c01586a001NhWwWmtdVXrj0b",
+        "sessionID": "ses_eb3fea7bcffek9bjINhSiASkm4"
+      },
+      "parts": [
+        {
+          "type": "step-start",
+          "id": "prt_14c0158a0001AfjIFeOkIH0yD6",
+          "sessionID": "ses_eb3fea7bcffek9bjINhSiASkm4",
+          "messageID": "msg_14c01586a001NhWwWmtdVXrj0b"
+        },
+        {
+          "type": "tool",
+          "callID": "lspCall0001",
+          "tool": "lsp",
+          "state": {
+            "status": "completed",
+            "input": {
+              "operation": "hover",
+              "filePath": "__DIRECTORY__/a.ts",
+              "line": 1,
+              "character": 7
+            },
+            "output": "[{\"contents\":{\"kind\":\"markdown\",\"value\":\"const n: number\"}}]",
+            "title": "hover a.ts:1:7",
+            "metadata": {
+              "result": [
+                {
+                  "contents": {
+                    "kind": "markdown",
+                    "value": "const n: number"
+                  }
+                }
+              ],
+              "truncated": false
+            },
+            "time": {
+              "start": 1792276568000,
+              "end": 1792276568100
+            }
+          },
+          "metadata": {
+            "providerExecuted": false
+          },
+          "id": "prt_14c0158a3001yCIVtVsPUjsHqy",
+          "sessionID": "ses_eb3fea7bcffek9bjINhSiASkm4",
+          "messageID": "msg_14c01586a001NhWwWmtdVXrj0b"
+        },
+        {
+          "type": "step-finish",
+          "reason": "tool-calls",
+          "cost": 0,
+          "tokens": {
+            "total": 10,
+            "input": 7,
+            "output": 3,
+            "reasoning": 0,
+            "cache": {
+              "read": 0,
+              "write": 0
+            }
+          },
+          "id": "prt_14c0164f7001IWPttCI411TuX7",
+          "sessionID": "ses_eb3fea7bcffek9bjINhSiASkm4",
+          "messageID": "msg_14c01586a001NhWwWmtdVXrj0b"
+        }
+      ]
+    },
+    {
+      "info": {
+        "role": "assistant",
+        "time": {
+          "created": 1792276568506,
+          "completed": 1792276569055
+        },
+        "parentID": "msg_14c015856001yoQ56RrccFgDBq",
+        "modelID": "gemini-fixture",
+        "providerID": "fixture",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "__DIRECTORY__",
+          "root": "__DIRECTORY__"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 10,
+          "input": 7,
+          "output": 3,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "usageStatus": "reported",
+        "finish": "tool-calls",
+        "id": "msg_14c0219ba0015ilaVztlPEUuUs",
+        "sessionID": "ses_eb3fea7bcffek9bjINhSiASkm4"
+      },
+      "parts": [
+        {
+          "type": "step-start",
+          "id": "prt_14c0219c2001ZteaGHFAIs1OJo",
+          "sessionID": "ses_eb3fea7bcffek9bjINhSiASkm4",
+          "messageID": "msg_14c0219ba0015ilaVztlPEUuUs"
+        },
+        {
+          "type": "tool",
+          "callID": "7Fn41QAnQ0gx27wx",
+          "tool": "edit",
+          "state": {
+            "status": "completed",
+            "input": {
+              "filePath": "__DIRECTORY__/a.ts",
+              "oldString": "'x'",
+              "newString": "'y'"
+            },
+            "output": "Edit applied successfully.\n\nLSP errors detected in this file, please fix:\n<diagnostics file=\"__DIRECTORY__/a.ts\">\nERROR [1:7] Type 'string' is not assignable to type 'number'.\n</diagnostics>",
+            "title": "a.ts",
+            "metadata": {
+              "diagnostics": {
+                "__DIRECTORY__/a.ts": [
+                  {
+                    "range": {
+                      "start": {
+                        "line": 0,
+                        "character": 6
+                      },
+                      "end": {
+                        "line": 0,
+                        "character": 7
+                      }
+                    },
+                    "message": "Type 'string' is not assignable to type 'number'.",
+                    "severity": 1,
+                    "code": 2322,
+                    "source": "typescript"
+                  },
+                  {
+                    "range": {
+                      "start": {
+                        "line": 0,
+                        "character": 6
+                      },
+                      "end": {
+                        "line": 0,
+                        "character": 7
+                      }
+                    },
+                    "message": "'n' is declared but its value is never read.",
+                    "severity": 4,
+                    "code": 6133,
+                    "source": "typescript"
+                  }
+                ]
+              },
+              "diff": "Index: __DIRECTORY__/a.ts\n===================================================================\n--- __DIRECTORY__/a.ts\n+++ __DIRECTORY__/a.ts\n@@ -1,2 +1,2 @@\n-const n: number = 'x'\n+const n: number = 'y'\n export {}\n",
+              "filediff": {
+                "file": "__DIRECTORY__/a.ts",
+                "before": "const n: number = 'x'\nexport {}\n",
+                "after": "const n: number = 'y'\nexport {}\n",
+                "additions": 1,
+                "deletions": 1
+              },
+              "truncated": false
+            },
+            "time": {
+              "start": 1792276568517,
+              "end": 1792276569051
+            }
+          },
+          "metadata": {
+            "providerExecuted": false
+          },
+          "id": "prt_14c0219c4001C5WEq2Wx00fUvm",
+          "sessionID": "ses_eb3fea7bcffek9bjINhSiASkm4",
+          "messageID": "msg_14c0219ba0015ilaVztlPEUuUs"
+        },
+        {
+          "type": "step-finish",
+          "reason": "tool-calls",
+          "cost": 0,
+          "tokens": {
+            "total": 10,
+            "input": 7,
+            "output": 3,
+            "reasoning": 0,
+            "cache": {
+              "read": 0,
+              "write": 0
+            }
+          },
+          "id": "prt_14c021bdc00178or2dthQ3jI4l",
+          "sessionID": "ses_eb3fea7bcffek9bjINhSiASkm4",
+          "messageID": "msg_14c0219ba0015ilaVztlPEUuUs"
+        }
+      ]
+    },
+    {
+      "info": {
+        "role": "assistant",
+        "time": {
+          "created": 1792276569207,
+          "completed": 1792276569220
+        },
+        "parentID": "msg_14c015856001yoQ56RrccFgDBq",
+        "modelID": "gemini-fixture",
+        "providerID": "fixture",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "__DIRECTORY__",
+          "root": "__DIRECTORY__"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 10,
+          "input": 7,
+          "output": 3,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "usageStatus": "reported",
+        "finish": "stop",
+        "id": "msg_14c021c77001O0my47Ed7EA6Ql",
+        "sessionID": "ses_eb3fea7bcffek9bjINhSiASkm4"
+      },
+      "parts": [
+        {
+          "type": "step-start",
+          "id": "prt_14c021c7e001rF7Hc7wrG7zhQp",
+          "sessionID": "ses_eb3fea7bcffek9bjINhSiASkm4",
+          "messageID": "msg_14c021c77001O0my47Ed7EA6Ql"
+        },
+        {
+          "type": "text",
+          "text": "Done.",
+          "time": {
+            "start": 1792276569215,
+            "end": 1792276569217
+          },
+          "id": "prt_14c021c7f001yQds6Lfx1tzAHf",
+          "sessionID": "ses_eb3fea7bcffek9bjINhSiASkm4",
+          "messageID": "msg_14c021c77001O0my47Ed7EA6Ql"
+        },
+        {
+          "type": "step-finish",
+          "reason": "stop",
+          "cost": 0,
+          "tokens": {
+            "total": 10,
+            "input": 7,
+            "output": 3,
+            "reasoning": 0,
+            "cache": {
+              "read": 0,
+              "write": 0
+            }
+          },
+          "id": "prt_14c021c82001DYJK3JElN524U0",
+          "sessionID": "ses_eb3fea7bcffek9bjINhSiASkm4",
+          "messageID": "msg_14c021c77001O0my47Ed7EA6Ql"
+        }
+      ]
+    }
+  ]
+}

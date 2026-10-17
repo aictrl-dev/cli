@@ -1,7 +1,6 @@
 import { chmod, mkdir, readFile, realpath, writeFile } from "fs/promises"
 import { createWriteStream, existsSync, statSync } from "fs"
 import { lookup } from "mime-types"
-import { realpathSync } from "fs"
 import { dirname, join, relative } from "path"
 import { Readable } from "stream"
 import { pipeline } from "stream/promises"
@@ -97,20 +96,6 @@ export namespace Filesystem {
 
   export function mimeType(p: string): string {
     return lookup(p) || "application/octet-stream"
-  }
-
-  /**
-   * On Windows, normalize a path to its canonical casing using the filesystem.
-   * This is needed because Windows paths are case-insensitive but LSP servers
-   * may return paths with different casing than what we send them.
-   */
-  export function normalizePath(p: string): string {
-    if (process.platform !== "win32") return p
-    try {
-      return realpathSync.native(p)
-    } catch {
-      return p
-    }
   }
 
   export function windowsPath(p: string): string {
