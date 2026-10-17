@@ -17,9 +17,11 @@ const staleVersion = "0.0.1-stale-test"
 const platformName = ({ darwin: "darwin", linux: "linux", win32: "windows" } as Record<string, string>)[os.platform()]
 const platformPackage = `@aictrl/cli-${platformName ?? os.platform()}-${os.arch()}`
 
-// The advice names the host's preferred variant (plain, -baseline or -musl),
-// pinned to the wrapper's version.
-const pinnedAdvice = new RegExp(`npm install "@aictrl/cli-[^"]+@${wrapperVersion.replace(/\./g, "\\.")}"`)
+// The package spec the error advises installing. It names the host's
+// preferred variant (plain, -baseline or -musl).
+function adviceSpec(stderr: string) {
+  return stderr.match(/npm install "([^"]+)"/)?.[1]
+}
 
 async function installWrapper(projectDir: string, options: { versioned?: boolean; source?: boolean } = {}) {
   const packageDir = path.join(projectDir, "node_modules", "@aictrl", "cli")
@@ -75,7 +77,8 @@ describe.skipIf(process.platform === "win32")("npm wrapper platform binary resol
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain(`@aictrl/cli ${wrapperVersion}`)
     expect(result.stderr).toContain(`${platformPackage}@${staleVersion} at ${stale}`)
-    expect(result.stderr).toMatch(pinnedAdvice)
+    expect(adviceSpec(result.stderr)).toStartWith("@aictrl/cli-")
+    expect(adviceSpec(result.stderr)).toEndWith(`@${wrapperVersion}`)
   })
 
   test("strips control characters from a skipped package's version", async () => {
