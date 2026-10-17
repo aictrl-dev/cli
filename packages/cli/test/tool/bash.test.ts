@@ -5,7 +5,10 @@ import { BashTool, MAX_OUTPUT_BUFFER } from "../../src/tool/bash"
 import { Instance } from "../../src/project/instance"
 import { Filesystem } from "../../src/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
-import type { PermissionNext } from "../../src/permission/next"
+import { PermissionNext } from "../../src/permission/next"
+import { Agent } from "../../src/agent/agent"
+import { Session } from "../../src/session"
+import type { Config } from "../../src/config/config"
 import { Truncate } from "../../src/tool/truncation"
 
 const ctx = {
@@ -37,6 +40,107 @@ describe("tool.bash", () => {
         expect(result.metadata.exit).toBe(0)
         expect(result.metadata.output).toContain("test")
       },
+    })
+  })
+})
+
+describe("tool.bash description", () => {
+  async function description(directory: string) {
+    return Instance.provide({
+      directory,
+      fn: async () => (await BashTool.init()).description,
+    })
+  }
+
+  test("describes only the tool, with no git procedure or git policy", async () => {
+    await using tmp = await tmpdir()
+    const text = await description(tmp.path)
+    expect(text).not.toContain("# Committing changes with git")
+    expect(text).not.toContain("# Creating pull requests")
+    expect(text).not.toContain("# Git safety")
+    expect(text).not.toContain("--no-verify")
+    expect(text).not.toContain("git config")
+    expect(text).not.toContain("gh pr create")
+    expect(text).not.toContain("${")
+  })
+
+  test("inserts the working directory literally", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const nested = path.join(dir, "a$&b")
+        await Bun.write(path.join(nested, ".keep"), "")
+        return nested
+      },
+    })
+    const text = await description(tmp.extra)
+    expect(text).toContain(`All commands run in ${tmp.extra} by default`)
+  })
+})
+
+describe("tool.bash dangerous git commands", () => {
+  // Keep in sync with the "Restricting dangerous commands" example in packages/cli/README.md.
+  const permission = {
+    bash: {
+      "git push *--force*": "deny",
+      "git push -f*": "deny",
+      "git push * -f*": "deny",
+      "git * --no-verify*": "deny",
+      "git config *": "deny",
+      "git -c *": "deny",
+    },
+  } satisfies Config.Info["permission"]
+
+  type Guarded = {
+    run: (command: string) => Promise<unknown>
+    ruleset: PermissionNext.Ruleset
+  }
+
+  // Wires `ask` the way session/prompt.ts does: the agent's rules merged with the session's.
+  async function withBuildAgent(fn: (guarded: Guarded) => Promise<void>) {
+    await using tmp = await tmpdir({ git: true, config: { permission } })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const agent = await Agent.get("build")
+        const session = await Session.create({ title: "Dangerous git commands" })
+        const ruleset = PermissionNext.merge(agent.permission, session.permission ?? [])
+        const bash = await BashTool.init()
+        const guarded = {
+          ...ctx,
+          sessionID: session.id,
+          ask: (req: Omit<PermissionNext.Request, "id" | "sessionID" | "tool">) =>
+            PermissionNext.ask({ ...req, sessionID: session.id, ruleset }),
+        }
+        await fn({ run: (command) => bash.execute({ command, description: "Run git" }, guarded), ruleset })
+      },
+    })
+  }
+
+  test.each([
+    "git push --force origin main",
+    "git push --force-with-lease",
+    "git push -f",
+    "git push origin main -f",
+    "git commit --no-verify -m wip",
+    "git commit -m wip --no-verify",
+    "git push --no-verify",
+    "git config user.name someone",
+    "git config --global core.hooksPath /dev/null",
+    "git -c core.hooksPath=/dev/null commit -m wip",
+    "git status && git push --force",
+  ])("denies %s", async (command) => {
+    await withBuildAgent(async (guarded) => {
+      await expect(guarded.run(command)).rejects.toBeInstanceOf(PermissionNext.DeniedError)
+    })
+  })
+
+  test("allows other git commands", async () => {
+    await withBuildAgent(async (guarded) => {
+      const result = (await guarded.run("git status")) as { metadata: { exit: number } }
+      expect(result.metadata.exit).toBe(0)
+      for (const command of ["git push origin feature-fix", "git commit -m wip", "git log --oneline"]) {
+        expect(PermissionNext.evaluate("bash", command, guarded.ruleset).action).toBe("allow")
+      }
     })
   })
 })

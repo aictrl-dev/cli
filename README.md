@@ -74,6 +74,15 @@ In headless mode, Aictrl automatically rejects all interactive permission reques
 
 Set `AICTRL_HEADLESS=true` in your environment to force headless behavior even in pseudo-TTYs.
 
+### Restricting Dangerous Commands
+
+Tool descriptions describe tools; they are not a security boundary. Block
+dangerous commands with `permission.bash` rules, for example denying force
+pushes, hook skipping, git config changes and `git -c` overrides (`"git -c *": "deny"`,
+which also blocks harmless `-c` uses). The CLI ships no such rules by default. See the
+[configuration reference](packages/cli/README.md#restricting-dangerous-commands)
+for an example.
+
 ### Model Stream Idle Timeout
 
 Model stream idle timeouts are disabled by default. Set
