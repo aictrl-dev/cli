@@ -393,7 +393,6 @@ export const RunCommand = cmd({
       })
   },
   handler: async (args) => {
-    HeadlessRun.enable()
     const invocation = createRunInvocation(args.format === "json")
 
     async function fail(message: string, code: string, exit = 1): Promise<never> {
@@ -1100,6 +1099,8 @@ export const RunCommand = cmd({
       return await invocation.run(() => execute(createAictrlClient({ baseUrl: args.attach, directory })))
     }
 
+    // Sessions this process serves belong to the headless run until it finishes.
+    HeadlessRun.enable()
     const execution = bootstrap(process.cwd(), async () => {
       const sdk = {
         session: {
@@ -1192,6 +1193,6 @@ export const RunCommand = cmd({
       }
       await execute(sdk)
     })
-    await invocation.run(execution)
+    await invocation.run(execution).finally(() => HeadlessRun.disable())
   },
 })
