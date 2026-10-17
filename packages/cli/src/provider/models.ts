@@ -85,7 +85,7 @@ export namespace ModelsDev {
     return Flag.AICTRL_MODELS_URL || "https://models.dev"
   }
 
-  export const Data = lazy(async () => {
+  const Data = lazy(async () => {
     const result = await Filesystem.readJson(Flag.AICTRL_MODELS_PATH ?? filepath).catch(() => {})
     if (result) return result
     // @ts-ignore
@@ -123,7 +123,7 @@ export namespace ModelsDev {
     })
     if (text !== undefined) {
       await Filesystem.write(filepath, text)
-      ModelsDev.Data.reset()
+      Data.reset()
     }
   }
 }
