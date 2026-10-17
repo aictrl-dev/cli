@@ -17,6 +17,8 @@ function run(target) {
   process.exit(code)
 }
 
+// An explicit binary path is the caller's choice, so it skips the platform
+// package search and its version check below.
 const envPath = process.env.AICTRL_BIN_PATH
 if (envPath) {
   run(envPath)
@@ -148,30 +150,72 @@ const names = (() => {
   return [base]
 })()
 
-function findBinary(startDir) {
+function readPackageVersion(packageDir) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(packageDir, "package.json"), "utf8")).version
+  } catch {
+    return undefined
+  }
+}
+
+// Only a platform package of this wrapper's own release may run. An older one
+// left in an ancestor node_modules (CI images, npx caches) would otherwise run
+// silently whenever npm skipped the optional platform package.
+const wrapperVersion = readPackageVersion(path.join(scriptDir, ".."))
+
+// Every installed platform binary, nearest first. The walk starts in the
+// wrapper's own package, so its own install tree is searched before any
+// ancestor. Within one node_modules, variants keep the order of `names`.
+function findPlatformBinaries(startDir) {
+  const found = []
   let current = startDir
   for (;;) {
     const modules = path.join(current, "node_modules")
     if (fs.existsSync(modules)) {
       for (const name of names) {
-        const candidate = path.join(modules, name, "bin", binary)
-        if (fs.existsSync(candidate)) return candidate
+        const packageDir = path.join(modules, name)
+        const target = path.join(packageDir, "bin", binary)
+        if (fs.existsSync(target)) found.push({ name, packageDir, target, version: readPackageVersion(packageDir) })
       }
     }
     const parent = path.dirname(current)
     if (parent === current) {
-      return
+      return found
     }
     current = parent
   }
 }
 
-const resolved = findBinary(scriptDir)
-if (resolved) {
-  run(resolved)
+function matchesWrapperVersion(platformBinary) {
+  return wrapperVersion !== undefined && platformBinary.version === wrapperVersion
 }
 
-// No compiled binary found — fall back to running from source with Bun
+function missingBinaryMessage(skipped) {
+  const pin = wrapperVersion ? "@" + wrapperVersion : ""
+  const lines = [
+    "It seems that your package manager failed to install the right version of the aictrl CLI for your platform.",
+    `@aictrl/cli ${wrapperVersion || "(unknown version)"} needs a platform package of the same version.`,
+  ]
+  if (skipped.length > 0) {
+    lines.push("Skipped platform packages with a different version:")
+    for (const entry of skipped) lines.push(`  ${entry.name}@${entry.version || "unknown"} at ${entry.packageDir}`)
+  }
+  lines.push(`Reinstall @aictrl/cli${pin}, or install the platform package manually: npm install ${names[0]}${pin}`)
+  const otherPackages = names.slice(1).map((n) => `"${n}${pin}"`)
+  if (otherPackages.length > 0) {
+    lines.push("Other packages for this platform: " + otherPackages.join(", "))
+  }
+  lines.push("To run a specific binary instead, set AICTRL_BIN_PATH to its path.")
+  return lines.join("\n")
+}
+
+const installed = findPlatformBinaries(scriptDir)
+const matching = installed.find(matchesWrapperVersion)
+if (matching) {
+  run(matching.target)
+}
+
+// No compiled binary of this version found — fall back to running from source with Bun
 const bunEntry = path.join(scriptDir, "..", "src", "index.ts")
 if (fs.existsSync(bunEntry)) {
   const result = childProcess.spawnSync(
@@ -194,9 +238,5 @@ if (fs.existsSync(bunEntry)) {
   process.exit(typeof result.status === "number" ? result.status : 0)
 }
 
-console.error(
-  "It seems that your package manager failed to install the right version of the aictrl CLI for your platform. You can try manually installing " +
-    names.map((n) => `"${n}"`).join(" or ") +
-    " package, or install Bun (https://bun.sh) to run from source.",
-)
+console.error(missingBinaryMessage(installed))
 process.exit(1)
