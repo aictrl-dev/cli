@@ -30,11 +30,13 @@ function fixtureProvider() {
  * completed todowrite tool part in the last assistant message, and a `todo` row.
  */
 function addLegacyTodoHistory(database: string) {
-  const sqlite = new Database(database)
+  const sqlite = new Database(database, { readwrite: true })
   try {
-    const message = sqlite
+    const found = sqlite
       .query('SELECT id, session_id FROM message WHERE data LIKE \'%"role":"assistant"%\' ORDER BY id DESC LIMIT 1')
-      .get() as { id: string; session_id: string }
+      .get() as { id: string; session_id: string } | null
+    expect(found, `no assistant message in ${database}`).toBeTruthy()
+    const message = found!
     const todos = [{ content: "Check the input", status: "completed", priority: "high" }]
     const part = {
       type: "tool",
