@@ -392,6 +392,7 @@ export const RunCommand = cmd({
       })
   },
   handler: async (args) => {
+    process.env.AICTRL_HEADLESS_RUN = "true"
     const invocation = createRunInvocation(args.format === "json")
 
     async function fail(message: string, code: string, exit = 1): Promise<never> {

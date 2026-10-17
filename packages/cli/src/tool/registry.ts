@@ -111,10 +111,21 @@ export namespace ToolRegistry {
     custom.push(tool)
   }
 
+  /**
+   * todowrite keeps a progress list for someone watching the session. A headless
+   * `aictrl run` has no such reader, and the tool definition costs ~2.4k tokens on
+   * every step, so a headless run only gets it with AICTRL_ENABLE_TODO_TOOL (#155).
+   */
+  function todoEnabled() {
+    if (Flag.AICTRL_ENABLE_TODO_TOOL) return true
+    return !Flag.AICTRL_HEADLESS_RUN
+  }
+
   async function all(): Promise<Tool.Info[]> {
     const custom = await state().then((x) => x.custom)
     const config = await Config.get()
     const question = ["app", "cli", "desktop"].includes(Flag.AICTRL_CLIENT) || Flag.AICTRL_ENABLE_QUESTION_TOOL
+    const todo = todoEnabled()
 
     return [
       InvalidTool,
@@ -127,7 +138,7 @@ export namespace ToolRegistry {
       WriteTool,
       TaskTool,
       WebFetchTool,
-      TodoWriteTool,
+      ...(todo ? [TodoWriteTool] : []),
       // TodoReadTool,
       WebSearchTool,
       CodeSearchTool,

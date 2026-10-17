@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import path from "path"
 import fs from "fs/promises"
 import os from "os"
@@ -6,6 +6,7 @@ import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { ToolRegistry } from "../../src/tool/registry"
 import { Config } from "../../src/config/config"
+import { Agent } from "../../src/agent/agent"
 
 describe("tool.registry", () => {
   test("loads tools from .aictrl/tool (singular)", async () => {
@@ -177,5 +178,56 @@ describe("tool.registry", () => {
     } finally {
       await fs.unlink(evilToolPath).catch(() => {})
     }
+  })
+})
+
+describe("tool.registry todo tools (#155)", () => {
+  const keys = ["AICTRL_HEADLESS_RUN", "AICTRL_ENABLE_TODO_TOOL"] as const
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]))
+
+  afterEach(() => {
+    for (const key of keys) {
+      if (previous[key] === undefined) delete process.env[key]
+      else process.env[key] = previous[key]
+    }
+  })
+
+  function setEnv(env: Partial<Record<(typeof keys)[number], string>>) {
+    for (const key of keys) {
+      if (env[key] === undefined) delete process.env[key]
+      else process.env[key] = env[key]
+    }
+  }
+
+  async function toolIDs() {
+    await using tmp = await tmpdir()
+    return Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const agent = await Agent.get("build")
+        const tools = await ToolRegistry.tools({ providerID: "anthropic", modelID: "claude-sonnet-4" }, agent)
+        return tools.map((tool) => tool.id)
+      },
+    })
+  }
+
+  test("a headless run gets neither todowrite nor todoread", async () => {
+    setEnv({ AICTRL_HEADLESS_RUN: "true" })
+    const ids = await toolIDs()
+    expect(ids).toContain("bash")
+    expect(ids).not.toContain("todowrite")
+    expect(ids).not.toContain("todoread")
+  })
+
+  test("AICTRL_ENABLE_TODO_TOOL brings todowrite back to a headless run", async () => {
+    setEnv({ AICTRL_HEADLESS_RUN: "true", AICTRL_ENABLE_TODO_TOOL: "1" })
+    const ids = await toolIDs()
+    expect(ids).toContain("todowrite")
+    expect(ids).not.toContain("todoread")
+  })
+
+  test("sessions outside a headless run keep todowrite", async () => {
+    setEnv({})
+    expect(await toolIDs()).toContain("todowrite")
   })
 })

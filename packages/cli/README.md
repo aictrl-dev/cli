@@ -97,6 +97,10 @@ Provider failures and stream timeouts retain **1**; SIGINT/SIGTERM retain
 
 In headless mode, Aictrl automatically rejects permissions that would otherwise prompt a user.
 
+`aictrl run` leaves out the `todowrite` tool by default: its definition adds about 2.4k tokens
+to every request, and a one-shot run has nobody following a todo list. Set
+`AICTRL_ENABLE_TODO_TOOL=1` to bring it back.
+
 ## GitHub Agent
 
 Install the GitHub agent into any repository:
