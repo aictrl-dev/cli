@@ -196,7 +196,9 @@ export namespace Config {
     }
 
     if (Flag.AICTRL_PERMISSION) {
-      result.permission = mergeDeep(result.permission ?? {}, JSON.parse(Flag.AICTRL_PERMISSION))
+      const permission = JSON.parse(Flag.AICTRL_PERMISSION)
+      warnDeprecatedLsp({ permission }, "AICTRL_PERMISSION")
+      result.permission = mergeDeep(result.permission ?? {}, permission)
     }
 
     // Backwards compatibility: legacy top-level `tools` config

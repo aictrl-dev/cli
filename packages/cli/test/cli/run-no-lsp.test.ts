@@ -82,7 +82,7 @@ async function aictrl(args: string[], cwd: string, env: Record<string, string | 
     ])
     const events = stdout
       .split("\n")
-      .filter((line) => line.startsWith("{"))
+      .filter((line) => line.startsWith('{"type":'))
       .map((line) => JSON.parse(line))
     return { exit, stdout, output: stderr + stdout, events }
   } finally {
@@ -141,6 +141,18 @@ describe("headless run without the LSP subsystem (#144)", () => {
     } finally {
       model.server.stop(true)
     }
+  }, 30000)
+
+  test("an lsp rule in AICTRL_PERMISSION loads as a no-op with one deprecation warning", async () => {
+    const ws = await workspace()
+    const env = { ...ws.env, AICTRL_PERMISSION: JSON.stringify({ edit: "allow", lsp: "deny" }) }
+
+    const result = await aictrl(["--print-logs", "--log-level", "WARN", "debug", "config"], ws.repo, env)
+
+    expect(result.exit, result.output).toBe(0)
+    const warnings = result.output.split("\n").filter((line) => line.includes("lsp config is deprecated"))
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain("path=AICTRL_PERMISSION")
   }, 30000)
 
   test("a session persisted with lsp tool parts and diagnostics metadata continues", async () => {
