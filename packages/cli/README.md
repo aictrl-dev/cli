@@ -149,8 +149,10 @@ By default the `bash` tool description includes only the git safety rules:
 - never update the git config or use interactive flags (`-i`);
 - use `gh` for GitHub tasks.
 
-To include the built-in step-by-step commit and pull request procedure, set
-`git.write` in `aictrl.json`, or pass it inline with `AICTRL_CONFIG_CONTENT`:
+To use the built-in step-by-step commit and pull request procedure instead, set
+`git.write` in `aictrl.json`, or pass it inline with `AICTRL_CONFIG_CONTENT`. It
+replaces the short rules above with the full procedure and its own git safety
+protocol, as in earlier releases:
 
 ```json
 { "git": { "write": true } }

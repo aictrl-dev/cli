@@ -81,7 +81,8 @@ rules, for example: never commit, push or open a pull request unless the user
 asks, never commit secrets, never skip hooks, never force push or amend unless
 asked, and never change git config.
 The built-in commit and pull request procedure is opt-in. Enable it when your
-agents should commit or open PRs:
+agents should commit or open PRs; it replaces the short rules with the full
+procedure, which has its own safety protocol:
 
 ```json
 { "git": { "write": true } }

@@ -45,7 +45,7 @@ describe("tool.bash", () => {
 describe("tool.bash description", () => {
   // Golden copy of bash.txt as it was before the git procedure became opt-in (#156).
   // It is kept separate from the shipped assets on purpose, so the git.write test proves the
-  // opt-in reproduces that text. Update it together with any change to bash.txt or bash-git.txt.
+  // opt-in reproduces that text. Update it together with any change to bash.txt or bash-git-procedure.txt.
   const withGit = path.join(__dirname, "fixtures/bash-description-with-git.txt")
 
   async function description(config?: Partial<Config.Info>) {

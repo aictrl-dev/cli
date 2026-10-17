@@ -4,7 +4,7 @@ import { Tool } from "./tool"
 import path from "path"
 import DESCRIPTION from "./bash.txt"
 import GIT_SAFETY from "./bash-git-safety.txt"
-import GIT_PROCEDURE from "./bash-git.txt"
+import GIT_PROCEDURE from "./bash-git-procedure.txt"
 import { Log } from "../util/log"
 import { Config } from "../config/config"
 import { Instance } from "../project/instance"
@@ -92,8 +92,9 @@ async function extractEmbeddedCommands(
 }
 
 /**
- * Every run gets the git safety rules. `git.write` opts in to the full commit and
- * pull request procedure. It only changes the prompt; permission rules restrict which git commands run.
+ * By default the description carries the short git safety block. `git.write` replaces it with the
+ * full commit and pull request procedure (the pre-opt-in text, which has its own safety protocol).
+ * It only changes the prompt; permission rules restrict which git commands run.
  */
 async function gitInstructions() {
   const config = await Config.get()
@@ -108,11 +109,11 @@ export const BashTool = Tool.define("bash", async () => {
   const git = await gitInstructions()
 
   return {
-    // A replacer function inserts the git text literally, without `$` pattern expansion
+    // Replacer functions insert values literally, without `$` pattern expansion
     description: DESCRIPTION.replace("${git}", () => git)
-      .replaceAll("${directory}", Instance.directory)
-      .replaceAll("${maxLines}", String(Truncate.MAX_LINES))
-      .replaceAll("${maxBytes}", String(Truncate.MAX_BYTES)),
+      .replaceAll("${directory}", () => Instance.directory)
+      .replaceAll("${maxLines}", () => String(Truncate.MAX_LINES))
+      .replaceAll("${maxBytes}", () => String(Truncate.MAX_BYTES)),
     parameters: z.object({
       command: z.string().describe("The command to execute"),
       timeout: z.number().describe("Optional timeout in milliseconds").optional(),

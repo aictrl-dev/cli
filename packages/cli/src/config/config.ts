@@ -1133,7 +1133,7 @@ export namespace Config {
             .boolean()
             .optional()
             .describe(
-              "Include the built-in git commit and pull request procedure in the bash tool description (default: false). Only the git safety rules are included otherwise",
+              "Replace the short git safety rules in the bash tool description with the full built-in commit and pull request procedure (default: false)",
             ),
         })
         .optional(),
