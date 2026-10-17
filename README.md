@@ -98,9 +98,7 @@ resets after every stream event, so responses that keep making progress are unaf
 Tool execution (local or provider-executed) uses a ceiling twelve times the
 configured model timeout, capped at 2147483647 ms (one hour for a five-minute timeout).
 
-## Developer Workflow
-
-### MCP & Custom Tools
+## MCP & Custom Tools
 
 Aictrl supports the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
 

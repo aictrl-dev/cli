@@ -19,6 +19,8 @@ describe("removed commands (#188)", () => {
     ["github", ["github", "run", "--event", "issue_comment", "--token=abc"]],
     ["pr", ["pr", "123"]],
     ["pr", ["pr"]],
+    ["github", ["github", "--help"]],
+    ["pr", ["pr", "--version"]],
   ])("aictrl %s fails with a pointer to aictrl run", async (name, args) => {
     const { stderr, exit } = await invoke(...args)
     expect(exit).toBe(1)

@@ -113,7 +113,7 @@ Migrate residual non-git usages:
 
 - Unit tests for new `Process` methods and options.
 - Integration tests on hotspot modules.
-- Smoke tests for install, snapshot, worktree, and GitHub flows.
+- Smoke tests for install, snapshot, and worktree flows.
 - Regression checks for output parsing behavior.
 
 ## Risk mitigation
