@@ -99,6 +99,13 @@ export type AssistantMessage = {
         }
       }
     | {
+        name: "DeadlineExceededError"
+        data: {
+          message: string
+          deadline: number
+        }
+      }
+    | {
         name: "StructuredOutputError"
         data: {
           message: string
@@ -166,7 +173,7 @@ export type EventSessionStructuredOutput = {
         }
       | {
           status: "failed"
-          reason: "exhausted" | "missing" | "step_limit" | "aborted" | "error"
+          reason: "exhausted" | "missing" | "step_limit" | "deadline" | "aborted" | "error"
           attempts: number
         }
   }

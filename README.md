@@ -61,8 +61,11 @@ most N corrective turns. Serialized schemas are limited to 64 KiB, depth 64 and 
 nested objects.
 Schema mode emits exactly one terminal `structured_output` event per prompt run;
 a headless `aictrl run` has one prompt run.
-Exit codes: **0** accepted, **2** configuration error, **3** missing or invalid result;
-provider failures and stream timeouts use **1**, signals use **130**/**143**.
+Add `--deadline <ISO-8601 with offset | epoch-ms>` to give the agent one forced
+final turn to submit before that instant; if it passes without a valid result, the
+run ends `failed / deadline` instead of being killed externally.
+Exit codes: **0** accepted, **2** configuration error, **3** missing or invalid result
+or a passed deadline; provider failures and stream timeouts use **1**, signals use **130**/**143**.
 See the [full contract](packages/cli/README.md#validated-final-results)
 and [JSON event reference](EVENTS.md).
 

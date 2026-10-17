@@ -11,6 +11,7 @@ export type SessionErrorReason =
   | "provider"
   | "interrupted"
   | "terminated"
+  | "deadline"
   | "unknown"
 
 export type ClassifiedSessionError = {
@@ -31,6 +32,7 @@ export function classifySessionError(err: unknown): ClassifiedSessionError {
   if (status === 429) return { reason: "rate_limit", code: "429", message }
   if (status === 401 || status === 403) return { reason: "auth", code: String(status), message }
   if (name === "ProviderAuthError") return { reason: "auth", code: status ? String(status) : undefined, message }
+  if (name === "DeadlineExceededError") return { reason: "deadline", code: "RUN_DEADLINE_EXCEEDED", message }
   if (name === "StreamIdleTimeoutError") {
     return { reason: "timeout", code: "MODEL_STREAM_IDLE_TIMEOUT", message }
   }

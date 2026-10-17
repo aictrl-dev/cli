@@ -50,6 +50,15 @@ aictrl run --output-schema result.schema.json --output-schema-retries 2 \
 - `--output-result <file>`: atomically write only the validated JSON value,
   indented with two spaces and a trailing newline. Failures preserve an existing
   file and leave an absent file absent. The destination directory must exist.
+- `--deadline <instant>`: wall-clock limit for the run, as an ISO-8601 date-time
+  with an offset (`2026-10-17T12:00:00Z`) or epoch milliseconds; invalid or past
+  values fail with `INVOCATION_INVALID_ARGUMENTS`. When the time left after a step
+  drops below a wrap-up margin (twice the slowest step so far, at least one minute,
+  at most a fifth of the run's window), the next turn forces `StructuredOutput`
+  once with a short reminder; it counts as an ordinary attempt. If the deadline
+  passes first, the in-flight step is aborted and the run ends
+  `failed / deadline` with exit **3**. Without `--output-schema` the deadline only
+  stops the run (`session_error` reason `deadline`, exit **1**).
 
 Relative `--output-schema` and `--output-result` paths resolve against `--dir` when
 it is given (as `--file` paths do); configuration errors print the resolved path.
@@ -88,7 +97,8 @@ a reminder to call StructuredOutput while retries remain. Earlier tools are not
 replayed for corrective turns.
 
 Exit codes: **0** for accepted results, **2** for schema configuration errors,
-**3** for exhausted corrective turns, missing output or a step limit without a result.
+**3** for exhausted corrective turns, missing output, a step limit or a passed
+deadline without a result.
 Provider failures and stream timeouts retain **1**; SIGINT/SIGTERM retain
 **130**/**143**. Invocations without `--output-schema` keep their existing output.
 

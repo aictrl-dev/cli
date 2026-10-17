@@ -13,7 +13,7 @@ When the parsed `aictrl run --format json` handler starts, the CLI emits newline
 
 `invocationID` is present on every event from `run --format json`. `sessionID` is present only after a real session has been created; invocation events never fabricate one.
 
-The schema is versioned via `invocation_start.schemaVersion` and `session_start.schemaVersion`. This document describes **schema version `"1"`**. Consumers should pin to this version and treat unknown fields and event types as forward-compatible additions. The `retry` event is an additive event type, so `SCHEMA_VERSION` remains `"1"`.
+The schema is versioned via `invocation_start.schemaVersion` and `session_start.schemaVersion`. This document describes **schema version `"1"`**. Consumers should pin to this version and treat unknown fields and event types as forward-compatible additions. Enumerated string values, such as `session_error.reason` and `structured_output.reason`, are open sets: v1 can add values (`deadline` was added this way), so treat an unknown value as an unclassified failure. The `retry` event is an additive event type, so `SCHEMA_VERSION` remains `"1"`.
 
 The invocation envelope covers accepted `run --format json` executions from the first line of the parsed handler through validation, bootstrap, session creation, and execution. Argument-parser failures, other commands, and process-global uncaught exceptions or unhandled rejections are outside this contract.
 
@@ -172,8 +172,8 @@ Emitted immediately before `session_complete` when the session terminates abnorm
 }
 ```
 
-- `reason` (string, **required**) — one of `rate_limit`, `usage_limit`, `auth`, `timeout`, `oom`, `provider`, `interrupted`, `terminated`, `unknown`. A model stream idle timeout produces `timeout`; `SIGINT` produces `interrupted`; `SIGTERM` produces `terminated`. Signals are not inferred to be timeouts. The set is open: consumers should treat an unrecognised reason like `unknown`.
-- `code` (string, optional) — provider HTTP status code, error code, or conventional signal-derived exit code (`130` for `SIGINT`, `143` for `SIGTERM`) when available. A model stream idle timeout emits `MODEL_STREAM_IDLE_TIMEOUT` and persists a `StreamIdleTimeoutError` on the assistant message. A provider usage limit emits `PROVIDER_USAGE_LIMIT`.
+- `reason` (string, **required**) — one of `rate_limit`, `usage_limit`, `auth`, `timeout`, `oom`, `provider`, `interrupted`, `terminated`, `deadline`, `unknown`. A model stream idle timeout produces `timeout`; `SIGINT` produces `interrupted`; `SIGTERM` produces `terminated`; a passed `--deadline` produces `deadline`. Signals are not inferred to be timeouts. The set is open: consumers should treat an unrecognised reason like `unknown`.
+- `code` (string, optional) — provider HTTP status code, error code, or conventional signal-derived exit code (`130` for `SIGINT`, `143` for `SIGTERM`) when available. A model stream idle timeout emits `MODEL_STREAM_IDLE_TIMEOUT` and persists a `StreamIdleTimeoutError` on the assistant message. A provider usage limit emits `PROVIDER_USAGE_LIMIT`. A passed `--deadline` emits `RUN_DEADLINE_EXCEEDED`; when it stops a model step, that step's assistant message carries a `DeadlineExceededError` (`data.deadline` is the epoch-ms instant).
 - `message` (string, **required**) — human-readable error message.
 - `resetAt` (number, optional) — for `usage_limit`, when the provider said the limit resets, in Unix milliseconds. It comes from `Retry-After` / `retry-after-ms`, or from the reset time in a Z.ai quota message. Omitted when the provider gave no reset time the CLI can read, or one too far away to be a valid date.
 
@@ -635,6 +635,23 @@ StructuredOutput call, that call is the step's attempt: no `rejected` diagnostic
 is added, but the corrective reminder still follows. Both corrective turns force
 the StructuredOutput tool choice. Without `--output-schema`, a rejected tool
 call still ends the run.
+`--deadline <instant>` (ISO-8601 date-time with an offset, or epoch milliseconds)
+sets a wall-clock limit for the run (#138); an invalid or past value fails
+validation with `INVOCATION_INVALID_ARGUMENTS`. After each step, when the time left
+falls below a wrap-up margin, the next turn forces the StructuredOutput tool
+choice once, with the reminder
+`Time is nearly up. Using what you already have, write the final result as JSON to a file in the working directory, then call StructuredOutput with its path now`.
+The margin is twice the slowest step so far, at least one minute and at most a
+fifth of the time between the run's start and the deadline. Running tools finish
+first; the wrap-up turn is an ordinary attempt against the corrective budget, so
+validation and repair still apply, and no extra `structured_output_rejected` is
+emitted for it. A corrective turn that is already due goes first; the wrap-up
+follows after the next step that needs no correction. When
+the deadline passes, the in-flight step (model stream and running tools) is
+aborted, `session_error` reports `deadline`, the terminal event is
+`{ "status": "failed", "reason": "deadline" }` and the process exits 3. Without
+`--output-schema`, `--deadline` only stops the run: no wrap-up turn,
+`session_error` reason `deadline`, exit 1.
 Other tools remain usable until a valid final result; their outputs are not final
 results. Only the `{ path }` tool schema is sent to the provider; local validation
 of the file always uses the canonical schema.
@@ -671,6 +688,7 @@ Failure reasons are:
 - `missing`: prose finishes or rejected tool calls spent the budget, or the
   session ended normally without an accepted result.
 - `step_limit`: the agent reached its configured step cap without a result.
+- `deadline`: the `--deadline` instant passed without an accepted result.
 - `aborted`: the invocation was cancelled, including SIGINT/SIGTERM.
 - `error`: a provider or session error, including stream idle timeout or an
   invalid accepted result received from a remote session.
@@ -680,7 +698,7 @@ Configuration failures happen before a session starts and use the existing
 `invocation_error`/`invocation_complete` envelope, with code `OUTPUT_SCHEMA_CONFIG` and the specific cause clipped to 300 characters.
 
 Exit codes are **0** on accepted results, **2** for schema configuration errors,
-**3** for exhausted attempts, missing output and step limits. Provider errors and
+**3** for exhausted attempts, missing output, step limits and a passed deadline. Provider errors and
 timeouts keep **1**; SIGINT and SIGTERM keep **130** and **143**.
 `StructuredOutputError.data.retries` records the number of corrective
 attempts used (initial attempt excluded), including corrective turns after a

@@ -37,6 +37,14 @@ export namespace MessageV2 {
       timeout: z.number(),
     }),
   )
+  // The run's --deadline passed before it finished (#138); `deadline` is the epoch-ms instant.
+  export const DeadlineError = NamedError.create(
+    "DeadlineExceededError",
+    z.object({
+      message: z.string(),
+      deadline: z.number(),
+    }),
+  )
   export const StructuredOutputError = NamedError.create(
     "StructuredOutputError",
     z.object({
@@ -411,6 +419,7 @@ export namespace MessageV2 {
         OutputLengthError.Schema,
         AbortedError.Schema,
         StreamIdleTimeoutError.Schema,
+        DeadlineError.Schema,
         StructuredOutputError.Schema,
         ContextOverflowError.Schema,
         APIError.Schema,
@@ -846,6 +855,8 @@ export namespace MessageV2 {
           },
         ).toObject()
       case MessageV2.StreamIdleTimeoutError.isInstance(e):
+        return e.toObject()
+      case MessageV2.DeadlineError.isInstance(e):
         return e.toObject()
       case MessageV2.OutputLengthError.isInstance(e):
         return e

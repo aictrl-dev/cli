@@ -40,6 +40,7 @@ import { Tool } from "@/tool/tool"
 import { PermissionNext } from "@/permission/next"
 import { SessionStatus } from "./status"
 import { LLM } from "./llm"
+import { Deadline } from "./deadline"
 import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
 import { Truncate } from "@/tool/truncation"
@@ -59,6 +60,8 @@ const STRUCTURED_OUTPUT_MISSING =
   "write the final result as JSON to a file in the working directory, then call StructuredOutput with its path"
 
 const STRUCTURED_OUTPUT_REJECTED = `a tool call was rejected; ${STRUCTURED_OUTPUT_MISSING}`
+
+const STRUCTURED_OUTPUT_WRAP_UP = `Time is nearly up. Using what you already have, ${STRUCTURED_OUTPUT_MISSING} now`
 
 const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested structured output. Write your final result as JSON to a file in the working directory, then call the StructuredOutput tool with that file's path. Do NOT respond with plain text.`
 
@@ -152,6 +155,7 @@ export namespace SessionPrompt {
         "@deprecated tools and permissions have been merged, you can set permissions on the session itself now",
       ),
     format: MessageV2.Format.optional(),
+    deadline: Deadline.Input,
     system: z.string().optional(),
     variant: z.string().optional(),
     parts: z.array(
@@ -227,7 +231,7 @@ export namespace SessionPrompt {
       return message
     }
 
-    return loop({ sessionID: input.sessionID })
+    return loop({ sessionID: input.sessionID, deadline: input.deadline })
   })
 
   export async function resolvePromptParts(template: string): Promise<PromptInput["parts"]> {
@@ -323,12 +327,13 @@ export namespace SessionPrompt {
   export const LoopInput = z.object({
     sessionID: Identifier.schema("session"),
     resume_existing: z.boolean().optional(),
+    deadline: Deadline.Input,
   })
   export const loop = fn(LoopInput, async (input) => {
     const { sessionID, resume_existing } = input
 
-    const abort = resume_existing ? resume(sessionID) : start(sessionID, true)
-    if (!abort) {
+    const cancellation = resume_existing ? resume(sessionID) : start(sessionID, true)
+    if (!cancellation) {
       return new Promise<MessageV2.WithParts>((resolve, reject) => {
         const callbacks = state()[sessionID].callbacks
         callbacks.push({ resolve, reject })
@@ -341,6 +346,8 @@ export namespace SessionPrompt {
       // the boundary after which all terminal message events have been queued.
       SessionStatus.set(sessionID, { type: "idle" })
     })
+    using deadline = Deadline.watch(cancellation, input.deadline)
+    const abort = deadline.signal
 
     // Structured output state
     // Note: On session resumption, state is reset but outputFormat is preserved
@@ -807,6 +814,7 @@ export namespace SessionPrompt {
       }
 
       const prior = attempts
+      const begun = Date.now()
       const result = await processor.process({
         user: lastUser,
         agent,
@@ -851,6 +859,7 @@ export namespace SessionPrompt {
           : undefined,
       })
 
+      deadline.observe(Date.now() - begun)
       failed = !!processor.message.error
 
       // If structured output was captured, save it and exit immediately
@@ -898,18 +907,24 @@ export namespace SessionPrompt {
         break
       }
 
+      // Near the deadline a schema run gets one forced final turn; running tools are not cut short.
+      if (contract && result === "continue" && !reminder && deadline.wrapUp()) reminder = STRUCTURED_OUTPUT_WRAP_UP
+
       if (reminder) continue
 
       if (result === "stop") break
       continue
     }
+    // Only a deadline that ended the loop is reported, not one that passes during cleanup.
+    const expired = !outcome && deadline.expired
     await SessionCompaction.prune({ sessionID })
+    if (expired) await Bus.publish(Session.Event.Error, { sessionID, error: deadline.error })
     if (contract) {
       await Bus.publish(Session.Event.StructuredOutput, {
         sessionID,
         outcome: outcome ?? {
           status: "failed",
-          reason: abort.aborted ? "aborted" : failed ? "error" : "missing",
+          reason: expired ? "deadline" : abort.aborted ? "aborted" : failed ? "error" : "missing",
           attempts,
         },
       })
@@ -1925,6 +1940,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     arguments: z.string(),
     command: z.string(),
     format: MessageV2.Format.optional(),
+    deadline: Deadline.Input,
     variant: z.string().optional(),
     parts: z
       .array(
@@ -2083,6 +2099,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       agent: userAgent,
       parts,
       format: input.format,
+      deadline: input.deadline,
       variant: input.variant,
     })) as MessageV2.WithParts
 

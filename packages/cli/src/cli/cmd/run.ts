@@ -1,5 +1,6 @@
 import { outputSchema, outputResult, OUTPUT_SCHEMA_CONFIG, OUTPUT_CONFIG_EXIT, OUTPUT_FAILED_EXIT } from "./run.output"
 import { OutputSchema } from "@/session/output-schema"
+import { parseDeadline } from "./run.deadline"
 import type { Argv } from "yargs"
 import path from "path"
 import { pathToFileURL } from "bun"
@@ -391,6 +392,11 @@ export const RunCommand = cmd({
         type: "string",
         describe: "atomically write only the validated JSON result to this file",
       })
+      .option("deadline", {
+        type: "string",
+        describe:
+          "stop the run at this instant (ISO-8601 with offset, or epoch ms); with --output-schema the agent gets a final turn to submit first",
+      })
       .option("file", {
         alias: ["f"],
         type: "string",
@@ -464,6 +470,10 @@ export const RunCommand = cmd({
         OUTPUT_SCHEMA_CONFIG,
         OUTPUT_CONFIG_EXIT,
       )
+    })
+
+    const deadline = await (async () => parseDeadline(args.deadline))().catch((error: unknown): Promise<never> => {
+      return fail(error instanceof Error ? error.message : "Invalid --deadline", "INVOCATION_INVALID_ARGUMENTS")
     })
 
     const files: { type: "file"; url: string; filename: string; mime: string }[] = []
@@ -861,7 +871,11 @@ export const RunCommand = cmd({
               // loop drain to session.status idle and emit session_complete first.
               if (!control.current) {
                 process.exitCode = 1
-                if (props.error.name === "StructuredOutputError") {
+                // A schema run that misses its deadline ends without a result, like an exhausted one.
+                if (
+                  props.error.name === "StructuredOutputError" ||
+                  (schema && props.error.name === "DeadlineExceededError")
+                ) {
                   invalid = true
                   process.exitCode = OUTPUT_FAILED_EXIT
                 }
@@ -1091,6 +1105,7 @@ export const RunCommand = cmd({
           arguments: message,
           variant: args.variant,
           ...(schema ? { format: schema.format } : {}),
+          ...(deadline ? { deadline } : {}),
         }
         const request = sdk.session.command(input(sessionID, opts))
         await (schema ? request.catch(failed) : request)
@@ -1102,6 +1117,7 @@ export const RunCommand = cmd({
           variant: args.variant,
           parts: [...files, { type: "text", text: message }],
           ...(schema ? { format: schema.format } : {}),
+          ...(deadline ? { deadline } : {}),
         }
         const request = sdk.session.prompt(input(sessionID, opts))
         await (schema ? request.catch(failed) : request)
@@ -1182,6 +1198,7 @@ export const RunCommand = cmd({
               model: opts.model,
               variant: opts.variant,
               ...(opts.format ? { format: opts.format } : {}),
+              ...(opts.deadline ? { deadline: opts.deadline } : {}),
             })
           },
           async command(opts: any) {
@@ -1193,6 +1210,7 @@ export const RunCommand = cmd({
               model: opts.model,
               variant: opts.variant,
               ...(opts.format ? { format: opts.format } : {}),
+              ...(opts.deadline ? { deadline: opts.deadline } : {}),
             })
           },
         },

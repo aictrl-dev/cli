@@ -11,7 +11,7 @@ export namespace OutputSchema {
     z.object({ status: z.literal("accepted"), attempts: z.number(), value: z.unknown() }),
     z.object({
       status: z.literal("failed"),
-      reason: z.enum(["exhausted", "missing", "step_limit", "aborted", "error"]),
+      reason: z.enum(["exhausted", "missing", "step_limit", "deadline", "aborted", "error"]),
       attempts: z.number(),
     }),
   ])

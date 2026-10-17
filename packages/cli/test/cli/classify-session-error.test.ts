@@ -25,6 +25,19 @@ describe("classifySessionError (#63)", () => {
     })
   })
 
+  test("a passed run deadline has its own reason and code", () => {
+    expect(
+      classifySessionError({
+        name: "DeadlineExceededError",
+        data: { message: "Run deadline reached before a final result", deadline: 1792281600000 },
+      }),
+    ).toEqual({
+      reason: "deadline",
+      code: "RUN_DEADLINE_EXCEEDED",
+      message: "Run deadline reached before a final result",
+    })
+  })
+
   test("HTTP 429 → rate_limit", () => {
     const res = classifySessionError({ status: 429, message: "Rate limit exceeded" })
     expect(res.reason).toBe("rate_limit")

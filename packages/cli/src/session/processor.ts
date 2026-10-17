@@ -507,10 +507,12 @@ export namespace SessionProcessor {
             }
             if (retry === undefined) {
               input.assistantMessage.error = SessionRetry.usageLimitError(error) ?? terminal(error)
-              await Bus.publish(Session.Event.Error, {
-                sessionID: input.assistantMessage.sessionID,
-                error: input.assistantMessage.error,
-              })
+              // The loop that owns a --deadline reports it once, wherever it lands (#138).
+              if (!MessageV2.DeadlineError.isInstance(error))
+                await Bus.publish(Session.Event.Error, {
+                  sessionID: input.assistantMessage.sessionID,
+                  error: input.assistantMessage.error,
+                })
             }
           }
           const p = await MessageV2.parts(input.assistantMessage.id)
