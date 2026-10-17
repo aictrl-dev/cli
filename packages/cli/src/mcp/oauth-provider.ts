@@ -48,12 +48,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
   async clientInformation(): Promise<OAuthClientInformation | undefined> {
     // Check config first (pre-registered client)
-    if (this.config.clientId) {
-      return {
-        client_id: this.config.clientId,
-        client_secret: this.config.clientSecret,
-      }
-    }
+    if (this.config.clientId) return this.configuredClientInformation(this.config.clientId)
 
     // Check stored client info (from dynamic registration)
     // Use getForUrl to validate credentials are for the current server URL
@@ -67,6 +62,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
       return {
         client_id: entry.clientInfo.clientId,
         client_secret: entry.clientInfo.clientSecret,
+        issuer: entry.clientInfo.issuer,
       }
     }
 
@@ -75,6 +71,8 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   async saveClientInformation(info: OAuthClientInformationFull): Promise<void> {
+    if (this.config.clientId) return this.bindConfiguredClient(this.config.clientId, info)
+
     await McpAuth.updateClientInfo(
       this.mcpName,
       {
@@ -82,6 +80,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
         clientSecret: info.client_secret,
         clientIdIssuedAt: info.client_id_issued_at,
         clientSecretExpiresAt: info.client_secret_expires_at,
+        issuer: info.issuer,
       },
       this.serverUrl,
     )
@@ -89,6 +88,46 @@ export class McpOAuthProvider implements OAuthClientProvider {
       mcpName: this.mcpName,
       clientId: info.client_id,
     })
+  }
+
+  /**
+   * Configured credentials, stamped with the authorization server they were first accepted by.
+   * The SDK refuses to present a stamped client secret to any other authorization server.
+   */
+  private async configuredClientInformation(clientId: string): Promise<OAuthClientInformation> {
+    return {
+      client_id: clientId,
+      client_secret: this.config.clientSecret,
+      issuer: (await this.configuredBinding(clientId))?.issuer,
+    }
+  }
+
+  /**
+   * The stored binding of the configured client. It pins the authorization server, not the MCP
+   * server URL, so it is read regardless of the URL the entry was saved for.
+   */
+  private async configuredBinding(clientId: string): Promise<McpAuth.ClientInfo | undefined> {
+    const clientInfo = (await McpAuth.get(this.mcpName))?.clientInfo
+    if (clientInfo?.clientId !== clientId) return undefined
+    return { clientId, issuer: clientInfo.issuer }
+  }
+
+  /**
+   * Stores only the authorization-server binding of configured credentials; the secret stays
+   * in config. A different client_id means the SDK registered with another authorization server
+   * because the configured client is bound elsewhere. Abort instead of starting an authorization
+   * whose code exchange would be refused.
+   */
+  private async bindConfiguredClient(clientId: string, info: OAuthClientInformationFull): Promise<void> {
+    if (info.client_id !== clientId) {
+      const bound = (await this.configuredBinding(clientId))?.issuer
+      throw new Error(
+        `MCP server "${this.mcpName}" advertises authorization server ${info.issuer}, but its configured OAuth client ` +
+          `is bound to ${bound}. Run \`aictrl mcp logout ${this.mcpName}\` if the authorization server has moved.`,
+      )
+    }
+    await McpAuth.updateClientInfo(this.mcpName, { clientId, issuer: info.issuer }, this.serverUrl)
+    log.info("bound configured client to authorization server", { mcpName: this.mcpName, issuer: info.issuer })
   }
 
   async tokens(): Promise<OAuthTokens | undefined> {
@@ -104,6 +143,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
         ? Math.max(0, Math.floor(entry.tokens.expiresAt - Date.now() / 1000))
         : undefined,
       scope: entry.tokens.scope,
+      issuer: entry.tokens.issuer,
     }
   }
 
@@ -115,6 +155,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
         refreshToken: tokens.refresh_token,
         expiresAt: tokens.expires_in ? Date.now() / 1000 + tokens.expires_in : undefined,
         scope: tokens.scope,
+        issuer: tokens.issuer,
       },
       this.serverUrl,
     )
@@ -157,12 +198,20 @@ export class McpOAuthProvider implements OAuthClientProvider {
       return
     }
 
+    // The binding of configured credentials outlives invalidation: the secret is still in
+    // config, and dropping the binding would let the next authorization server receive it.
+    const binding = this.config.clientId ? await this.configuredBinding(this.config.clientId) : undefined
     switch (type) {
       case "all":
+        if (binding) {
+          await McpAuth.set(this.mcpName, { clientInfo: binding, serverUrl: entry.serverUrl })
+          break
+        }
         await McpAuth.remove(this.mcpName)
         break
       case "client":
-        delete entry.clientInfo
+        if (binding) entry.clientInfo = binding
+        else delete entry.clientInfo
         await McpAuth.set(this.mcpName, entry)
         break
       case "tokens":
