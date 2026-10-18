@@ -95,10 +95,6 @@ Provider failures and stream timeouts retain **1**; SIGINT/SIGTERM retain
 
 In headless mode, Aictrl automatically rejects permissions that would otherwise prompt a user.
 
-`aictrl run` does not offer the `todowrite` tool: its definition adds about 2.4k tokens to
-every request, and a one-shot run has nobody following a todo list. To track a plan, instruct
-the agent to keep one in a file.
-
 ### Skill Scope
 
 `aictrl run` lists project skills (`.aictrl/skill(s)/`, and `.claude/skills/`,
