@@ -1023,9 +1023,7 @@ export namespace Config {
       autoupdate: z
         .union([z.boolean(), z.literal("notify")])
         .optional()
-        .describe(
-          "Automatically update to the latest version. Set to true to auto-update, false to disable, or 'notify' to show update notifications",
-        ),
+        .describe("@deprecated Has no effect. aictrl never updates itself; run 'aictrl upgrade' to update"),
       disabled_providers: z.array(z.string()).optional().describe("Disable providers that are loaded automatically"),
       enabled_providers: z
         .array(z.string())

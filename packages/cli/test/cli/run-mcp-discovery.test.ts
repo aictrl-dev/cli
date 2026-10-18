@@ -184,7 +184,6 @@ describe("headless MCP discovery", () => {
             ...process.env,
             AICTRL_CONFIG_CONTENT: JSON.stringify(config),
             AICTRL_DISABLE_PROJECT_CONFIG: "true",
-            AICTRL_DISABLE_DEFAULT_PLUGINS: "true",
             AICTRL_DISABLE_MODELS_FETCH: "true",
             AICTRL_DISABLE_AUTOCOMPACT: "true",
             AICTRL_TEST_HOME: tmp.path,

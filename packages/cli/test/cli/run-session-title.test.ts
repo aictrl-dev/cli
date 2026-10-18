@@ -96,7 +96,6 @@ describe("headless run title generation (#145)", () => {
           cwd: tmp.path,
           env: {
             ...process.env,
-            AICTRL_DISABLE_DEFAULT_PLUGINS: "true",
             AICTRL_DISABLE_MODELS_FETCH: "true",
             AICTRL_DISABLE_AUTOCOMPACT: "true",
           },

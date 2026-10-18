@@ -9,7 +9,6 @@ export namespace Identifier {
     question: "que",
     user: "usr",
     part: "prt",
-    pty: "pty",
     tool: "tool",
     workspace: "wrk",
   } as const
