@@ -1,4 +1,4 @@
-import { test, expect, describe, mock, afterEach } from "bun:test"
+import { test, expect, describe, mock, afterEach, spyOn } from "bun:test"
 import { Config } from "../../src/config/config"
 import { Instance } from "../../src/project/instance"
 import { Auth } from "../../src/auth"
@@ -8,6 +8,7 @@ import fs from "fs/promises"
 import { pathToFileURL } from "url"
 import { Global } from "../../src/global"
 import { Filesystem } from "../../src/util/filesystem"
+import { Log } from "../../src/util/log"
 
 // Get managed config directory from environment (set in preload.ts)
 const managedConfigDir = process.env.AICTRL_TEST_MANAGED_CONFIG_DIR!
@@ -75,6 +76,87 @@ test("ignores legacy tui keys in aictrl config", async () => {
       expect((config as Record<string, unknown>).theme).toBeUndefined()
       expect((config as Record<string, unknown>).tui).toBeUndefined()
     },
+  })
+})
+
+describe("removed LSP config (#144)", () => {
+  async function loadWithWarnings(config: object) {
+    const warn = spyOn(Log.create({ service: "config" }), "warn")
+    await using tmp = await tmpdir({ init: (dir) => writeConfig(dir, config) })
+    try {
+      return await Instance.provide({
+        directory: tmp.path,
+        fn: async () => ({
+          config: await Config.get(),
+          lspWarnings: warn.mock.calls.filter(([message]) => String(message).includes("lsp")),
+        }),
+      })
+    } finally {
+      warn.mockRestore()
+    }
+  }
+
+  test("an lsp block and an lsp permission rule load as deprecated no-ops with one warning", async () => {
+    const { config, lspWarnings } = await loadWithWarnings({
+      model: "test/model",
+      // A custom server without `extensions` was rejected before #144; any shape is accepted now.
+      lsp: { typescript: { disabled: true }, custom: { command: ["custom-ls"] } },
+      permission: { edit: "allow", lsp: "deny" },
+    })
+
+    expect(config.model).toBe("test/model")
+    expect(config.permission?.edit).toBe("allow")
+    expect(lspWarnings).toHaveLength(1)
+  })
+
+  test("lsp: false loads with one warning", async () => {
+    const { config, lspWarnings } = await loadWithWarnings({ model: "test/model", lsp: false })
+
+    expect(config.model).toBe("test/model")
+    expect(lspWarnings).toHaveLength(1)
+  })
+
+  test("each config layer that sets lsp warns once with its own path", async () => {
+    const warn = spyOn(Log.create({ service: "config" }), "warn")
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await writeConfig(dir, { lsp: false })
+        await writeConfig(path.join(dir, ".aictrl"), { permission: { lsp: "deny" } })
+      },
+    })
+    try {
+      await Instance.provide({ directory: tmp.path, fn: () => Config.get() })
+      const paths = warn.mock.calls
+        .filter(([message]) => String(message).includes("lsp"))
+        .map(([, extra]) => extra?.path)
+      expect(paths.toSorted()).toEqual(
+        [path.join(tmp.path, ".aictrl", "aictrl.json"), path.join(tmp.path, "aictrl.json")].toSorted(),
+      )
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  test("Config.update keeps a deprecated lsp block on disk", async () => {
+    await using tmp = await tmpdir({
+      init: (dir) => writeConfig(dir, { lsp: { custom: { command: ["ls"] } } }, "config.json"),
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await Config.update({ model: "updated/model" })
+
+        const written = await Filesystem.readJson<Record<string, unknown>>(path.join(tmp.path, "config.json"))
+        expect(written.model).toBe("updated/model")
+        expect(written.lsp).toEqual({ custom: { command: ["ls"] } })
+      },
+    })
+  })
+
+  test("a config without lsp keys logs no lsp warning", async () => {
+    const { lspWarnings } = await loadWithWarnings({ model: "test/model", permission: { edit: "allow" } })
+
+    expect(lspWarnings).toHaveLength(0)
   })
 })
 

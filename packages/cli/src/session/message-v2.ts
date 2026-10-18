@@ -3,7 +3,6 @@ import z from "zod"
 import { NamedError } from "@aictrl/util/error"
 import { APICallError, convertToModelMessages, LoadAPIKeyError, type ModelMessage, type UIMessage } from "ai"
 import { Identifier } from "../id/id"
-import { LSP } from "../lsp"
 import { Snapshot } from "@/snapshot"
 import { fn } from "@/util/fn"
 import { Database, eq, desc, inArray } from "@/storage/db"
@@ -171,10 +170,24 @@ export namespace MessageV2 {
     ref: "FileSource",
   })
 
+  const Position = z.object({
+    line: z.number(),
+    character: z.number(),
+  })
+
+  const Range = z
+    .object({
+      start: Position,
+      end: Position,
+    })
+    .meta({
+      ref: "Range",
+    })
+
   export const SymbolSource = FilePartSourceBase.extend({
     type: z.literal("symbol"),
     path: z.string(),
-    range: LSP.Range,
+    range: Range,
     name: z.string(),
     kind: z.number().int(),
   }).meta({

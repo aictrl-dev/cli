@@ -3,7 +3,7 @@
 We want to make it easy for you to contribute to Aictrl. Here are the most common type of changes that get merged:
 
 - Bug fixes
-- Additional LSPs / Formatters
+- Additional formatters
 - Improvements to LLM performance
 - Support for new providers
 - Fixes for environment-specific quirks
