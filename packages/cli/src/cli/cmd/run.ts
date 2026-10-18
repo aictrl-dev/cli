@@ -24,6 +24,7 @@ import { PermissionNext } from "../../permission/next"
 import { Session } from "../../session"
 import type { MessageV2 } from "../../session/message-v2"
 import { SessionPrompt } from "../../session/prompt"
+import { Command } from "../../command"
 import { GlobalBus } from "../../bus/global"
 import { Instance } from "../../project/instance"
 import { Tool } from "../../tool/tool"
@@ -326,6 +327,17 @@ export function sessionTitle(input: {
 }
 
 /**
+ * The agent the primary session's turn runs under: SessionPrompt.command runs a
+ * command under its own agent unless the command runs as a subtask.
+ */
+async function promptAgent(agent: string | undefined, command: string | undefined) {
+  const info = command ? await Command.get(command) : undefined
+  const commandAgent = info?.agent ? await Agent.get(info.agent) : undefined
+  if (info?.agent && commandAgent && !SessionPrompt.runsAsSubtask(info, commandAgent)) return info.agent
+  return agent ?? (await Agent.defaultAgent())
+}
+
+/**
  * The ruleset this session's tool calls are evaluated against, in evaluation
  * order (the last matching rule wins): the agent's rules, which already include
  * the config `permission` rules, followed by the session's own rules — the same
@@ -333,12 +345,13 @@ export function sessionTitle(input: {
  * default agent yields no rules: the prompt then fails with a session_error
  * before any tool call runs.
  */
-async function sessionPermissions(sessionID: string, agent: string | undefined) {
+async function sessionPermissions(sessionID: string, agent: string | undefined, command: string | undefined) {
   try {
-    const info = await Agent.get(agent ?? (await Agent.defaultAgent()))
+    const info = await Agent.get(await promptAgent(agent, command))
     const session = await Session.get(sessionID)
     return PermissionNext.merge(info.permission, session.permission ?? [])
-  } catch {
+  } catch (error) {
+    Log.Default.warn("session_start permissions unresolved", { error })
     return []
   }
 }
@@ -994,7 +1007,7 @@ export const RunCommand = cmd({
         schemaVersion: SCHEMA_VERSION,
         model: args.model,
         agent: agent,
-        permissions: args.attach ? [] : await sessionPermissions(sessionID, agent),
+        permissions: args.attach ? [] : await sessionPermissions(sessionID, agent, args.command),
       })
 
       let aborted = false

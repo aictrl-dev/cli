@@ -110,6 +110,25 @@ describe("session_start.permissions (#212)", () => {
     expect(decisive(event.permissions, "bash", "rm *")?.action).toBe("allow")
   })
 
+  test("uses a --command's own agent, which the command's tool calls run under", async () => {
+    const config = {
+      agent: { title: { disable: true }, reviewer: { mode: "primary", permission: { bash: { "rm *": "allow" } } } },
+      permission: { "*": "allow", bash: { "rm *": "deny" } },
+    }
+    const inline = await sessionStart({
+      args: ["--command", "review"],
+      config: { ...config, command: { review: { template: "Review $ARGUMENTS", agent: "reviewer" } } },
+    })
+    // A subtask command runs in a child session; the primary session keeps the default agent.
+    const subtask = await sessionStart({
+      args: ["--command", "review"],
+      config: { ...config, command: { review: { template: "Review $ARGUMENTS", agent: "reviewer", subtask: true } } },
+    })
+
+    expect(decisive(inline.permissions, "bash", "rm *")?.action).toBe("allow")
+    expect(decisive(subtask.permissions, "bash", "rm *")?.action).toBe("deny")
+  })
+
   test("is still emitted when the default agent cannot be resolved", async () => {
     // The prompt reports the unknown agent as session_error; session_start must not be lost.
     const event = await sessionStart({ config: { default_agent: "missing", agent: { title: { disable: true } } } })

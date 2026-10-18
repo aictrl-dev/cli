@@ -99,7 +99,7 @@ Emitted once when the session begins.
 ```
 
 - `schemaVersion` (string, **required**) — pinned contract version. Currently `"1"`.
-- `permissions` (array, **required**) — the ruleset this session's tool calls are evaluated against, in evaluation order: the agent's built-in defaults, then the config `permission` rules, then the selected agent's own `agent.<name>.permission` rules, then the session's rules. The **last** rule whose `permission` and `pattern` match a call decides it, so a later rule overrides an earlier one. In headless mode, any call not decided by an `allow` rule is rejected. Empty with `--attach`, where the attached server owns the ruleset, and when the session or default agent cannot be resolved (the run then fails with `session_error`).
+- `permissions` (array, **required**) — the ruleset this session's tool calls are evaluated against, in evaluation order: the agent's built-in defaults, then the config `permission` rules, then the agent's own `agent.<name>.permission` rules (the `--agent` or default agent; with `--command`, the command's `agent` unless the command runs as a subtask), then the session's rules. The **last** rule whose `permission` and `pattern` match a call decides it, so a later rule overrides an earlier one. In headless mode, any call not decided by an `allow` rule is rejected. Empty with `--attach`, where the attached server owns the ruleset, and when the session or default agent cannot be resolved (the run then fails with `session_error`).
 
 ### `tool_catalog`
 

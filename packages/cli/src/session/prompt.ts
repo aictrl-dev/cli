@@ -1526,6 +1526,11 @@ export namespace SessionPrompt {
    * Does not match when preceded by word characters or backticks (to avoid email addresses and quoted references)
    */
 
+  /** Whether a command runs as a subtask in a child session instead of in the calling session. */
+  export function runsAsSubtask(command: Pick<Command.Info, "subtask">, agent: Pick<Agent.Info, "mode">) {
+    return (agent.mode === "subagent" && command.subtask !== false) || command.subtask === true
+  }
+
   export async function command(input: CommandInput) {
     log.info("command", input)
     const command = await Command.get(input.command)
@@ -1606,7 +1611,7 @@ export namespace SessionPrompt {
     const agent = await requireAgent(agentName, input.sessionID)
 
     const templateParts = await resolvePromptParts(template)
-    const isSubtask = (agent.mode === "subagent" && command.subtask !== false) || command.subtask === true
+    const isSubtask = runsAsSubtask(command, agent)
     const parts = isSubtask
       ? [
           {
