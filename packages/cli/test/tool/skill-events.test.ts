@@ -7,7 +7,8 @@ import { SkillTool } from "../../src/tool/skill"
 import { ReadTool } from "../../src/tool/read"
 import { Bus } from "../../src/bus"
 import { Session } from "../../src/session"
-import { tmpdir } from "../fixture/fixture"
+import { Skill } from "../../src/skill"
+import { tmpdir, writeSkill } from "../fixture/fixture"
 
 const baseCtx: Omit<Tool.Context, "ask"> = {
   sessionID: "test-session",
@@ -326,6 +327,43 @@ description: Skill with resources.
       })
     } finally {
       process.env.AICTRL_TEST_HOME = home
+    }
+  })
+
+  test("skill events cover only the allowlisted skills", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      init: async (dir) => {
+        for (const name of ["kept", "dropped"]) {
+          await writeSkill(path.join(dir, ".aictrl", "skill"), name)
+        }
+      },
+    })
+
+    Skill.setScope({ allow: ["kept"] })
+    try {
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const discovered: string[] = []
+          const loaded: string[] = []
+          const unsubs = [
+            Bus.subscribe(Session.Event.SkillDiscovered, (evt) => discovered.push(evt.properties.name)),
+            Bus.subscribe(Session.Event.SkillLoaded, (evt) => loaded.push(evt.properties.name)),
+          ]
+
+          const tool = await SkillTool.init({ sessionID: "test-session" })
+          await tool.execute({ name: "dropped" }, noopCtx).catch(() => {})
+          await tool.execute({ name: "kept" }, noopCtx)
+
+          for (const unsub of unsubs) unsub()
+
+          expect(discovered).toEqual(["kept"])
+          expect(loaded).toEqual(["kept"])
+        },
+      })
+    } finally {
+      Skill.setScope({})
     }
   })
 })

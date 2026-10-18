@@ -1,6 +1,6 @@
 import z from "zod"
 import path from "path"
-import os from "os"
+import fs from "fs/promises"
 import { Config } from "../config/config"
 import { Instance } from "../project/instance"
 import { NamedError } from "@aictrl/util/error"
@@ -9,6 +9,7 @@ import { Log } from "../util/log"
 import { Global } from "@/global"
 import { Filesystem } from "@/util/filesystem"
 import { Flag } from "@/flag/flag"
+import { HeadlessRun } from "@/flag/headless-run"
 import { Bus } from "@/bus"
 import { Session } from "@/session"
 import { Discovery } from "./discovery"
@@ -68,9 +69,53 @@ export namespace Skill {
   const AICTRL_SKILL_PATTERN = "{skill,skills}/**/SKILL.md"
   const SKILL_PATTERN = "**/SKILL.md"
 
+  /**
+   * Invocation-level skill scope. `aictrl run` sets it before bootstrapping, so
+   * the main session and every subagent share one scoped skill set.
+   */
+  export type Scope = {
+    /** Only these skill names are listed and loadable; replaces config `skills.allow`. */
+    allow?: string[]
+  }
+
+  let invocation: Scope = {}
+
+  /** Applies to instances created afterwards; an instance keeps the scope it was discovered with. */
+  export function setScope(next: Scope) {
+    invocation = next
+  }
+
+  /**
+   * Decides whether home-directory skills are scanned and which skill names are allowed.
+   * Headless runs skip home-directory skills; config `skills.paths` can still list them explicitly.
+   */
+  function policy(config: Config.Info) {
+    const allow = invocation.allow?.length ? invocation.allow : config.skills?.allow
+    return {
+      home: !HeadlessRun.enabled(),
+      allow: allow && new Set(allow),
+    }
+  }
+
+  /** ~/.claude, ~/.agents and ~/.opencode under both the configured and the symlink-resolved home path. */
+  async function homeRoots() {
+    const real = await fs.realpath(Global.Path.home).catch(() => Global.Path.home)
+    return [...new Set([Global.Path.home, real])].flatMap((home) => EXTERNAL_DIRS.map((dir) => path.join(home, dir)))
+  }
+
   export const state = Instance.state(async () => {
     const skills: Record<string, Info> = {}
     const dirs = new Set<string>()
+    const config = await Config.get()
+    const access = policy(config)
+    const home = EXTERNAL_DIRS.map((dir) => path.join(Global.Path.home, dir))
+    // Home skill roots to skip, however a scan reaches them, including through a symlink.
+    const skipped = new Set(access.home ? [] : await homeRoots())
+    const skip = async (root: string) => {
+      if (skipped.size === 0) return false
+      if (skipped.has(root)) return true
+      return skipped.has(await fs.realpath(root).catch(() => root))
+    }
 
     const addSkill = async (match: string) => {
       const md = await ConfigMarkdown.parse(match).catch((err) => {
@@ -86,6 +131,7 @@ export namespace Skill {
 
       const parsed = Info.pick({ name: true, description: true }).safeParse(md.data)
       if (!parsed.success) return
+      if (access.allow && !access.allow.has(parsed.data.name)) return
 
       // Warn on duplicate skill names
       if (skills[parsed.data.name]) {
@@ -136,22 +182,25 @@ export namespace Skill {
 
     // Scan external skill directories (.claude/skills/, .agents/skills/, etc.)
     // Load global (home) first, then project-level (so project-level overwrites)
-    for (const dir of EXTERNAL_DIRS) {
-      const root = path.join(Global.Path.home, dir)
+    for (const root of home) {
+      if (await skip(root)) continue
       if (!(await Filesystem.isDir(root))) continue
       await scanExternal(root, "global")
     }
 
+    // A non-git project's upward walk, or a symlinked project directory, can reach the home directories too.
     for await (const root of Filesystem.up({
       targets: EXTERNAL_DIRS,
       start: Instance.directory,
       stop: Instance.worktree,
     })) {
+      if (await skip(root)) continue
       await scanExternal(root, "project")
     }
 
-    // Scan .aictrl/skill/ directories
+    // Scan .aictrl/skill/ directories (config directories include ~/.opencode)
     for (const dir of await Config.directories()) {
+      if (await skip(dir)) continue
       const matches = await Glob.scan(AICTRL_SKILL_PATTERN, {
         cwd: dir,
         absolute: true,
@@ -164,9 +213,8 @@ export namespace Skill {
     }
 
     // Scan additional skill paths from config
-    const config = await Config.get()
     for (const skillPath of config.skills?.paths ?? []) {
-      const expanded = skillPath.startsWith("~/") ? path.join(os.homedir(), skillPath.slice(2)) : skillPath
+      const expanded = skillPath.startsWith("~/") ? path.join(Global.Path.home, skillPath.slice(2)) : skillPath
       const resolved = path.isAbsolute(expanded) ? expanded : path.join(Instance.directory, expanded)
       if (!(await Filesystem.isDir(resolved))) {
         log.warn("skill path not found", { path: resolved })
@@ -187,7 +235,8 @@ export namespace Skill {
     for (const url of config.skills?.urls ?? []) {
       const list = await Discovery.pull(url)
       for (const dir of list) {
-        dirs.add(dir)
+        // Under an allowlist, addSkill records only the allowed skills' directories.
+        if (!access.allow) dirs.add(dir)
         const matches = await Glob.scan(SKILL_PATTERN, {
           cwd: dir,
           absolute: true,
@@ -200,14 +249,24 @@ export namespace Skill {
       }
     }
 
+    for (const name of access.allow ?? []) {
+      if (!skills[name]) log.warn("allowed skill not found", { name })
+    }
+
     return {
       skills,
       dirs: Array.from(dirs),
+      allow: access.allow && Array.from(access.allow),
     }
   })
 
   export async function get(name: string) {
     return state().then((x) => x.skills[name])
+  }
+
+  /** Skill names this invocation is restricted to, or undefined when every discovered skill is allowed. */
+  export async function allowed() {
+    return state().then((x) => x.allow)
   }
 
   export async function all() {

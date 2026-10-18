@@ -30,6 +30,16 @@ function publish(ctx?: Tool.InitContext, skills?: Awaited<ReturnType<typeof Skil
   }
 }
 
+async function unavailable(name: string) {
+  // Under an allowlist, Skill.all() holds only the allowed skills that were discovered.
+  const available = await Skill.all().then((x) => x.map((skill) => skill.name).join(", ") || "none")
+  const allow = await Skill.allowed()
+  if (allow && !allow.includes(name)) {
+    return `Skill "${name}" is not in the skill allowlist for this run. Allowed skills: ${available}`
+  }
+  return `Skill "${name}" not found. Available skills: ${available}`
+}
+
 export const SkillTool = Tool.define("skill", async (ctx) => {
   const skills = await Skill.all()
   publish(ctx, skills)
@@ -85,10 +95,7 @@ export const SkillTool = Tool.define("skill", async (ctx) => {
     async execute(params: z.infer<typeof parameters>, ctx) {
       const skill = await Skill.get(params.name)
 
-      if (!skill) {
-        const available = await Skill.all().then((x) => Object.keys(x).join(", "))
-        throw new Error(`Skill "${params.name}" not found. Available skills: ${available || "none"}`)
-      }
+      if (!skill) throw new Error(await unavailable(params.name))
 
       await Plugin.trigger("skill.load", { sessionID: ctx.sessionID, name: skill.name, location: skill.location }, skill)
 
