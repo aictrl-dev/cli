@@ -339,9 +339,6 @@ aictrl auth login
 aictrl auth logout
 aictrl auth ls
 aictrl export [sessionID]
-aictrl github [command]
-aictrl github install
-aictrl github run
 aictrl import <file>
 aictrl import https://opncd.ai/s/abc123
 aictrl import session.json
@@ -626,7 +623,6 @@ zod
 24601/aictrl-zellij-namer
 angristan/aictrl-wakatime
 anomalyco/aictrl
-apps/aictrl-agent
 athal7/aictrl-devcontainers
 awesome-aictrl/awesome-aictrl
 backnotprop/plannotator

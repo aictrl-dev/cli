@@ -59,8 +59,4 @@ export namespace UI {
     }
     println(Style.TEXT_DANGER_BOLD + "Error: " + Style.TEXT_NORMAL + message)
   }
-
-  export function markdown(text: string): string {
-    return text
-  }
 }

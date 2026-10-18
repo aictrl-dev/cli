@@ -6,7 +6,6 @@ Headless execution engine for AI agent skills.
 
 - **Headless First:** Designed for automation, CI/CD, and server-side runtimes.
 - **MCP Protocol:** First-class support for [Model Context Protocol](https://modelcontextprotocol.io).
-- **GitHub Integration:** Built-in agent for GitHub PRs and Issues.
 - **ACP Support:** Implements the [Agent Client Protocol](https://github.com/agentclientprotocol/specification).
 - **Custom Tools:** Easy extensibility via TypeScript files.
 
@@ -100,29 +99,6 @@ In headless mode, Aictrl automatically rejects permissions that would otherwise 
 `aictrl run` does not offer the `todowrite` tool: its definition adds about 2.4k tokens to
 every request, and a one-shot run has nobody following a todo list. To track a plan, instruct
 the agent to keep one in a file.
-
-## GitHub Agent
-
-Install the GitHub agent into any repository:
-
-```bash
-aictrl github install
-```
-
-This adds a GitHub Action that can:
-1. Commmit and push code changes.
-2. Create and update PRs.
-3. Respond to issue comments.
-4. Review PR diffs.
-
-## Developer Helpers
-
-### Checkout PRs
-
-```bash
-aictrl pr <number>
-```
-Automatically fetches the PR branch and imports the agent session used to create it.
 
 ## Configuration
 
