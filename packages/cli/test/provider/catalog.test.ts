@@ -17,6 +17,7 @@ const BUILT_IN_PROVIDERS = [
   "cloudflare-ai-gateway",
   "cloudflare-workers-ai",
   "gitlab",
+  "google",
   "google-vertex",
   "google-vertex-anthropic",
   "kilo",

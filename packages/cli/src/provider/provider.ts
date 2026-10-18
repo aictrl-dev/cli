@@ -25,6 +25,14 @@ import { Installation } from "../installation"
 export namespace Provider {
   const log = Log.create({ service: "provider" })
 
+  // @ai-sdk/google only reads GOOGLE_GENERATIVE_AI_API_KEY. The other names are the Gemini API's own
+  // (GEMINI_API_KEY, then the generic GOOGLE_API_KEY), so the loader passes their value explicitly.
+  export const GOOGLE_AI_STUDIO_KEY_ENV = ["GOOGLE_GENERATIVE_AI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"]
+
+  function googleAIStudioKey() {
+    return GOOGLE_AI_STUDIO_KEY_ENV.map((name) => Env.get(name)).find(Boolean)
+  }
+
   // A DNS label can have 63 characters; regional hosts append "-aiplatform".
   const MAX_VERTEX_LOCATION_LENGTH = 63 - "-aiplatform".length
 
@@ -333,6 +341,12 @@ export namespace Provider {
           },
         },
       }
+    },
+    google: async (provider) => {
+      // A key stored with `auth login` reaches the SDK as provider.key and wins over env vars.
+      if ((await Auth.get(provider.id))?.type === "api") return { autoload: false }
+      const apiKey = googleAIStudioKey()
+      return { autoload: false, options: apiKey ? { apiKey } : {} }
     },
     "google-vertex": async (provider) => {
       const project = googleVertexProject(provider.options ?? {})
