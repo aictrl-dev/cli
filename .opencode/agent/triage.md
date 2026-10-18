@@ -68,10 +68,6 @@ Examples:
 - Provider integration issues
 - New, broken, or poor-quality models
 
-#### acp
-
-If the issue mentions acp support, assign acp label.
-
 #### docs
 
 Add if the issue requests better documentation or docs updates.
@@ -133,7 +129,3 @@ Determinism rules:
 - If "desktop" label is added, the tool will override assignee and randomly pick one Desktop / Web owner
 
 In all other cases, choose the team/section with the most overlap with the issue and assign a member from that team at random.
-
-ACP:
-
-- rekram1-node (assign any acp issues to rekram1-node)

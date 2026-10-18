@@ -117,8 +117,8 @@ jobs:
           # the published package only needs:
           #   - platform binary packages (regenerated below from dist/ to match
           #     the release version — otherwise stale pins ship the wrong binary)
-          #   - genuine runtime optionals like @parcel/watcher that
-          #     must be resolved at install time against the host platform
+          #   - any genuine runtime optionals that must be resolved at install
+          #     time against the host platform
           node -e "
             const fs = require('fs');
             const path = require('path');

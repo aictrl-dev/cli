@@ -16,7 +16,6 @@ import pkg from "../package.json"
 
 const singleFlag = process.argv.includes("--single") || process.env.AICTRL_BUILD_SINGLE === "true"
 const baselineFlag = process.argv.includes("--baseline")
-const skipInstall = process.argv.includes("--skip-install")
 const liteFlag = process.argv.includes("--lite")
 
 const modelsUrl = process.env.AICTRL_MODELS_URL || "https://models.dev"
@@ -154,9 +153,6 @@ const targets = singleFlag
 await $`rm -rf dist`
 
 const binaries: Record<string, string> = {}
-if (!skipInstall && !liteFlag) {
-  await $`bun install --os="*" --cpu="*" @parcel/watcher@${(pkg as any).optionalDependencies["@parcel/watcher"]}`
-}
 for (const item of targets) {
   const name = [
     pkg.name,
@@ -191,7 +187,6 @@ for (const item of targets) {
       AICTRL_VERSION: `'${Script.version}'`,
       AICTRL_MIGRATIONS: JSON.stringify(migrations),
       AICTRL_CHANNEL: `'${Script.channel}'`,
-      AICTRL_LIBC: item.os === "linux" ? `'${item.abi ?? "glibc"}'` : "",
       AICTRL_HEADLESS: liteFlag ? "'true'" : "'false'",
     },
   })

@@ -11,7 +11,7 @@ import { Filesystem } from "./util/filesystem"
 import { McpCommand } from "./cli/cmd/mcp"
 import { ExportCommand } from "./cli/cmd/export"
 import { ImportCommand } from "./cli/cmd/import"
-import { AcpCommand } from "./cli/cmd/acp"
+import { RemovedCommand } from "./cli/cmd/removed"
 import { EOL } from "os"
 import { SessionCommand } from "./cli/cmd/session"
 import { EventsCommand } from "./cli/cmd/events"
@@ -102,7 +102,6 @@ let cli = yargs(hideBin(process.argv))
     }
   })
   .usage("")
-  .command(AcpCommand)
   .command(McpCommand)
   .command(RunCommand)
   .command(ModelsCommand)
@@ -110,6 +109,7 @@ let cli = yargs(hideBin(process.argv))
   .command(ImportCommand)
   .command(SessionCommand)
   .command(EventsCommand)
+  .command(RemovedCommand("acp", "aictrl is headless-only; drive it with `aictrl run` instead."))
 
 cli = cli
   .fail((msg, err) => {

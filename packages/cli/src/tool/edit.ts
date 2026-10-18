@@ -9,7 +9,6 @@ import { Tool } from "./tool"
 import { createTwoFilesPatch, diffLines } from "diff"
 import DESCRIPTION from "./edit.txt"
 import { File } from "../file"
-import { FileWatcher } from "../file/watcher"
 import { Bus } from "../bus"
 import { FileTime } from "../file/time"
 import { Filesystem } from "../util/filesystem"
@@ -45,7 +44,6 @@ export const EditTool = Tool.define("edit", {
     let contentNew = ""
     await FileTime.withLock(filePath, async () => {
       if (params.oldString === "") {
-        const existed = await Filesystem.exists(filePath)
         contentNew = params.newString
         diff = trimDiff(createTwoFilesPatch(filePath, filePath, contentOld, contentNew))
         await ctx.ask({
@@ -60,10 +58,6 @@ export const EditTool = Tool.define("edit", {
         await Filesystem.write(filePath, params.newString)
         await Bus.publish(File.Event.Edited, {
           file: filePath,
-        })
-        await Bus.publish(FileWatcher.Event.Updated, {
-          file: filePath,
-          event: existed ? "change" : "add",
         })
         FileTime.read(ctx.sessionID, filePath)
         return
@@ -92,10 +86,6 @@ export const EditTool = Tool.define("edit", {
       await Filesystem.write(filePath, contentNew)
       await Bus.publish(File.Event.Edited, {
         file: filePath,
-      })
-      await Bus.publish(FileWatcher.Event.Updated, {
-        file: filePath,
-        event: "change",
       })
       contentNew = await Filesystem.readText(filePath)
       diff = trimDiff(

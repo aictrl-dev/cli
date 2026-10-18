@@ -136,14 +136,6 @@ const session = await client.session.create({
 })
 ```
 
-## Agent Client Protocol (ACP)
-
-Aictrl implements the [Agent Client Protocol](https://github.com/agentclientprotocol/specification), allowing other ACP-compatible agents to communicate with Aictrl headlessly.
-
-```bash
-aictrl acp
-```
-
 ## Attribution
 
 Aictrl is a fork of the [OpenCode](https://opencode.ai) project and is licensed under the MIT License.

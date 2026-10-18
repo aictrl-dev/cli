@@ -18,7 +18,6 @@ import { StatsCommand } from "./cli/cmd/stats"
 import { McpCommand } from "./cli/cmd/mcp"
 import { ExportCommand } from "./cli/cmd/export"
 import { ImportCommand } from "./cli/cmd/import"
-import { AcpCommand } from "./cli/cmd/acp"
 import { EOL } from "os"
 import { SessionCommand } from "./cli/cmd/session"
 import { DbCommand } from "./cli/cmd/db"
@@ -134,7 +133,6 @@ let cli = yargs(hideBin(process.argv))
   })
   .usage("")
   .completion("completion", "generate shell completion script")
-  .command(AcpCommand)
   .command(McpCommand)
   .command(RunCommand)
   .command(GenerateCommand)
@@ -152,6 +150,7 @@ let cli = yargs(hideBin(process.argv))
   .command(EventsCommand)
   .command(RemovedCommand("github", "Run `aictrl run` in your own workflow instead."))
   .command(RemovedCommand("pr", "Run `aictrl run` in your own workflow instead."))
+  .command(RemovedCommand("acp", "aictrl is headless-only; drive it with `aictrl run` instead."))
 
 cli = cli
   .fail((msg, err) => {

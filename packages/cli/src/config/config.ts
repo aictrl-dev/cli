@@ -989,11 +989,7 @@ export namespace Config {
         .optional()
         .describe("Command configuration, see https://aictrl.ai/docs/commands"),
       skills: Skills.optional().describe("Additional skill folder paths"),
-      watcher: z
-        .object({
-          ignore: z.array(z.string()).optional(),
-        })
-        .optional(),
+      watcher: z.unknown().optional().describe("@deprecated The file watcher was removed; this key is ignored."),
       plugin: z.string().array().optional(),
       snapshot: z
         .boolean()
@@ -1163,12 +1159,12 @@ export namespace Config {
     return load(text, { path: filepath })
   }
 
-  // Config keys of subsystems that were removed: LSP (#144), worktree snapshots (#181) and
-  // session sharing (#189; `enterprise.url` was the share service URL). The schema accepts them
-  // as no-ops and keeps them, so rewriting a config file preserves them; each config source
-  // that sets any warns once.
+  // Config keys of subsystems that were removed: LSP (#144), worktree snapshots (#181), session
+  // sharing (#189; `enterprise.url` was the share service URL) and the file watcher (#190). The
+  // schema accepts them as no-ops and keeps them, so rewriting a config file preserves them; each
+  // config source that sets any warns once.
   function removedKeys(config: Record<string, unknown>) {
-    const keys = ["lsp", "snapshot", "share", "autoshare", "enterprise"].filter((key) => key in config)
+    const keys = ["lsp", "snapshot", "share", "autoshare", "enterprise", "watcher"].filter((key) => key in config)
     if (isRecord(config.permission) && "lsp" in config.permission) keys.push("permission.lsp")
     return keys
   }

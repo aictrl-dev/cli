@@ -3,7 +3,6 @@ import * as path from "path"
 import * as fs from "fs/promises"
 import { Tool } from "./tool"
 import { Bus } from "../bus"
-import { FileWatcher } from "../file/watcher"
 import { Instance } from "../project/instance"
 import { Patch } from "../patch"
 import { createTwoFilesPatch, diffLines } from "diff"
@@ -183,8 +182,6 @@ export const ApplyPatchTool = Tool.define("apply_patch", {
     })
 
     // Apply the changes
-    const updates: Array<{ file: string; event: "add" | "change" | "unlink" }> = []
-
     for (const change of fileChanges) {
       const edited = change.type === "delete" ? undefined : (change.movePath ?? change.filePath)
       switch (change.type) {
@@ -192,12 +189,10 @@ export const ApplyPatchTool = Tool.define("apply_patch", {
           // Create parent directories (recursive: true is safe on existing/root dirs)
           await fs.mkdir(path.dirname(change.filePath), { recursive: true })
           await fs.writeFile(change.filePath, change.newContent, "utf-8")
-          updates.push({ file: change.filePath, event: "add" })
           break
 
         case "update":
           await fs.writeFile(change.filePath, change.newContent, "utf-8")
-          updates.push({ file: change.filePath, event: "change" })
           break
 
         case "move":
@@ -206,14 +201,11 @@ export const ApplyPatchTool = Tool.define("apply_patch", {
             await fs.mkdir(path.dirname(change.movePath), { recursive: true })
             await fs.writeFile(change.movePath, change.newContent, "utf-8")
             await fs.unlink(change.filePath)
-            updates.push({ file: change.filePath, event: "unlink" })
-            updates.push({ file: change.movePath, event: "add" })
           }
           break
 
         case "delete":
           await fs.unlink(change.filePath)
-          updates.push({ file: change.filePath, event: "unlink" })
           break
       }
 
@@ -222,11 +214,6 @@ export const ApplyPatchTool = Tool.define("apply_patch", {
           file: edited,
         })
       }
-    }
-
-    // Publish file change events
-    for (const update of updates) {
-      await Bus.publish(FileWatcher.Event.Updated, update)
     }
 
     // Generate output summary
