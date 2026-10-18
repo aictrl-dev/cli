@@ -11,8 +11,8 @@ import { Log } from "../util/log"
 import { NamedError } from "@aictrl/util/error"
 import z from "zod"
 import path from "path"
-import { readFileSync, readdirSync, existsSync } from "fs"
 import * as schema from "./schema"
+import { readMigrationJournal } from "./migration-journal"
 
 declare const AICTRL_MIGRATIONS: MigrationsJournal | undefined
 
@@ -36,48 +36,6 @@ export namespace Database {
     sqlite: undefined as BunDatabase | undefined,
   }
 
-  function time(tag: string) {
-    const match = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/.exec(tag)
-    if (!match) return 0
-    return Date.UTC(
-      Number(match[1]),
-      Number(match[2]) - 1,
-      Number(match[3]),
-      Number(match[4]),
-      Number(match[5]),
-      Number(match[6]),
-    )
-  }
-
-  /**
-   * Reads `migration/<timestamp>_<slug>/migration.sql` into a drizzle journal.
-   *
-   * drizzle tracks applied migrations by `name`, so it must be the directory
-   * name (as drizzle-kit uses). Databases written by older drizzle releases
-   * only stored `created_at`; drizzle backfills their names by matching that
-   * against `timestamp`, so both must stay stable for existing users.
-   */
-  export function migrations(dir: string): MigrationsJournal {
-    const dirs = readdirSync(dir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && /^\d{14}/.test(entry.name))
-      .map((entry) => entry.name)
-
-    const sql = dirs
-      .map((name) => {
-        const file = path.join(dir, name, "migration.sql")
-        if (!existsSync(file)) return
-        return {
-          sql: readFileSync(file, "utf-8"),
-          timestamp: time(name),
-          name,
-        }
-      })
-      .filter(Boolean) as MigrationsJournal
-
-    // Same order as the bundled journal in script/build.ts (sorted by name).
-    return sql.sort((a, b) => a.timestamp - b.timestamp || a.name.localeCompare(b.name))
-  }
-
   export const Client = lazy(() => {
     log.info("opening database", { path: path.join(Global.Path.data, "aictrl.db") })
 
@@ -97,7 +55,7 @@ export namespace Database {
     const entries =
       typeof AICTRL_MIGRATIONS !== "undefined"
         ? AICTRL_MIGRATIONS
-        : migrations(path.join(import.meta.dirname, "../../migration"))
+        : readMigrationJournal(path.join(import.meta.dirname, "../../migration"))
     if (entries.length > 0) {
       log.info("applying migrations", {
         count: entries.length,

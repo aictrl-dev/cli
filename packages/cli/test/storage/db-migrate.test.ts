@@ -2,10 +2,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { Database as SQLite } from "bun:sqlite"
 import path from "path"
 import { Database } from "../../src/storage/db"
+import { readMigrationJournal } from "../../src/storage/migration-journal"
 import { resetDatabase } from "../fixture/db"
 import { tmpdir } from "../fixture/fixture"
 
-const journal = Database.migrations(path.join(import.meta.dirname, "../../migration"))
+const journal = readMigrationJournal(path.join(import.meta.dirname, "../../migration"))
 
 type MigrationRow = { hash: string; created_at: number; name: string | null }
 
@@ -58,12 +59,17 @@ describe("Database migrations", () => {
   test("journal skips non-migration directories and orders same-second migrations by name", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
-        for (const name of ["20260101000000_b", "20260101000000_a", "notes"]) {
+        for (const name of ["20260101000000_b", "20260101000000_a", "20260101000000_B", "notes"]) {
           await Bun.write(path.join(dir, name, "migration.sql"), "SELECT 1;")
         }
       },
     })
-    expect(Database.migrations(tmp.path).map((m) => m.name)).toEqual(["20260101000000_a", "20260101000000_b"])
+    // Plain code-unit order, as `Array.prototype.sort()` gives (not locale collation).
+    expect(readMigrationJournal(tmp.path).map((m) => m.name)).toEqual([
+      "20260101000000_B",
+      "20260101000000_a",
+      "20260101000000_b",
+    ])
   })
 
   test("fresh database applies every migration once", () => {

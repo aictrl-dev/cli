@@ -6,7 +6,7 @@ import path from "path"
 import fs from "fs/promises"
 import { JsonMigration } from "../../src/storage/json-migration"
 import { Global } from "../../src/global"
-import { Database as AppDatabase } from "../../src/storage/db"
+import { readMigrationJournal } from "../../src/storage/migration-journal"
 import { ProjectTable } from "../../src/project/project.sql"
 import { SessionTable, MessageTable, PartTable, PermissionTable } from "../../src/session/session.sql"
 
@@ -75,8 +75,8 @@ function createTestDb() {
   const sqlite = new Database(":memory:")
   sqlite.exec("PRAGMA foreign_keys = ON")
 
-  // Apply schema migrations exactly as AppDatabase.Client does
-  migrate(drizzle({ client: sqlite }), AppDatabase.migrations(path.join(import.meta.dirname, "../../migration")))
+  // Apply schema migrations exactly as Database.Client does
+  migrate(drizzle({ client: sqlite }), readMigrationJournal(path.join(import.meta.dirname, "../../migration")))
 
   return sqlite
 }
