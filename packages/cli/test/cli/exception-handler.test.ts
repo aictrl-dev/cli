@@ -35,9 +35,12 @@ describe("exception handler exit behavior", () => {
   }, 10_000)
 
   test("unhandledRejection handler exits with code 1", async () => {
+    // Writes the message on its own, as index.ts logs it: under load, Bun sometimes
+    // leaves the message out of the first line of the stack of an error created
+    // while the script is still being evaluated.
     const script = `
       process.on("unhandledRejection", (e) => {
-        process.stderr.write(e instanceof Error ? e.stack || e.message : String(e))
+        process.stderr.write(e instanceof Error ? e.message + "\\n" + e.stack : String(e))
         process.exit(1)
       })
       // Create an unhandled rejection
