@@ -43,7 +43,7 @@ function summary(sessionID: string, parentID: string, created: number) {
 // quick succession, so they often share a millisecond. The stream must still
 // return them newest first, or filterCompacted misses the finished compaction
 // and the prompt loop runs it again.
-test("messages created in the same millisecond stream in creation order", async () => {
+test("messages created in the same millisecond stream newest first", async () => {
   await using tmp = await tmpdir()
   await Instance.provide({
     directory: tmp.path,

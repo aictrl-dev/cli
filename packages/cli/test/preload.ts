@@ -23,7 +23,7 @@ function running(pid: number) {
 }
 const stale = (await fs.readdir(os.tmpdir())).filter((name) => {
   const pid = Number(name.slice(DATA_PREFIX.length))
-  return name.startsWith(DATA_PREFIX) && Number.isInteger(pid) && pid !== process.pid && !running(pid)
+  return name.startsWith(DATA_PREFIX) && Number.isInteger(pid) && pid > 0 && pid !== process.pid && !running(pid)
 })
 // Best effort: a directory that cannot be removed now is retried by the next run.
 await Promise.all(
