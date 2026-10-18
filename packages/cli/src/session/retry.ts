@@ -79,23 +79,27 @@ export namespace SessionRetry {
     }
   }
 
+  // The provider's requested wait, if positive. A zero or negative wait counts
+  // as no hint, like a Retry-After date in the past.
   function requestedWait(error: MessageV2.APIError | undefined) {
     const headers = error?.data.responseHeaders
-    return headers ? retryAfter(headers) : undefined
+    const wait = headers ? retryAfter(headers) : undefined
+    return wait !== undefined && wait > 0 ? wait : undefined
   }
 
-  // The wait before the next attempt: the provider's requested wait, at most
-  // USAGE_LIMIT_MAX_WAIT, or else exponential backoff up to RETRY_MAX_BACKOFF.
+  // The wait before the next attempt: the provider's requested wait, or else
+  // exponential backoff up to RETRY_MAX_BACKOFF. retryable() rejects a requested
+  // wait over RETRY_MAX_WAIT, so the clamp only keeps every sleep within it.
   export function delay(attempt: number, error?: MessageV2.APIError) {
     const wait = requestedWait(error)
-    if (wait !== undefined) return Math.min(wait, USAGE_LIMIT_MAX_WAIT)
+    if (wait !== undefined) return Math.min(wait, RETRY_MAX_WAIT)
     return Math.min(RETRY_INITIAL_DELAY * Math.pow(RETRY_BACKOFF_FACTOR, attempt - 1), RETRY_MAX_BACKOFF)
   }
 
   // The longest single wait a provider can ask for and still be retried: every
   // attempt at the backoff cap (5 minutes). Any status asking for longer is not
   // retried, and a 429 asking for longer is a usage limit, not a rate limit.
-  export const USAGE_LIMIT_MAX_WAIT = MAX_RETRY_ATTEMPTS * RETRY_MAX_BACKOFF
+  export const RETRY_MAX_WAIT = MAX_RETRY_ATTEMPTS * RETRY_MAX_BACKOFF
   export const USAGE_LIMIT_CODE = "PROVIDER_USAGE_LIMIT"
 
   export type UsageLimit = {
@@ -104,16 +108,16 @@ export namespace SessionRetry {
   }
 
   // Recognises a provider usage or quota limit that will not reset soon: a 429
-  // asking for a wait over USAGE_LIMIT_MAX_WAIT, or a known quota shape.
+  // asking for a wait over RETRY_MAX_WAIT, or a known quota shape.
   export function usageLimit(error: ReturnType<NamedError["toObject"]>): UsageLimit | undefined {
     if (!MessageV2.APIError.isInstance(error)) return undefined
     if (error.data.statusCode !== 429) return undefined
     const wait = requestedWait(error)
-    if (wait !== undefined && wait > USAGE_LIMIT_MAX_WAIT) return { resetAt: resetTime(wait) }
+    if (wait !== undefined && wait > RETRY_MAX_WAIT) return { resetAt: resetTime(wait) }
     const quota = zaiUsageLimit(error)
     if (!quota) return undefined
     // A quota that resets within the bound is retried like a short rate limit.
-    if (quota.resetAt !== undefined && quota.resetAt - Date.now() <= USAGE_LIMIT_MAX_WAIT) return undefined
+    if (quota.resetAt !== undefined && quota.resetAt - Date.now() <= RETRY_MAX_WAIT) return undefined
     return quota
   }
 
@@ -190,9 +194,9 @@ export namespace SessionRetry {
     if (usageLimit(error)) return undefined
     if (MessageV2.APIError.isInstance(error)) {
       if (!error.data.isRetryable) return undefined
-      // nor will any other error whose provider asks to wait longer than a retry may
+      // nor is any other status whose provider asks for a wait over RETRY_MAX_WAIT
       const wait = requestedWait(error)
-      if (wait !== undefined && wait > USAGE_LIMIT_MAX_WAIT) return undefined
+      if (wait !== undefined && wait > RETRY_MAX_WAIT) return undefined
       return error.data.message.includes("Overloaded") ? "Provider is overloaded" : error.data.message
     }
 

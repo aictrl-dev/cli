@@ -64,6 +64,17 @@ describe("session.retry.delay", () => {
     expect(delays).toStrictEqual([2000, 4000, 8000, 16000, 30000, 30000, 30000, 30000, 30000, 30000])
   })
 
+  test.each([
+    ["retry-after", "0"],
+    ["retry-after", "-5"],
+    ["retry-after-ms", "0"],
+    ["retry-after-ms", "-1000"],
+  ])("treats a non-positive %s of %s as no hint and backs off", (header, value) => {
+    const error = apiError({ [header]: value })
+    expect(SessionRetry.delay(1, error)).toBe(2000)
+    expect(SessionRetry.delay(3, error)).toBe(8000)
+  })
+
   test("uses retry-after values longer than the backoff cap", () => {
     const error = apiError({ "retry-after": "50" })
     expect(SessionRetry.delay(1, error)).toBe(50000)
@@ -75,7 +86,7 @@ describe("session.retry.delay", () => {
     ["retry-after-ms", "Infinity"],
   ])("never waits longer than 5 minutes for %s: %s", (header, value) => {
     const error = apiError({ [header]: value })
-    expect(SessionRetry.delay(1, error)).toBe(SessionRetry.USAGE_LIMIT_MAX_WAIT)
+    expect(SessionRetry.delay(1, error)).toBe(SessionRetry.RETRY_MAX_WAIT)
   })
 
   test("sleep caps delay to max 32-bit signed integer to avoid TimeoutOverflowWarning", async () => {
@@ -243,7 +254,7 @@ describe("session.retry.usageLimit", () => {
   test.each([
     ["no reset hint", {}],
     ["a seconds-long reset", { "retry-after": "30" }],
-    ["a reset at the usage-limit bound", { "retry-after-ms": String(SessionRetry.USAGE_LIMIT_MAX_WAIT) }],
+    ["a reset at the usage-limit bound", { "retry-after-ms": String(SessionRetry.RETRY_MAX_WAIT) }],
   ])("keeps retrying a short rate limit with %s", (_, headers) => {
     const error = providerError({ statusCode: 429, body: '{"error":{"message":"Rate limit exceeded"}}', headers })
     expect(SessionRetry.usageLimit(error)).toBeUndefined()
@@ -253,7 +264,7 @@ describe("session.retry.usageLimit", () => {
   test.each([
     [503, { "retry-after": "18000" }],
     [529, { "retry-after": "18000" }],
-    [500, { "retry-after-ms": String(SessionRetry.USAGE_LIMIT_MAX_WAIT + 1) }],
+    [500, { "retry-after-ms": String(SessionRetry.RETRY_MAX_WAIT + 1) }],
   ])("fails fast without a usage limit when a %d asks for a wait over 5 minutes", (statusCode, headers) => {
     const error = providerError({ statusCode, message: "Overloaded", headers })
     expect(error.data.isRetryable).toBe(true)
@@ -265,11 +276,11 @@ describe("session.retry.usageLimit", () => {
   test("keeps retrying an overloaded provider that asks for a wait of 5 minutes", () => {
     const error = providerError({ statusCode: 503, message: "Overloaded", headers: { "retry-after": "300" } })
     expect(SessionRetry.retryable(error)).toBe("Provider is overloaded")
-    expect(SessionRetry.delay(1, error)).toBe(SessionRetry.USAGE_LIMIT_MAX_WAIT)
+    expect(SessionRetry.delay(1, error)).toBe(SessionRetry.RETRY_MAX_WAIT)
   })
 
   test("bounds the wait by the existing retry budget", () => {
-    expect(SessionRetry.USAGE_LIMIT_MAX_WAIT).toBe(SessionRetry.MAX_RETRY_ATTEMPTS * SessionRetry.RETRY_MAX_BACKOFF)
+    expect(SessionRetry.RETRY_MAX_WAIT).toBe(SessionRetry.MAX_RETRY_ATTEMPTS * SessionRetry.RETRY_MAX_BACKOFF)
   })
 
   test("builds a nonretryable terminal error that names the usage limit", () => {

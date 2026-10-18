@@ -146,7 +146,9 @@ describe("headless provider usage limits (#112)", () => {
   }, 20000)
 })
 
-describe("headless retry wait bound (#175)", () => {
+// The non-429 companion to the usage-limit cases above: a long requested wait
+// on any other status fails fast too, as a plain provider error.
+describe("headless long Retry-After on other statuses (#175)", () => {
   test("fails fast when an overloaded provider asks for a wait over 5 minutes", async () => {
     const result = await run([
       { status: 503, headers: { "retry-after": "18000" }, body: { error: { message: "Overloaded" } } },
