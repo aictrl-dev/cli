@@ -67,7 +67,6 @@ let cli = yargs(hideBin(process.argv))
 
     process.env.AGENT = "1"
     process.env.AICTRL_PID = String(process.pid)
-    process.env.AICTRL_HEADLESS = "true"
 
     Log.Default.info("aictrl-headless", {
       version: Installation.VERSION,

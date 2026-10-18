@@ -15,10 +15,6 @@ const FILES = ["AGENTS.md"]
 
 function globalFiles() {
   const files = []
-  if (process.env.AICTRL_HEADLESS === "true") {
-    files.push(path.join(Instance.directory, ".opencode", "AGENTS.md"))
-    return files
-  }
   if (Flag.AICTRL_CONFIG_DIR) {
     files.push(path.join(Flag.AICTRL_CONFIG_DIR, "AGENTS.md"))
   }

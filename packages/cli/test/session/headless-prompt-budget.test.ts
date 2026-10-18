@@ -20,9 +20,6 @@ import { alibabaProvider } from "../fixture/providers"
  */
 const HEADLESS_PREFIX_BUDGET = 29_500
 
-// The lite build's prompt contract.
-const HEADLESS_ENV = { AICTRL_HEADLESS: "true" }
-
 type Piece = { name: string; chars: number }
 
 /** System prompt pieces, assembled the way SessionPrompt and LLM.stream assemble them. */
@@ -58,23 +55,8 @@ function breakdown(pieces: Piece[]) {
 }
 
 describe("headless request prefix budget (#160)", () => {
-  const previous: Record<string, string | undefined> = {}
-
-  beforeAll(() => {
-    HeadlessRun.enable()
-    for (const [key, value] of Object.entries(HEADLESS_ENV)) {
-      previous[key] = process.env[key]
-      process.env[key] = value
-    }
-  })
-
-  afterAll(() => {
-    HeadlessRun.disable()
-    for (const [key, value] of Object.entries(previous)) {
-      if (value === undefined) delete process.env[key]
-      else process.env[key] = value
-    }
-  })
+  beforeAll(() => HeadlessRun.enable())
+  afterAll(() => HeadlessRun.disable())
 
   test("system prompt plus tool definitions stay within the budget", async () => {
     await using tmp = await tmpdir({

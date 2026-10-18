@@ -80,10 +80,6 @@ config directories (`~/.config/aictrl`, `~/.aictrl`) and config
 or set config `skills.allow` to list and load only the named skills.
 See the [full contract](packages/cli/README.md#skill-scope).
 
-### CI/CD Integration
-
-Set `AICTRL_HEADLESS=true` in your environment to force headless behavior even in pseudo-TTYs.
-
 ### Restricting Dangerous Commands
 
 Tool descriptions describe tools; they are not a security boundary. Block
