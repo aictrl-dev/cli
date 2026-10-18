@@ -178,9 +178,12 @@ function addLegacySnapshotData(input: Fixture, sessionID: string) {
       now,
       JSON.stringify({ type: "snapshot", snapshot: "1".repeat(40) }),
     )
+    // close() silently keeps the connection open while a prepared statement is live,
+    // and its deferred close can lock the database while the next run opens it.
+    insert.finalize()
     return steps.length
   } finally {
-    db.close()
+    db.close(true)
   }
 }
 
