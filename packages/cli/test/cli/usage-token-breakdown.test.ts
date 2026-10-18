@@ -110,30 +110,28 @@ describe("message_complete emit block shape (source-verified, #86)", () => {
     expect(block).toContain("write")
   })
 
-  test("emit block calls buildContextWindow (not inline ternary)", async () => {
+  // The payload is built by completedMessage() and emitted as message_complete
+  // (primary session) or subagent_message_complete (child sessions, #213).
+  async function payloadBlock() {
     const source = await Bun.file(RUN_SRC).text()
-    const emitIdx = source.indexOf('emit("message_complete"')
-    expect(emitIdx).toBeGreaterThan(-1)
-    const blockStart = Math.max(0, emitIdx - 1500)
-    const block = source.slice(blockStart, emitIdx + 200)
-    expect(block).toContain("buildContextWindow")
+    expect(source).toContain('emit("message_complete", message)')
+    const start = source.indexOf("async function completedMessage(")
+    const end = source.indexOf("\n      }\n", start)
+    expect(start).toBeGreaterThan(-1)
+    expect(end).toBeGreaterThan(start)
+    return source.slice(start, end)
+  }
+
+  test("emit block calls buildContextWindow (not inline ternary)", async () => {
+    expect(await payloadBlock()).toContain("buildContextWindow")
   })
 
   test("emit block includes context field", async () => {
-    const source = await Bun.file(RUN_SRC).text()
-    const emitIdx = source.indexOf('emit("message_complete"')
-    expect(emitIdx).toBeGreaterThan(-1)
-    // emit object spans ~400 chars; search up to closing paren
-    const block = source.slice(emitIdx, emitIdx + 500)
-    expect(block).toContain("context")
+    expect(await payloadBlock()).toContain("context,")
   })
 
   test("cost field is still emitted (not regressed)", async () => {
-    const source = await Bun.file(RUN_SRC).text()
-    const idx = source.indexOf('emit("message_complete"')
-    expect(idx).toBeGreaterThan(-1)
-    const block = source.slice(idx, idx + 800)
-    expect(block).toContain("cost:")
+    expect(await payloadBlock()).toContain("cost:")
   })
 
   test("getModel catch rethrows non-ModelNotFoundError (targeted catch, not swallow-all)", async () => {
