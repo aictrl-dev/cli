@@ -145,3 +145,19 @@ describe("headless provider usage limits (#112)", () => {
     expect(result.events.find((event) => event.type === "invocation_complete")?.status).toBe("completed")
   }, 20000)
 })
+
+describe("headless retry wait bound (#175)", () => {
+  test("fails fast when an overloaded provider asks for a wait over 5 minutes", async () => {
+    const result = await run([
+      { status: 503, headers: { "retry-after": "18000" }, body: { error: { message: "Overloaded" } } },
+    ])
+    expect(result.exit, result.output).toBe(1)
+    expect(result.requests).toBe(1)
+    expect(result.events.filter((event) => event.type === "retry")).toHaveLength(0)
+    const errors = result.events.filter((event) => event.type === "session_error")
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toMatchObject({ reason: "provider", code: "503" })
+    expect(errors[0].message).toContain("Overloaded")
+    expect(result.events.find((event) => event.type === "invocation_complete")?.status).toBe("error")
+  }, 20000)
+})
