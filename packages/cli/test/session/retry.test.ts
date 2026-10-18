@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test"
 import type { NamedError } from "@aictrl/util/error"
 import { APICallError } from "ai"
 import path from "path"
@@ -121,6 +121,185 @@ describe("session.retry.retryable", () => {
     }).toObject() as ReturnType<NamedError["toObject"]>
 
     expect(SessionRetry.retryable(error)).toBeUndefined()
+  })
+})
+
+// Z.ai GLM Coding Plan rolling-quota responses, in the exact message shape
+// seen in production. The OpenAI-compatible shape is what the
+// `zai-coding-plan` provider receives; the Anthropic-compatible shape is the
+// same quota reported through Z.ai's Anthropic endpoint. Reset times are UTC+8.
+function zaiFiveHourLimit(reset: string) {
+  return JSON.stringify({
+    error: { code: "1308", message: `Usage limit reached for 5 hour. Your limit will reset at ${reset}` },
+  })
+}
+const ZAI_RESET = "2026-06-16 19:56:23"
+const ZAI_RESET_AT = Date.parse("2026-06-16T11:56:23Z")
+const ZAI_FIVE_HOUR_LIMIT = zaiFiveHourLimit(ZAI_RESET)
+const ZAI_FIVE_HOUR_LIMIT_ANTHROPIC = JSON.stringify({
+  type: "error",
+  error: {
+    type: "rate_limit_error",
+    code: "1308",
+    message: `[1308][Usage limit reached for 5 hour. Your limit will reset at ${ZAI_RESET}]`,
+  },
+})
+const ZAI_WEEKLY_LIMIT = JSON.stringify({
+  error: { code: "1310", message: "Weekly/Monthly Limit Exhausted. Your limit will reset at 2026-06-20 00:00:00" },
+})
+const ZAI_WEEKLY_RESET_AT = Date.parse("2026-06-19T16:00:00Z")
+
+function providerError(input: {
+  statusCode: number
+  body?: string
+  headers?: Record<string, string>
+  message?: string
+}): MessageV2.APIError {
+  const body = input.body ? JSON.parse(input.body) : undefined
+  return MessageV2.fromError(
+    new APICallError({
+      message: input.message ?? body?.error?.message ?? "Too Many Requests",
+      url: "https://provider.invalid/v1/chat/completions",
+      requestBodyValues: {},
+      statusCode: input.statusCode,
+      responseHeaders: { "content-type": "application/json", ...input.headers },
+      responseBody: input.body,
+    }),
+    { providerID: "fixture" },
+  ) as MessageV2.APIError
+}
+
+describe("session.retry.usageLimit", () => {
+  // Two hours before the five-hour quota fixture resets.
+  beforeEach(() => setSystemTime(new Date(ZAI_RESET_AT - 2 * 60 * 60 * 1000)))
+  afterEach(() => setSystemTime())
+
+  test.each([
+    ["OpenAI-compatible five-hour quota", ZAI_FIVE_HOUR_LIMIT, ZAI_RESET_AT],
+    ["Anthropic-compatible five-hour quota", ZAI_FIVE_HOUR_LIMIT_ANTHROPIC, ZAI_RESET_AT],
+    ["weekly quota", ZAI_WEEKLY_LIMIT, ZAI_WEEKLY_RESET_AT],
+  ])("fails fast on the Z.ai %s with its UTC+8 reset time", (_, body, resetAt) => {
+    const error = providerError({ statusCode: 429, body })
+    expect(error.data.isRetryable).toBe(true)
+    expect(SessionRetry.usageLimit(error)).toEqual({ resetAt })
+    expect(SessionRetry.retryable(error)).toBeUndefined()
+  })
+
+  test("recognises the quota message when the provider omits the code", () => {
+    const error = providerError({
+      statusCode: 429,
+      message: `Usage limit reached for 5 hour. Your limit will reset at ${ZAI_RESET}`,
+    })
+    expect(SessionRetry.usageLimit(error)).toEqual({ resetAt: ZAI_RESET_AT })
+    expect(SessionRetry.retryable(error)).toBeUndefined()
+  })
+
+  test("keeps retrying a Z.ai quota that resets within the bound", () => {
+    setSystemTime(new Date(ZAI_RESET_AT - 2 * 60 * 1000))
+    const error = providerError({ statusCode: 429, body: ZAI_FIVE_HOUR_LIMIT })
+    expect(SessionRetry.usageLimit(error)).toBeUndefined()
+    expect(SessionRetry.retryable(error)).toBe(`Usage limit reached for 5 hour. Your limit will reset at ${ZAI_RESET}`)
+  })
+
+  test.each([
+    ["an impossible date", "2026-13-45 99:99:99"],
+    ["a rolled-over date", "2026-02-30 10:00:00"],
+    ["a truncated time", "2026-06-16 19:56"],
+  ])("fails fast without a reset time when the Z.ai reset is %s", (_, reset) => {
+    const error = providerError({ statusCode: 429, body: zaiFiveHourLimit(reset) })
+    expect(SessionRetry.usageLimit(error)).toEqual({ resetAt: undefined })
+    expect(SessionRetry.retryable(error)).toBeUndefined()
+  })
+
+  test.each([
+    ["retry-after seconds", { "retry-after": "18000" }, 18_000_000],
+    ["retry-after-ms", { "retry-after-ms": "3600000" }, 3_600_000],
+  ])("treats a 429 whose %s exceeds the usage-limit bound as a usage limit", (_, headers, wait) => {
+    const before = Date.now()
+    const limit = SessionRetry.usageLimit(providerError({ statusCode: 429, headers }))
+    expect(limit?.resetAt).toBeGreaterThanOrEqual(before + wait)
+    expect(limit?.resetAt).toBeLessThanOrEqual(Date.now() + wait)
+    expect(SessionRetry.retryable(providerError({ statusCode: 429, headers }))).toBeUndefined()
+  })
+
+  test("treats a 429 whose http-date reset is hours away as a usage limit", () => {
+    const reset = new Date(Date.now() + 3 * 60 * 60 * 1000).toUTCString()
+    const limit = SessionRetry.usageLimit(providerError({ statusCode: 429, headers: { "retry-after": reset } }))
+    expect(limit?.resetAt).toBeGreaterThan(Date.now() + 2 * 60 * 60 * 1000)
+  })
+
+  test.each([
+    ["no reset hint", {}],
+    ["a seconds-long reset", { "retry-after": "30" }],
+    ["a reset at the usage-limit bound", { "retry-after-ms": String(SessionRetry.USAGE_LIMIT_MAX_WAIT) }],
+  ])("keeps retrying a short rate limit with %s", (_, headers) => {
+    const error = providerError({ statusCode: 429, body: '{"error":{"message":"Rate limit exceeded"}}', headers })
+    expect(SessionRetry.usageLimit(error)).toBeUndefined()
+    expect(SessionRetry.retryable(error)).toBe("Rate limit exceeded")
+  })
+
+  test("keeps retrying an overloaded provider that asks for a long wait", () => {
+    const error = providerError({ statusCode: 503, message: "Overloaded", headers: { "retry-after": "18000" } })
+    expect(SessionRetry.usageLimit(error)).toBeUndefined()
+    expect(SessionRetry.retryable(error)).toBe("Provider is overloaded")
+  })
+
+  test("bounds the wait by the existing retry budget", () => {
+    expect(SessionRetry.USAGE_LIMIT_MAX_WAIT).toBe(
+      SessionRetry.MAX_RETRY_ATTEMPTS * SessionRetry.RETRY_MAX_DELAY_NO_HEADERS,
+    )
+  })
+
+  test("builds a nonretryable terminal error that names the usage limit", () => {
+    const error = providerError({ statusCode: 429, body: ZAI_FIVE_HOUR_LIMIT })
+    const terminal = SessionRetry.usageLimitError(error) as MessageV2.APIError
+    expect(terminal.name).toBe("APIError")
+    expect(terminal.data).toEqual({
+      message: `Provider usage limit reached, resets at 2026-06-16T11:56:23.000Z: Usage limit reached for 5 hour. Your limit will reset at ${ZAI_RESET}`,
+      statusCode: 429,
+      isRetryable: false,
+      metadata: { code: SessionRetry.USAGE_LIMIT_CODE, resetAt: String(ZAI_RESET_AT) },
+    })
+  })
+
+  test("builds a terminal error without a reset time when the provider gives none", () => {
+    const error = providerError({ statusCode: 429, body: zaiFiveHourLimit("soon") })
+    const terminal = SessionRetry.usageLimitError(error) as MessageV2.APIError
+    expect(terminal.data.message).toBe(
+      "Provider usage limit reached: Usage limit reached for 5 hour. Your limit will reset at soon",
+    )
+    expect(terminal.data.metadata).toEqual({ code: SessionRetry.USAGE_LIMIT_CODE })
+  })
+
+  test("includes the reset time in the terminal error when the provider sends one", () => {
+    const error = providerError({ statusCode: 429, headers: { "retry-after": "18000" } })
+    const terminal = SessionRetry.usageLimitError(error) as MessageV2.APIError
+    const resetAt = Number(terminal.data.metadata?.resetAt)
+    expect(resetAt).toBeGreaterThan(Date.now())
+    expect(terminal.data.message).toBe(
+      `Provider usage limit reached, resets at ${new Date(resetAt).toISOString()}: Too Many Requests`,
+    )
+  })
+
+  test.each([[502], [503]])("keeps the status-based retry for a quota body on a %d", (statusCode) => {
+    const error = providerError({ statusCode, body: ZAI_FIVE_HOUR_LIMIT })
+    expect(SessionRetry.usageLimit(error)).toBeUndefined()
+    expect(SessionRetry.retryable(error)).toBeDefined()
+  })
+
+  test.each(["Infinity", "1e999", "1e300"])(
+    "treats an unrepresentable retry-after-ms of %s as a usage limit without a reset time",
+    (wait) => {
+      const error = providerError({ statusCode: 429, headers: { "retry-after-ms": wait } })
+      expect(SessionRetry.usageLimit(error)).toEqual({ resetAt: undefined })
+      const terminal = SessionRetry.usageLimitError(error) as MessageV2.APIError
+      expect(terminal.data.message).toBe("Provider usage limit reached: Too Many Requests")
+      expect(terminal.data.metadata).toEqual({ code: SessionRetry.USAGE_LIMIT_CODE })
+    },
+  )
+
+  test("leaves other errors to the generic terminal path", () => {
+    expect(SessionRetry.usageLimitError(providerError({ statusCode: 400, message: "Invalid request" }))).toBeUndefined()
   })
 })
 

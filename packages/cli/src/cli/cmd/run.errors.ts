@@ -1,7 +1,10 @@
+import { SessionRetry } from "@/session/retry"
+
 export const SCHEMA_VERSION = "1"
 
 export type SessionErrorReason =
   | "rate_limit"
+  | "usage_limit"
   | "auth"
   | "timeout"
   | "oom"
@@ -14,6 +17,8 @@ export type ClassifiedSessionError = {
   reason: SessionErrorReason
   code?: string
   message: string
+  // Unix milliseconds, for a usage limit whose provider said when it resets.
+  resetAt?: number
 }
 
 export function classifySessionError(err: unknown): ClassifiedSessionError {
@@ -21,6 +26,8 @@ export function classifySessionError(err: unknown): ClassifiedSessionError {
   const status = extractStatus(err)
   const name = extractName(err)
 
+  const usageLimit = extractUsageLimit(err)
+  if (usageLimit) return { reason: "usage_limit", code: SessionRetry.USAGE_LIMIT_CODE, message, ...usageLimit }
   if (status === 429) return { reason: "rate_limit", code: "429", message }
   if (status === 401 || status === 403) return { reason: "auth", code: String(status), message }
   if (name === "ProviderAuthError") return { reason: "auth", code: status ? String(status) : undefined, message }
@@ -60,6 +67,15 @@ function extractStatus(err: unknown): number | undefined {
     if (typeof raw === "string" && /^\d+$/.test(raw)) return Number(raw)
   }
   return undefined
+}
+
+// A stored usage-limit error carries its marker and reset time in metadata.
+function extractUsageLimit(err: unknown): { resetAt?: number } | undefined {
+  if (!err || typeof err !== "object" || !("data" in err)) return undefined
+  const metadata = (err as { data?: { metadata?: Record<string, unknown> } }).data?.metadata
+  if (metadata?.code !== SessionRetry.USAGE_LIMIT_CODE) return undefined
+  const resetAt = Number(metadata.resetAt)
+  return Number.isFinite(resetAt) ? { resetAt } : {}
 }
 
 function extractName(err: unknown): string | undefined {

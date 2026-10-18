@@ -644,8 +644,8 @@ export const RunCommand = cmd({
         })
       }
 
-      function report(reason: string, code: string | undefined, message: string) {
-        output.error({ reason, code, message })
+      function report(reason: string, code: string | undefined, message: string, resetAt?: number) {
+        output.error({ reason, code, message, resetAt })
       }
 
       async function loop() {
@@ -853,7 +853,7 @@ export const RunCommand = cmd({
               // Structured session_error is the telemetry/CI channel for the
               // primary session. The legacy "error" event below is the raw
               // pass-through for both primary and child-session failures.
-              report(classified.reason, classified.code, classified.message)
+              report(classified.reason, classified.code, classified.message, classified.resetAt)
             }
             if (emit("error", { error: props.error, sourceSessionID: props.sessionID })) continue
             UI.error(err)
@@ -1005,7 +1005,7 @@ export const RunCommand = cmd({
         const classified = classifySessionError(cause)
         error ??= classified.message
         invocation.error(cause)
-        report(classified.reason, classified.code, classified.message)
+        report(classified.reason, classified.code, classified.message, classified.resetAt)
         await complete(error)
         if (control.current) {
           Log.Default.error("run failed after signal", {
