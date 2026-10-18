@@ -174,6 +174,12 @@ async function inProject<T>(fn: (dir: string) => Promise<T>): Promise<T> {
  * so execute stops before it spawns. Requests made before that one are allowed, so an earlier
  * external_directory request does not hide the bash patterns. spawn is also stubbed, and the
  * helper asserts that execution never reached it.
+ *
+ * Before asking, the tool itself runs `realpath <arg>` through Bun's `$` for the path arguments of
+ * commands such as rm, cd and cat. That only resolves paths and is not the command under test.
+ *
+ * Keep in sync with PARSED_ONLY in test/security/dangerous-test-commands.test.ts, which allows
+ * dangerous strings only as arguments to this helper and `bashPatterns`.
  */
 async function requestedPermissions(
   command: string,
