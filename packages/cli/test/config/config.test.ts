@@ -460,6 +460,29 @@ test("migrates autoshare to share field", async () => {
   })
 })
 
+test("accepts the deprecated `snapshot` key, ignores it and warns once (#181)", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await writeConfig(dir, { $schema: "https://aictrl.ai/config.json", snapshot: true })
+      await writeConfig(path.join(dir, ".aictrl"), { snapshot: false })
+    },
+  })
+  const warn = spyOn(Log.create({ service: "config" }), "warn")
+  try {
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await Config.get()
+        await Config.get()
+        const warnings = warn.mock.calls.filter(([message]) => String(message).includes("`snapshot`"))
+        expect(warnings).toEqual([["config key `snapshot` is deprecated and ignored"]])
+      },
+    })
+  } finally {
+    warn.mockRestore()
+  }
+})
+
 test("migrates mode field to agent field", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {

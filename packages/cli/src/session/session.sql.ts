@@ -1,7 +1,6 @@
 import { sqliteTable, text, integer, index, primaryKey } from "drizzle-orm/sqlite-core"
 import { ProjectTable } from "../project/project.sql"
 import type { MessageV2 } from "./message-v2"
-import type { Snapshot } from "@/snapshot"
 import type { PermissionNext } from "@/permission/next"
 import { Timestamps } from "@/storage/schema.sql"
 
@@ -22,11 +21,12 @@ export const SessionTable = sqliteTable(
     title: text().notNull(),
     version: text().notNull(),
     share_url: text(),
+    // Legacy (#181): diff summary and revert state written by older versions; no longer read.
     summary_additions: integer(),
     summary_deletions: integer(),
     summary_files: integer(),
-    summary_diffs: text({ mode: "json" }).$type<Snapshot.FileDiff[]>(),
-    revert: text({ mode: "json" }).$type<{ messageID: string; partID?: string; snapshot?: string; diff?: string }>(),
+    summary_diffs: text({ mode: "json" }).$type<unknown[]>(),
+    revert: text({ mode: "json" }).$type<unknown>(),
     permission: text({ mode: "json" }).$type<PermissionNext.Ruleset>(),
     ...Timestamps,
     time_compacting: integer(),

@@ -14,7 +14,6 @@ import { Bus } from "../bus"
 import { FileTime } from "../file/time"
 import { Filesystem } from "../util/filesystem"
 import { Instance } from "../project/instance"
-import { Snapshot } from "@/snapshot"
 import { assertExternalDirectory } from "./external-directory"
 
 function normalizeLineEndings(text: string): string {
@@ -105,7 +104,7 @@ export const EditTool = Tool.define("edit", {
       FileTime.read(ctx.sessionID, filePath)
     })
 
-    const filediff: Snapshot.FileDiff = {
+    const filediff = {
       file: filePath,
       before: contentOld,
       after: contentNew,

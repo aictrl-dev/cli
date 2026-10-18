@@ -15,14 +15,12 @@ import { Database, NotFoundError, eq, and, or, gte, isNull, desc, like, inArray,
 import type { SQL } from "../storage/db"
 import { SessionTable, MessageTable, PartTable } from "./session.sql"
 import { ProjectTable } from "../project/project.sql"
-import { Storage } from "@/storage/storage"
 import { Log } from "../util/log"
 import { MessageV2 } from "./message-v2"
 import { Instance } from "../project/instance"
 import { SessionPrompt } from "./prompt"
 import { fn } from "@/util/fn"
 import { Command } from "../command"
-import { Snapshot } from "@/snapshot"
 
 import type { Provider } from "@/provider/provider"
 import { PermissionNext } from "@/permission/next"
@@ -49,17 +47,7 @@ export namespace Session {
   type SessionRow = typeof SessionTable.$inferSelect
 
   export function fromRow(row: SessionRow): Info {
-    const summary =
-      row.summary_additions !== null || row.summary_deletions !== null || row.summary_files !== null
-        ? {
-            additions: row.summary_additions ?? 0,
-            deletions: row.summary_deletions ?? 0,
-            files: row.summary_files ?? 0,
-            diffs: row.summary_diffs ?? undefined,
-          }
-        : undefined
     const share = row.share_url ? { url: row.share_url } : undefined
-    const revert = row.revert ?? undefined
     return {
       id: row.id,
       slug: row.slug,
@@ -69,9 +57,7 @@ export namespace Session {
       parentID: row.parent_id ?? undefined,
       title: row.title,
       version: row.version,
-      summary,
       share,
-      revert,
       permission: row.permission ?? undefined,
       time: {
         created: row.time_created,
@@ -93,11 +79,6 @@ export namespace Session {
       title: info.title,
       version: info.version,
       share_url: info.share?.url,
-      summary_additions: info.summary?.additions,
-      summary_deletions: info.summary?.deletions,
-      summary_files: info.summary?.files,
-      summary_diffs: info.summary?.diffs,
-      revert: info.revert ?? null,
       permission: info.permission,
       time_created: info.time.created,
       time_updated: info.time.updated,
@@ -124,14 +105,6 @@ export namespace Session {
       workspaceID: z.string().optional(),
       directory: z.string(),
       parentID: Identifier.schema("session").optional(),
-      summary: z
-        .object({
-          additions: z.number(),
-          deletions: z.number(),
-          files: z.number(),
-          diffs: Snapshot.FileDiff.array().optional(),
-        })
-        .optional(),
       share: z
         .object({
           url: z.string(),
@@ -146,14 +119,6 @@ export namespace Session {
         archived: z.number().optional(),
       }),
       permission: PermissionNext.Ruleset.optional(),
-      revert: z
-        .object({
-          messageID: z.string(),
-          partID: z.string().optional(),
-          snapshot: z.string().optional(),
-          diff: z.string().optional(),
-        })
-        .optional(),
     })
     .meta({
       ref: "Session",
@@ -208,13 +173,6 @@ export namespace Session {
       "session.deleted",
       z.object({
         info: Info,
-      }),
-    ),
-    Diff: BusEvent.define(
-      "session.diff",
-      z.object({
-        sessionID: z.string(),
-        diff: Snapshot.FileDiff.array(),
       }),
     ),
     Error: BusEvent.define(
@@ -470,86 +428,6 @@ export namespace Session {
       })
     },
   )
-
-  export const setRevert = fn(
-    z.object({
-      sessionID: Identifier.schema("session"),
-      revert: Info.shape.revert,
-      summary: Info.shape.summary,
-    }),
-    async (input) => {
-      return Database.use((db) => {
-        const row = db
-          .update(SessionTable)
-          .set({
-            revert: input.revert ?? null,
-            summary_additions: input.summary?.additions,
-            summary_deletions: input.summary?.deletions,
-            summary_files: input.summary?.files,
-            time_updated: Date.now(),
-          })
-          .where(eq(SessionTable.id, input.sessionID))
-          .returning()
-          .get()
-        if (!row) throw new NotFoundError({ message: `Session not found: ${input.sessionID}` })
-        const info = fromRow(row)
-        Database.effect(() => Bus.publish(Event.Updated, { info }))
-        return info
-      })
-    },
-  )
-
-  export const clearRevert = fn(Identifier.schema("session"), async (sessionID) => {
-    return Database.use((db) => {
-      const row = db
-        .update(SessionTable)
-        .set({
-          revert: null,
-          time_updated: Date.now(),
-        })
-        .where(eq(SessionTable.id, sessionID))
-        .returning()
-        .get()
-      if (!row) throw new NotFoundError({ message: `Session not found: ${sessionID}` })
-      const info = fromRow(row)
-      Database.effect(() => Bus.publish(Event.Updated, { info }))
-      return info
-    })
-  })
-
-  export const setSummary = fn(
-    z.object({
-      sessionID: Identifier.schema("session"),
-      summary: Info.shape.summary,
-    }),
-    async (input) => {
-      return Database.use((db) => {
-        const row = db
-          .update(SessionTable)
-          .set({
-            summary_additions: input.summary?.additions,
-            summary_deletions: input.summary?.deletions,
-            summary_files: input.summary?.files,
-            time_updated: Date.now(),
-          })
-          .where(eq(SessionTable.id, input.sessionID))
-          .returning()
-          .get()
-        if (!row) throw new NotFoundError({ message: `Session not found: ${input.sessionID}` })
-        const info = fromRow(row)
-        Database.effect(() => Bus.publish(Event.Updated, { info }))
-        return info
-      })
-    },
-  )
-
-  export const diff = fn(Identifier.schema("session"), async (sessionID) => {
-    try {
-      return await Storage.read<Snapshot.FileDiff[]>(["session_diff", sessionID])
-    } catch {
-      return []
-    }
-  })
 
   export const messages = fn(
     z.object({

@@ -3,14 +3,12 @@ import z from "zod"
 import { NamedError } from "@aictrl/util/error"
 import { APICallError, convertToModelMessages, LoadAPIKeyError, type ModelMessage, type UIMessage } from "ai"
 import { Identifier } from "../id/id"
-import { Snapshot } from "@/snapshot"
 import { fn } from "@/util/fn"
 import { Database, eq, desc, inArray } from "@/storage/db"
 import { MessageTable, PartTable } from "./session.sql"
 import { ProviderTransform } from "@/provider/transform"
 import { ProviderTermination } from "@/provider/termination"
 import { STATUS_CODES } from "http"
-import { Storage } from "@/storage/storage"
 import { ProviderError } from "@/provider/error"
 import { iife } from "@/util/iife"
 import { type SystemError } from "bun"
@@ -103,23 +101,6 @@ export namespace MessageV2 {
     sessionID: z.string(),
     messageID: z.string(),
   })
-
-  export const SnapshotPart = PartBase.extend({
-    type: z.literal("snapshot"),
-    snapshot: z.string(),
-  }).meta({
-    ref: "SnapshotPart",
-  })
-  export type SnapshotPart = z.infer<typeof SnapshotPart>
-
-  export const PatchPart = PartBase.extend({
-    type: z.literal("patch"),
-    hash: z.string(),
-    files: z.string().array(),
-  }).meta({
-    ref: "PatchPart",
-  })
-  export type PatchPart = z.infer<typeof PatchPart>
 
   export const TextPart = PartBase.extend({
     type: z.literal("text"),
@@ -271,7 +252,6 @@ export namespace MessageV2 {
 
   export const StepStartPart = PartBase.extend({
     type: z.literal("step-start"),
-    snapshot: z.string().optional(),
   }).meta({
     ref: "StepStartPart",
   })
@@ -281,7 +261,6 @@ export namespace MessageV2 {
     type: z.literal("step-finish"),
     reason: z.string(),
     termination: ProviderTermination.Info.optional(),
-    snapshot: z.string().optional(),
     cost: z.number(),
     tokens: z.object({
       total: z.number().optional(),
@@ -388,13 +367,6 @@ export namespace MessageV2 {
       created: z.number(),
     }),
     format: Format.optional(),
-    summary: z
-      .object({
-        title: z.string().optional(),
-        body: z.string().optional(),
-        diffs: Snapshot.FileDiff.array(),
-      })
-      .optional(),
     agent: z.string(),
     model: z.object({
       providerID: z.string(),
@@ -417,8 +389,6 @@ export namespace MessageV2 {
       ToolPart,
       StepStartPart,
       StepFinishPart,
-      SnapshotPart,
-      PatchPart,
       AgentPart,
       RetryPart,
       CompactionPart,
@@ -759,6 +729,15 @@ export namespace MessageV2 {
     )
   }
 
+  /**
+   * Sessions stored before #181 can hold `patch` and `snapshot` parts from the removed
+   * worktree snapshots. Nothing reads them, so they are skipped when parts are loaded.
+   */
+  const LEGACY_PART_TYPES = new Set(["patch", "snapshot"])
+  function isLegacyPart(row: { data: { type: string } }) {
+    return LEGACY_PART_TYPES.has(row.data.type)
+  }
+
   export const stream = fn(Identifier.schema("session"), async function* (sessionID) {
     const size = 50
     let offset = 0
@@ -787,6 +766,7 @@ export namespace MessageV2 {
             .all(),
         )
         for (const row of partRows) {
+          if (isLegacyPart(row)) continue
           const part = {
             ...row.data,
             id: row.id,
@@ -816,9 +796,11 @@ export namespace MessageV2 {
     const rows = Database.use((db) =>
       db.select().from(PartTable).where(eq(PartTable.message_id, message_id)).orderBy(PartTable.id).all(),
     )
-    return rows.map(
-      (row) => ({ ...row.data, id: row.id, sessionID: row.session_id, messageID: row.message_id }) as MessageV2.Part,
-    )
+    return rows
+      .filter((row) => !isLegacyPart(row))
+      .map(
+        (row) => ({ ...row.data, id: row.id, sessionID: row.session_id, messageID: row.message_id }) as MessageV2.Part,
+      )
   })
 
   export const get = fn(
