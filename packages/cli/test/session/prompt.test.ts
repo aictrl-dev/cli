@@ -10,6 +10,7 @@ import { MessageV2 } from "../../src/session/message-v2"
 import { SessionPrompt } from "../../src/session/prompt"
 import { Log } from "../../src/util/log"
 import { tmpdir } from "../fixture/fixture"
+import { alibabaProvider } from "../fixture/providers"
 
 Log.init({ print: false })
 
@@ -313,7 +314,9 @@ describe("session.prompt removed tools", () => {
         git: true,
         config: {
           enabled_providers: ["alibaba"],
-          provider: { alibaba: { options: { apiKey: "test-key", baseURL: `${server.url.origin}/v1` } } },
+          provider: {
+            alibaba: { ...alibabaProvider, options: { apiKey: "test-key", baseURL: `${server.url.origin}/v1` } },
+          },
         },
       })
       await Instance.provide({

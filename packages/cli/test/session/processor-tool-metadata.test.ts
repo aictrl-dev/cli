@@ -112,7 +112,7 @@ describe("session processor doom loop", () => {
     await using tmp = await tmpdir({
       config: {
         enabled_providers: ["alibaba"],
-        provider: { alibaba: { options: { apiKey: "test-key" } } },
+        provider: { alibaba: { ...alibabaProvider, options: { apiKey: "test-key" } } },
       },
     })
 

@@ -822,7 +822,6 @@ describe("session.llm.stream", () => {
 
     const providerID = "alibaba"
     const modelID = "qwen-plus"
-    const fixture = await loadFixture(providerID, modelID)
 
     await using tmp = await tmpdir({
       init: async (dir) => {
@@ -833,6 +832,7 @@ describe("session.llm.stream", () => {
             enabled_providers: [providerID],
             provider: {
               [providerID]: {
+                ...CONFIG_PROVIDERS[providerID],
                 options: {
                   apiKey: "test-key",
                   baseURL: `${server.url.origin}/v1`,
@@ -847,7 +847,7 @@ describe("session.llm.stream", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const resolved = await Provider.getModel(providerID, fixture.model.id)
+        const resolved = await Provider.getModel(providerID, modelID)
         // an explicit agent allow, so the session rules must be merged after the agent's to win
         const agent = {
           name: "test",
