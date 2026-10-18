@@ -34,7 +34,8 @@ export namespace SessionProcessor {
     abort: AbortSignal
   }) {
     const toolcalls: Record<string, MessageV2.ToolPart> = {}
-    let blocked = false
+    // Tools whose rejected permission or dismissed question stopped the loop.
+    const blocked = new Set<string>()
     let attempt = 0
     let needsCompaction = false
     const retried: MessageV2.ToolPart[] = []
@@ -55,6 +56,9 @@ export namespace SessionProcessor {
     const result = {
       get message() {
         return input.assistantMessage
+      },
+      get blocked() {
+        return [...blocked]
       },
       partFromToolCall(toolCallID: string) {
         return toolcalls[toolCallID]
@@ -285,10 +289,11 @@ export namespace SessionProcessor {
                     })
 
                     if (
-                      value.error instanceof PermissionNext.RejectedError ||
-                      value.error instanceof Question.RejectedError
+                      shouldBreak &&
+                      (value.error instanceof PermissionNext.RejectedError ||
+                        value.error instanceof Question.RejectedError)
                     ) {
-                      blocked = shouldBreak
+                      blocked.add(match.tool)
                     }
                     delete toolcalls[value.toolCallId]
                   }
@@ -450,6 +455,8 @@ export namespace SessionProcessor {
             const retry = SessionRetry.retryable(error)
             if (retry !== undefined) {
               reset?.()
+              // The discarded attempt's rejections never reach the model's history.
+              blocked.clear()
               retried.push(
                 ...(await MessageV2.parts(input.assistantMessage.id)).filter(
                   (part): part is MessageV2.ToolPart => part.type === "tool" && delivered.has(part.id),
@@ -528,7 +535,7 @@ export namespace SessionProcessor {
           // status; headless consumers stop reading when they observe idle.
           await Session.updateMessage(input.assistantMessage)
           if (needsCompaction) return "compact"
-          if (blocked) return "stop"
+          if (blocked.size) return "stop"
           if (input.assistantMessage.error) return "stop"
           return "continue"
         }
