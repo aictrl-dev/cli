@@ -163,9 +163,8 @@ describe("InstructionPrompt.systemPaths aICTRL_CONFIG_DIR", () => {
 describe("InstructionPrompt URL caching", () => {
   test("URL is fetched only once per session", async () => {
     let fetchCount = 0
-    const port = 34567 + Math.floor(Math.random() * 10000)
     const server = Bun.serve({
-      port,
+      port: 0,
       fetch() {
         fetchCount++
         return new Response("cached content")
