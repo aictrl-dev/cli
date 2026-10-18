@@ -143,6 +143,34 @@ describe("google provider", () => {
     })
   })
 
+  test("does not pass the Google env key to a provider.google that uses another SDK", async () => {
+    await using tmp = await tmpdir({
+      config: {
+        provider: {
+          google: {
+            npm: "@ai-sdk/openai-compatible",
+            options: { baseURL: "https://proxy.example/v1" },
+            models: { "my-gemini": {} },
+            whitelist: ["my-gemini"],
+          },
+        },
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      init: async () => {
+        for (const name of KEY_ENV) Env.remove(name)
+        Env.set("GEMINI_API_KEY", "google-secret")
+      },
+      fn: async () => {
+        const google = (await Provider.list())["google"]
+        expect(google.models["my-gemini"].api.npm).toBe("@ai-sdk/openai-compatible")
+        expect(google.options.apiKey).toBeUndefined()
+        expect(google.key).toBeUndefined()
+      },
+    })
+  })
+
   test("is not loaded without a key", async () => {
     await using tmp = await tmpdir({ config: {} })
     await Instance.provide({

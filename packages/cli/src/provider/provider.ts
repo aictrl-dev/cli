@@ -337,6 +337,10 @@ export namespace Provider {
     google: async (provider) => {
       // A key stored with `auth login` reaches the SDK as provider.key and wins over env vars.
       if ((await Auth.get(provider.id))?.type === "api") return { autoload: false }
+      // A config that points `google` models at another SDK (e.g. an OpenAI-compatible proxy) must not
+      // receive the Google key.
+      if (!Object.values(provider.models).every((model) => model.api.npm === "@ai-sdk/google"))
+        return { autoload: false }
       // @ai-sdk/google reads only GOOGLE_GENERATIVE_AI_API_KEY, and the generic env loader passes no
       // key for providers with several env vars, so pass the first one set, in catalog `env` order.
       const apiKey = provider.env.map((name) => Env.get(name)).find(Boolean)

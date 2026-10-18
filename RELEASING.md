@@ -42,7 +42,7 @@
 - **Why a patch bump (0.5.1):** model-only support change. It restores the
   built-in `google` provider (Google AI Studio, `@ai-sdk/google`) that 0.5.0
   left out of the static catalog, so `google/<model>` works with only
-  `GEMINI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY` or `GOOGLE_API_KEY` set.
+  `GOOGLE_GENERATIVE_AI_API_KEY`, `GEMINI_API_KEY` or `GOOGLE_API_KEY` set.
 - The catalog gains one provider and 22 models (18 → 19 providers, 1354 → 1376
   models); every other provider's entry is byte-identical to 0.5.0.
 - No CLI flags, config schema or NDJSON events change. One config behaviour
