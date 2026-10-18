@@ -64,6 +64,12 @@
   keyword `rejected` (#179).
 - Stored sessions from 0.4.x still load and continue (covered by e2e tests in
   #183, #184, #191, #195).
+- Evidence (0.4.8 vs the candidate, GLM-5.3, 8 headless tasks × 3 runs, same Bun):
+  - pass rate 24/24 on both; no retries, hangs or `session_error`;
+  - uncached input tokens −25%, tool definitions −47% (36.8k → 19.4k chars),
+    no title request; output tokens median +5% per run;
+  - trivial run 558 → 389 ms, peak RSS 270 → 174 MB, binary 114 → 105 MB,
+    no network at startup.
 
 Publication and executor promotion are separate gates. Preparing this candidate
 PR does not publish npm packages or deploy an executor image.
