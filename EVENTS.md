@@ -276,7 +276,7 @@ For compatibility with sessions written before usage provenance was persisted, a
 
 A provider can finish an HTTP stream normally while reporting a failed model turn. `error` and `content-filter` finishes persist a nonretryable `APIError` with `data.metadata.finishReason`; they emit `message_complete.status: "error"`, `session_error.reason: "provider"`, a populated `session_complete.error`, and `invocation_complete.status: "error"`. Headless execution exits 1 after flushing output. Partial text, completed tools, and reported usage remain available. No automatic recovery is attempted.
 
-An `unknown` finish is triaged by delivered output. Nonempty text becomes `stop`; a delivered tool call continues the loop. With neither, the attempt is retried, its output parts and usage are rolled back, and a `retry` event is emitted for each scheduled retry. Snapshot patch parts remain available for reverting file changes from failed attempts. Exhaustion produces a terminal error with `data.metadata.finishReason: "unknown"`. A pending tool input alone does not count as a delivered call. The agent step cap emits a terminal error; when it applies to an unfinished model turn, the provider's finish reason is preserved rather than rewritten as `stop`.
+An `unknown` finish is triaged by delivered output. Nonempty text becomes `stop`; a delivered tool call continues the loop. With neither, the attempt is retried, its output parts and usage are rolled back, and a `retry` event is emitted for each scheduled retry. Exhaustion produces a terminal error with `data.metadata.finishReason: "unknown"`. A pending tool input alone does not count as a delivered call. The agent step cap emits a terminal error; when it applies to an unfinished model turn, the provider's finish reason is preserved rather than rewritten as `stop`.
 
 | Finish or termination         | Behavior                                                                                                                           |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
@@ -626,8 +626,7 @@ A prose-only finish emits the fixed diagnostic
 and receives an ephemeral reminder before the next turn while budget remains.
 A step that stops on a rejected tool call is handled the same way. In headless
 mode this is a permission auto-rejected because there is no user to approve it
-(see `permission_rejected`); through the SDK it can also be a dismissed
-question. It emits the fixed diagnostic
+(see `permission_rejected`). It emits the fixed diagnostic
 `{ "path": "", "keyword": "rejected", "message": "a tool call was rejected; write the final result as JSON to a file in the working directory, then call StructuredOutput with its path" }`.
 The reminder names the rejected tools, not their arguments, and asks the model to
 finish with what it already has. If the same step contains a rejected

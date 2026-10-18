@@ -121,9 +121,8 @@ sources define the same name, the later source wins (project over home, config
 content under an allowed name can come from that repository.
 
 `skills.allow` follows normal config precedence, so a project config can replace
-a global value. It applies to every command that reads config (for example
-`aictrl acp`), not only `aictrl run`. `--skill` replaces `skills.allow` for a single
-`aictrl run`.
+a global value. It applies to every command that reads config, not only
+`aictrl run`. `--skill` replaces `skills.allow` for a single `aictrl run`.
 
 With `--attach`, the attached server discovers skills: its own skill discovery
 applies, and `--skill` is rejected.
