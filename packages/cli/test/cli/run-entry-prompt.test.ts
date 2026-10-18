@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { $ } from "bun"
 import path from "path"
 import { tmpdir } from "../fixture/fixture"
@@ -63,8 +63,13 @@ async function firstSystemPrompt(entry: string, root: string) {
   )
   const timeout = setTimeout(() => proc.kill("SIGKILL"), 15000)
   try {
-    const [stderr, exit] = await Promise.all([new Response(proc.stderr).text(), proc.exited])
-    expect(exit, stderr).toBe(0)
+    const [stdout, stderr, exit] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ])
+    expect(exit, stderr + stdout).toBe(0)
+    expect(requests.length, `no model request from ${entry}`).toBeGreaterThan(0)
     return requests[0].messages.filter((message) => message.role === "system")
   } finally {
     clearTimeout(timeout)
@@ -72,18 +77,20 @@ async function firstSystemPrompt(entry: string, root: string) {
   }
 }
 
-test("full and lite entry points send the same system prompt for `aictrl run` (#152)", async () => {
-  await using tmp = await tmpdir()
-  const project = path.join(tmp.path, "project")
-  await Bun.write(path.join(tmp.path, "config", "aictrl", "AGENTS.md"), "# Global aictrl instructions")
-  await Bun.write(path.join(project, ".keep"), "")
-  await $`git init`.cwd(project).quiet()
+describe("aictrl run system prompt (#152)", () => {
+  test("full and lite entry points send the same system prompt", async () => {
+    await using tmp = await tmpdir()
+    const project = path.join(tmp.path, "project")
+    await Bun.write(path.join(tmp.path, "config", "aictrl", "AGENTS.md"), "# Global aictrl instructions")
+    await Bun.write(path.join(project, ".keep"), "")
+    await $`git init`.cwd(project).quiet()
 
-  const full = await firstSystemPrompt(entries.full, tmp.path)
-  const lite = await firstSystemPrompt(entries.lite, tmp.path)
+    const full = await firstSystemPrompt(entries.full, tmp.path)
+    const lite = await firstSystemPrompt(entries.lite, tmp.path)
 
-  expect(lite).toEqual(full)
-  const prompt = JSON.stringify(full)
-  expect(prompt).toContain(`Working directory: ${project}`)
-  expect(prompt).toContain("# Global aictrl instructions")
-}, 40000)
+    expect(lite).toEqual(full)
+    const prompt = JSON.stringify(full)
+    expect(prompt).toContain(`Working directory: ${project}`)
+    expect(prompt).toContain("# Global aictrl instructions")
+  }, 40000)
+})
