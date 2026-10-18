@@ -67,7 +67,7 @@ describe("tool.edit", () => {
       })
     })
 
-    test("emits add event for new files", async () => {
+    test("emits edited event for new files", async () => {
       await using tmp = await tmpdir()
       const filepath = path.join(tmp.path, "new.txt")
 
@@ -76,11 +76,9 @@ describe("tool.edit", () => {
         fn: async () => {
           const { Bus } = await import("../../src/bus")
           const { File } = await import("../../src/file")
-          const { FileWatcher } = await import("../../src/file/watcher")
 
           const events: string[] = []
           const unsubEdited = Bus.subscribe(File.Event.Edited, () => events.push("edited"))
-          const unsubUpdated = Bus.subscribe(FileWatcher.Event.Updated, () => events.push("updated"))
 
           const edit = await EditTool.init()
           await edit.execute(
@@ -93,9 +91,7 @@ describe("tool.edit", () => {
           )
 
           expect(events).toContain("edited")
-          expect(events).toContain("updated")
           unsubEdited()
-          unsubUpdated()
         },
       })
     })
@@ -285,7 +281,7 @@ describe("tool.edit", () => {
       })
     })
 
-    test("emits change event for existing files", async () => {
+    test("emits edited event for existing files", async () => {
       await using tmp = await tmpdir()
       const filepath = path.join(tmp.path, "file.txt")
       await fs.writeFile(filepath, "original", "utf-8")
@@ -297,11 +293,9 @@ describe("tool.edit", () => {
 
           const { Bus } = await import("../../src/bus")
           const { File } = await import("../../src/file")
-          const { FileWatcher } = await import("../../src/file/watcher")
 
           const events: string[] = []
           const unsubEdited = Bus.subscribe(File.Event.Edited, () => events.push("edited"))
-          const unsubUpdated = Bus.subscribe(FileWatcher.Event.Updated, () => events.push("updated"))
 
           const edit = await EditTool.init()
           await edit.execute(
@@ -314,9 +308,7 @@ describe("tool.edit", () => {
           )
 
           expect(events).toContain("edited")
-          expect(events).toContain("updated")
           unsubEdited()
-          unsubUpdated()
         },
       })
     })

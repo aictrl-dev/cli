@@ -42,7 +42,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     runHook preBuild
 
     cd ./packages/aictrl
-    bun --bun ./script/build.ts --single --skip-install
+    bun --bun ./script/build.ts --single
     bun --bun ./script/schema.ts schema.json
 
     runHook postBuild

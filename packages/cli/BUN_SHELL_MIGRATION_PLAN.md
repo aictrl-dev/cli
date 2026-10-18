@@ -85,8 +85,6 @@ Within each file, migrate git paths first where applicable.
 Migrate git-centric call sites to `Process.git*` helpers:
 
 - `src/file/index.ts`
-- `src/project/vcs.ts`
-- `src/file/watcher.ts`
 
 ### Phase 3: Remaining non-git files
 

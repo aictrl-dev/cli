@@ -6,7 +6,6 @@ Headless execution engine for AI agent skills.
 
 - **Headless First:** Designed for automation, CI/CD, and server-side runtimes.
 - **MCP Protocol:** First-class support for [Model Context Protocol](https://modelcontextprotocol.io).
-- **ACP Support:** Implements the [Agent Client Protocol](https://github.com/agentclientprotocol/specification).
 - **Custom Tools:** Easy extensibility via TypeScript files.
 
 ## Automation Usage

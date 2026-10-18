@@ -438,6 +438,41 @@ test("handles command configuration", async () => {
   })
 })
 
+describe("removed file watcher config (#190)", () => {
+  test("watcher.ignore loads as a no-op with one warning", async () => {
+    const warn = spyOn(Log.create({ service: "config" }), "warn")
+    await using tmp = await tmpdir({
+      init: (dir) => writeConfig(dir, { model: "test/model", watcher: { ignore: ["dist/**"] } }),
+    })
+    try {
+      const config = await Instance.provide({ directory: tmp.path, fn: () => Config.get() })
+      const warnings = warn.mock.calls.filter(([message]) => String(message).includes("watcher"))
+
+      expect(config.model).toBe("test/model")
+      expect(warnings).toHaveLength(1)
+      expect(String(warnings[0][0])).toContain("subsystem was removed: watcher")
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  test("Config.update keeps a deprecated watcher block on disk", async () => {
+    await using tmp = await tmpdir({
+      init: (dir) => writeConfig(dir, { watcher: { ignore: ["dist/**"] } }, "config.json"),
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        await Config.update({ model: "updated/model" })
+
+        const written = await Filesystem.readJson<Record<string, unknown>>(path.join(tmp.path, "config.json"))
+        expect(written.model).toBe("updated/model")
+        expect(written.watcher).toEqual({ ignore: ["dist/**"] })
+      },
+    })
+  })
+})
+
 describe("removed session-sharing config (#189)", () => {
   test("share, autoshare and enterprise load as no-ops with one warning", async () => {
     const warn = spyOn(Log.create({ service: "config" }), "warn")

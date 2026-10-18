@@ -326,7 +326,6 @@ ZenMux
 aictrl
 aictrl [project]
 aictrl /path/to/project
-aictrl acp
 aictrl agent [command]
 aictrl agent create
 aictrl agent list
