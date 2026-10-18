@@ -626,8 +626,7 @@ A prose-only finish emits the fixed diagnostic
 and receives an ephemeral reminder before the next turn while budget remains.
 A step that stops on a rejected tool call is handled the same way. In headless
 mode this is a permission auto-rejected because there is no user to approve it
-(see `permission_rejected`); through the SDK it can also be a dismissed
-question. It emits the fixed diagnostic
+(see `permission_rejected`). It emits the fixed diagnostic
 `{ "path": "", "keyword": "rejected", "message": "a tool call was rejected; write the final result as JSON to a file in the working directory, then call StructuredOutput with its path" }`.
 The reminder names the rejected tools, not their arguments, and asks the model to
 finish with what it already has. If the same step contains a rejected
