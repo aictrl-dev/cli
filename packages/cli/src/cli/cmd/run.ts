@@ -325,6 +325,24 @@ export function sessionTitle(input: {
   return truncatedTitle(readable)
 }
 
+/**
+ * The ruleset this session's tool calls are evaluated against, in evaluation
+ * order (the last matching rule wins): the agent's rules, which already include
+ * the config `permission` rules, followed by the session's own rules — the same
+ * merge SessionPrompt and LLM.resolveTools apply. An unknown session or
+ * default agent yields no rules: the prompt then fails with a session_error
+ * before any tool call runs.
+ */
+async function sessionPermissions(sessionID: string, agent: string | undefined) {
+  try {
+    const info = await Agent.get(agent ?? (await Agent.defaultAgent()))
+    const session = await Session.get(sessionID)
+    return PermissionNext.merge(info.permission, session.permission ?? [])
+  } catch {
+    return []
+  }
+}
+
 export const RunCommand = cmd({
   command: "run [message..]",
   describe: "run aictrl with a message",
@@ -942,8 +960,8 @@ export const RunCommand = cmd({
       }
 
       // Validate agent if specified
-      const agentInfo = await (async () => {
-        if (!args.agent) return { name: undefined, permission: [] as PermissionNext.Ruleset }
+      const agent = await (async () => {
+        if (!args.agent) return undefined
         const entry = await Agent.get(args.agent)
         if (!entry) {
           UI.println(
@@ -951,7 +969,7 @@ export const RunCommand = cmd({
             UI.Style.TEXT_NORMAL,
             `agent "${args.agent}" not found. Falling back to default agent`,
           )
-          return { name: undefined, permission: [] as PermissionNext.Ruleset }
+          return undefined
         }
         if (entry.mode === "subagent") {
           UI.println(
@@ -959,11 +977,10 @@ export const RunCommand = cmd({
             UI.Style.TEXT_NORMAL,
             `agent "${args.agent}" is a subagent, not a primary agent. Falling back to default agent`,
           )
-          return { name: undefined, permission: [] as PermissionNext.Ruleset }
+          return undefined
         }
-        return { name: args.agent, permission: (entry.permission ?? []) as PermissionNext.Ruleset }
+        return args.agent
       })()
-      const agent = agentInfo.name
 
       invocation.phase("session")
       const sessionID = await session(sdk)
@@ -977,7 +994,7 @@ export const RunCommand = cmd({
         schemaVersion: SCHEMA_VERSION,
         model: args.model,
         agent: agent,
-        permissions: agentInfo.permission,
+        permissions: args.attach ? [] : await sessionPermissions(sessionID, agent),
       })
 
       let aborted = false

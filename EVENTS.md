@@ -91,14 +91,15 @@ Emitted once when the session begins.
   "model": "anthropic/claude-sonnet-4-20250514",
   "agent": "default",
   "permissions": [
-    { "permission": "bash", "pattern": "*", "action": "allow" },
-    { "permission": "write", "pattern": "*", "action": "ask" }
+    { "permission": "*", "pattern": "*", "action": "allow" },
+    { "permission": "edit", "pattern": "*aictrl.json", "action": "ask" },
+    { "permission": "bash", "pattern": "rm *", "action": "deny" }
   ]
 }
 ```
 
 - `schemaVersion` (string, **required**) — pinned contract version. Currently `"1"`.
-- `permissions` (array, **required**) — the fully resolved permission ruleset for the session (merge of agent + session rules). In headless mode, any permission not matching an `allow` rule is auto-rejected.
+- `permissions` (array, **required**) — the ruleset this session's tool calls are evaluated against, in evaluation order: the agent's built-in defaults, then the config `permission` rules, then the selected agent's own `agent.<name>.permission` rules, then the session's rules. The **last** rule whose `permission` and `pattern` match a call decides it, so a later rule overrides an earlier one. In headless mode, any call not decided by an `allow` rule is rejected. Empty with `--attach`, where the attached server owns the ruleset, and when the session or default agent cannot be resolved (the run then fails with `session_error`).
 
 ### `tool_catalog`
 
