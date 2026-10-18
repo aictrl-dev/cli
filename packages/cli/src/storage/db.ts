@@ -59,7 +59,7 @@ export namespace Database {
    */
   export function migrations(dir: string): MigrationsJournal {
     const dirs = readdirSync(dir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
+      .filter((entry) => entry.isDirectory() && /^\d{14}/.test(entry.name))
       .map((entry) => entry.name)
 
     const sql = dirs
@@ -74,7 +74,8 @@ export namespace Database {
       })
       .filter(Boolean) as MigrationsJournal
 
-    return sql.sort((a, b) => a.timestamp - b.timestamp)
+    // Same order as the bundled journal in script/build.ts (sorted by name).
+    return sql.sort((a, b) => a.timestamp - b.timestamp || a.name.localeCompare(b.name))
   }
 
   export const Client = lazy(() => {
@@ -146,8 +147,9 @@ export namespace Database {
   }
 
   // bun-sqlite transactions are synchronous: an async callback would commit
-  // before its awaits run, so the type rejects callbacks that return a Promise.
-  type SyncResult<T> = T extends Promise<any> ? never : T
+  // before its awaits run, so the type rejects callbacks that can return a
+  // Promise or any other thenable.
+  type SyncResult<T> = [Extract<T, PromiseLike<unknown>>] extends [never] ? T : never
 
   export function transaction<T>(callback: (tx: TxOrDb) => SyncResult<T>): T {
     try {
@@ -155,8 +157,10 @@ export namespace Database {
     } catch (err) {
       if (err instanceof Context.NotFound) {
         const effects: (() => void | Promise<void>)[] = []
-        const result = Client().transaction<T>((tx) => {
-          return ctx.provide({ tx, effects }, () => callback(tx))
+        // drizzle's own sync guard cannot evaluate a generic T, so the result
+        // travels in a box; SyncResult has already rejected async callbacks.
+        const { result } = Client().transaction((tx) => {
+          return { result: ctx.provide({ tx, effects }, () => callback(tx)) }
         })
         for (const effect of effects) effect()
         return result

@@ -3,6 +3,7 @@ import { Database as SQLite } from "bun:sqlite"
 import path from "path"
 import { Database } from "../../src/storage/db"
 import { resetDatabase } from "../fixture/db"
+import { tmpdir } from "../fixture/fixture"
 
 const journal = Database.migrations(path.join(import.meta.dirname, "../../migration"))
 
@@ -52,6 +53,17 @@ describe("Database migrations", () => {
     }
     expect(journal.map((m) => m.timestamp)).toEqual(journal.map((m) => m.timestamp).toSorted((a, b) => a - b))
     expect(journal.slice(0, LEGACY_CREATED_AT.length).map((m) => m.timestamp)).toEqual(LEGACY_CREATED_AT)
+  })
+
+  test("journal skips non-migration directories and orders same-second migrations by name", async () => {
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        for (const name of ["20260101000000_b", "20260101000000_a", "notes"]) {
+          await Bun.write(path.join(dir, name, "migration.sql"), "SELECT 1;")
+        }
+      },
+    })
+    expect(Database.migrations(tmp.path).map((m) => m.name)).toEqual(["20260101000000_a", "20260101000000_b"])
   })
 
   test("fresh database applies every migration once", () => {
@@ -105,6 +117,10 @@ describe("Database.transaction", () => {
     function asyncCallback() {
       // @ts-expect-error bun-sqlite transactions are synchronous
       Database.transaction(async () => 1)
+      // @ts-expect-error a thenable is async too
+      Database.transaction(() => ({ then() {} }) as PromiseLike<number>)
+      // @ts-expect-error a callback that is only sometimes async
+      Database.transaction(() => (Math.random() > 0.5 ? 1 : Promise.resolve(1)))
     }
     expect(asyncCallback).toBeFunction()
   })
