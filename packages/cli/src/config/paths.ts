@@ -87,7 +87,7 @@ export namespace ConfigPaths {
     "AICTRL_", "OPENCODE_",
     // AI provider keys (users need these in config)
     "ANTHROPIC_", "OPENAI_", "AZURE_", "AWS_", "GOOGLE_",
-    "GITHUB_", "COPILOT_", "MISTRAL_", "GROQ_", "TOGETHER_",
+    "GITHUB_", "MISTRAL_", "GROQ_", "TOGETHER_",
     "DEEPSEEK_", "XAI_", "COHERE_", "FIREWORKS_",
     "ZHIPU_", "AICORE_",
     // Standard system vars

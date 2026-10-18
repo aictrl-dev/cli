@@ -6,18 +6,18 @@ import { Instance } from "../../src/project/instance"
 import { ProviderAuth } from "../../src/provider/auth"
 
 describe("plugin.auth-override", () => {
-  test("user plugin overrides built-in github-copilot auth", async () => {
+  test("user plugin overrides built-in openai auth", async () => {
     await using tmp = await tmpdir({
       init: async (dir) => {
         const pluginDir = path.join(dir, ".aictrl", "plugin")
         await fs.mkdir(pluginDir, { recursive: true })
 
         await Bun.write(
-          path.join(pluginDir, "custom-copilot-auth.ts"),
+          path.join(pluginDir, "custom-openai-auth.ts"),
           [
             "export default async () => ({",
             "  auth: {",
-            '    provider: "github-copilot",',
+            '    provider: "openai",',
             "    methods: [",
             '      { type: "api", label: "Test Override Auth" },',
             "    ],",
@@ -34,10 +34,10 @@ describe("plugin.auth-override", () => {
       directory: tmp.path,
       fn: async () => {
         const methods = await ProviderAuth.methods()
-        const copilot = methods["github-copilot"]
-        expect(copilot).toBeDefined()
-        expect(copilot.length).toBe(1)
-        expect(copilot[0].label).toBe("Test Override Auth")
+        const openai = methods["openai"]
+        expect(openai).toBeDefined()
+        expect(openai.length).toBe(1)
+        expect(openai[0].label).toBe("Test Override Auth")
       },
     })
   }, 30000) // Increased timeout for plugin installation

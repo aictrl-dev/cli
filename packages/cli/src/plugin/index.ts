@@ -9,7 +9,6 @@ import { Flag } from "../flag/flag"
 import { CodexAuthPlugin } from "./codex"
 import { Session } from "../session"
 import { NamedError } from "@aictrl/util/error"
-import { CopilotAuthPlugin } from "./copilot"
 
 export namespace Plugin {
   const log = Log.create({ service: "plugin" })
@@ -17,7 +16,7 @@ export namespace Plugin {
   const BUILTIN = [] as string[]
 
   // Built-in plugins that are directly imported (not installed from npm)
-  const INTERNAL_PLUGINS: PluginInstance[] = [CodexAuthPlugin, CopilotAuthPlugin]
+  const INTERNAL_PLUGINS: PluginInstance[] = [CodexAuthPlugin]
 
   const state = Instance.state(async () => {
     const client = createAictrlClient({
@@ -51,7 +50,7 @@ export namespace Plugin {
 
     for (let plugin of plugins) {
       // ignore old codex plugin since it is supported first party now
-      if (plugin.includes("aictrl-openai-codex-auth") || plugin.includes("aictrl-copilot-auth")) continue
+      if (plugin.includes("aictrl-openai-codex-auth")) continue
       log.info("loading plugin", { path: plugin })
       if (!plugin.startsWith("file://")) {
         const lastAtIndex = plugin.lastIndexOf("@")

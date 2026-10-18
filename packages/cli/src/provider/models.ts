@@ -85,7 +85,7 @@ export namespace ModelsDev {
     return Flag.AICTRL_MODELS_URL || "https://models.dev"
   }
 
-  export const Data = lazy(async () => {
+  const Data = lazy(async () => {
     const result = await Filesystem.readJson(Flag.AICTRL_MODELS_PATH ?? filepath).catch(() => {})
     if (result) return result
     // @ts-ignore
@@ -98,9 +98,12 @@ export namespace ModelsDev {
     return JSON.parse(json)
   })
 
-  export async function get() {
-    const result = await Data()
-    return result as Record<string, Provider>
+  // Providers models.dev still lists but this CLI no longer supports.
+  const REMOVED_PROVIDERS = new Set(["github-copilot"])
+
+  export async function get(): Promise<Record<string, Provider>> {
+    const result = (await Data()) as Record<string, Provider>
+    return Object.fromEntries(Object.entries(result).filter(([id]) => !REMOVED_PROVIDERS.has(id)))
   }
 
   export async function refresh() {
@@ -120,7 +123,7 @@ export namespace ModelsDev {
     })
     if (text !== undefined) {
       await Filesystem.write(filepath, text)
-      ModelsDev.Data.reset()
+      Data.reset()
     }
   }
 }

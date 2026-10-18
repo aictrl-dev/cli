@@ -581,10 +581,10 @@ describe("ProviderTransform.schema - gemini nested array items", () => {
 
 describe("ProviderTransform.schema - gemini type arrays", () => {
   const geminiModel = {
-    providerID: "github-copilot",
+    providerID: "openrouter",
     api: {
-      id: "gemini-3-pro",
-      npm: "@ai-sdk/github-copilot",
+      id: "google/gemini-3-pro",
+      npm: "@openrouter/ai-sdk-provider",
     },
   } as any
 
@@ -1769,24 +1769,6 @@ describe("ProviderTransform.message - providerOptions key remapping", () => {
     expect(result[0].providerOptions?.openai).toBeUndefined()
   })
 
-  test("copilot remaps providerID to 'copilot' key", () => {
-    const model = createModel("github-copilot", "@ai-sdk/github-copilot")
-    const msgs = [
-      {
-        role: "user",
-        content: "Hello",
-        providerOptions: {
-          copilot: { someOption: "value" },
-        },
-      },
-    ] as any[]
-
-    const result = ProviderTransform.message(msgs, model, {})
-
-    expect(result[0].providerOptions?.copilot).toEqual({ someOption: "value" })
-    expect(result[0].providerOptions?.["github-copilot"]).toBeUndefined()
-  })
-
   test("bedrock remaps providerID to 'bedrock' key", () => {
     const model = createModel("my-bedrock", "@ai-sdk/amazon-bedrock")
     const msgs = [
@@ -1928,11 +1910,6 @@ describe("ProviderTransform.message - cache control on gateway", () => {
       },
       openaiCompatible: {
         cache_control: {
-          type: "ephemeral",
-        },
-      },
-      copilot: {
-        copilot_cache_control: {
           type: "ephemeral",
         },
       },
@@ -2254,102 +2231,6 @@ describe("ProviderTransform.variants", () => {
       expect(Object.keys(result)).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"])
       expect(result.low).toEqual({ reasoningEffort: "low" })
       expect(result.high).toEqual({ reasoningEffort: "high" })
-    })
-  })
-
-  describe("@ai-sdk/github-copilot", () => {
-    test("standard models return low, medium, high", () => {
-      const model = createMockModel({
-        id: "gpt-4.5",
-        providerID: "github-copilot",
-        api: {
-          id: "gpt-4.5",
-          url: "https://api.githubcopilot.com",
-          npm: "@ai-sdk/github-copilot",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
-      expect(result.low).toEqual({
-        reasoningEffort: "low",
-        reasoningSummary: "auto",
-        include: ["reasoning.encrypted_content"],
-      })
-    })
-
-    test("gpt-5.1-codex-max includes xhigh", () => {
-      const model = createMockModel({
-        id: "gpt-5.1-codex-max",
-        providerID: "github-copilot",
-        api: {
-          id: "gpt-5.1-codex-max",
-          url: "https://api.githubcopilot.com",
-          npm: "@ai-sdk/github-copilot",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh"])
-    })
-
-    test("gpt-5.1-codex-mini does not include xhigh", () => {
-      const model = createMockModel({
-        id: "gpt-5.1-codex-mini",
-        providerID: "github-copilot",
-        api: {
-          id: "gpt-5.1-codex-mini",
-          url: "https://api.githubcopilot.com",
-          npm: "@ai-sdk/github-copilot",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
-    })
-
-    test("gpt-5.1-codex does not include xhigh", () => {
-      const model = createMockModel({
-        id: "gpt-5.1-codex",
-        providerID: "github-copilot",
-        api: {
-          id: "gpt-5.1-codex",
-          url: "https://api.githubcopilot.com",
-          npm: "@ai-sdk/github-copilot",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
-    })
-
-    test("gpt-5.2 includes xhigh", () => {
-      const model = createMockModel({
-        id: "gpt-5.2",
-        providerID: "github-copilot",
-        api: {
-          id: "gpt-5.2",
-          url: "https://api.githubcopilot.com",
-          npm: "@ai-sdk/github-copilot",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh"])
-      expect(result.xhigh).toEqual({
-        reasoningEffort: "xhigh",
-        reasoningSummary: "auto",
-        include: ["reasoning.encrypted_content"],
-      })
-    })
-
-    test("gpt-5.2-codex includes xhigh", () => {
-      const model = createMockModel({
-        id: "gpt-5.2-codex",
-        providerID: "github-copilot",
-        api: {
-          id: "gpt-5.2-codex",
-          url: "https://api.githubcopilot.com",
-          npm: "@ai-sdk/github-copilot",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh"])
     })
   })
 

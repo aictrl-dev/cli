@@ -13,7 +13,6 @@ export namespace ProviderError {
     /maximum prompt length is \d+/i, // xAI (Grok)
     /reduce the length of the messages/i, // Groq
     /maximum context length is \d+ tokens/i, // OpenRouter, DeepSeek
-    /exceeds the limit of \d+/i, // GitHub Copilot
     /exceeds the available context size/i, // llama.cpp server
     /greater than the context length/i, // LM Studio
     /context window exceeds limit/i, // MiniMax
@@ -39,15 +38,7 @@ export namespace ProviderError {
     return /^4(00|13)\s*(status code)?\s*\(no body\)/i.test(message)
   }
 
-  function error(providerID: string, error: APICallError) {
-    if (providerID.includes("github-copilot") && error.statusCode === 403) {
-      return "Please reauthenticate with the copilot provider to ensure your credentials work properly with Aictrl."
-    }
-
-    return error.message
-  }
-
-  function message(providerID: string, e: APICallError) {
+  function message(e: APICallError) {
     return iife(() => {
       const msg = e.message
       if (msg === "") {
@@ -59,10 +50,6 @@ export namespace ProviderError {
         return "Unknown error"
       }
 
-      const transformed = error(providerID, e)
-      if (transformed !== msg) {
-        return transformed
-      }
       if (!e.responseBody || (e.statusCode && msg !== STATUS_CODES[e.statusCode])) {
         return msg
       }
@@ -176,7 +163,7 @@ export namespace ProviderError {
       }
 
   export function parseAPICallError(input: { providerID: string; error: APICallError }): ParsedAPICallError {
-    const m = message(input.providerID, input.error)
+    const m = message(input.error)
     if (isOverflow(m)) {
       return {
         type: "context_overflow",

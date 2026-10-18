@@ -31,7 +31,6 @@
       "dependencies": {
         "@agentclientprotocol/sdk": "0.14.1",
         "@ai-sdk/provider": "2.0.1",
-        "@ai-sdk/provider-utils": "3.0.21",
         "@aictrl/plugin": "workspace:*",
         "@aictrl/sdk": "workspace:*",
         "@aictrl/util": "workspace:*",
