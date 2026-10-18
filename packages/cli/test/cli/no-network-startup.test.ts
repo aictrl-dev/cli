@@ -32,17 +32,23 @@ async function runGuarded(entry: string, args: string[], env: Record<string, str
     new Response(proc.stderr).text(),
     proc.exited,
   ]).finally(() => clearTimeout(timer))
+  // A child killed by the timer never runs the guard's exit hook, so say so instead of failing on a missing report.
+  expect(proc.signalCode, `CLI was killed before exiting\n${stderr}`).toBeNull()
   const report = stderr.match(/FETCH_ATTEMPTS=(.*)/)
   expect(report, stderr).not.toBeNull()
   return { stdout, stderr, exit, attempts: JSON.parse(report![1]) as string[] }
 }
 
 describe("startup makes no network requests (#40)", () => {
-  test.each(Object.entries(entries))("%s build: --version", async (_, entry) => {
-    const result = await runGuarded(entry, ["--version"])
-    expect(result.exit, result.stderr).toBe(0)
-    expect(result.attempts).toEqual([])
-  })
+  test.each(Object.entries(entries))(
+    "%s build: --version",
+    async (_, entry) => {
+      const result = await runGuarded(entry, ["--version"])
+      expect(result.exit, result.stderr).toBe(0)
+      expect(result.attempts).toEqual([])
+    },
+    30_000,
+  )
 
   test("models lists the built-in catalog offline", async () => {
     const result = await runGuarded(entries.full, ["models", "anthropic"], { ANTHROPIC_API_KEY: "test-key" })

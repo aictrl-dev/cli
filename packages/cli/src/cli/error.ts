@@ -17,6 +17,7 @@ export function FormatError(input: unknown) {
       `Providers that are not built in must be defined under "provider" in aictrl.json`,
     ].join("\n")
   }
+  if (Provider.BaseURLMissingError.isInstance(input)) return input.message
   if (Provider.InitError.isInstance(input)) {
     return `Failed to initialize provider "${input.data.providerID}". Check credentials and configuration.`
   }

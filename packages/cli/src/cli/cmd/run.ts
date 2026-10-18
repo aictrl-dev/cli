@@ -705,7 +705,7 @@ export const RunCommand = cmd({
                 // part of the prompt sent to the model and count against the context
                 // window, just billed at the cache-write rate. Excluding them
                 // undercounts utilization on the first turn of a conversation.
-                // limit comes from the provider registry (the built-in catalog plus config).
+                // limit comes from the provider registry (the built-in catalog plus config, or the attached server's).
                 // On lookup failure (or limit===0 for custom models) buildContextWindow returns null.
                 const contextLimit = await (args.attach
                   ? attachedContextLimit(info.providerID, info.modelID, attachedProviders())

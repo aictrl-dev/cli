@@ -26,7 +26,7 @@ Want to take on an issue? Leave a comment and a maintainer may assign it to you 
 
 ## Adding New Providers
 
-Built-in providers and models live in the static catalog at `packages/cli/src/provider/catalog.json` (one model per line, in the `Provider.Model` shape). To add or update a built-in model, edit that file; providers that need custom loading also need an entry in `CUSTOM_LOADERS` in `packages/cli/src/provider/provider.ts`.
+Built-in providers and models live in the static catalog at `packages/cli/src/provider/catalog.json` (one model per line, in the `Provider.Model` shape; `api.url` is left out for providers whose SDK knows its own endpoint, and each provider also carries `npm`/`api` defaults for models added through config). To add or update a built-in model, edit that file; providers that need custom loading also need an entry in `CUSTOM_LOADERS` in `packages/cli/src/provider/provider.ts`.
 
 Any other OpenAI-compatible provider does not need a code change: users define it under `provider` in `aictrl.json`.
 

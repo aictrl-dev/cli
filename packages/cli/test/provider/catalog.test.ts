@@ -169,6 +169,30 @@ describe("provider registry", () => {
     })
   })
 
+  test("a config-only openai-compatible provider without a base URL fails with the config fix", async () => {
+    await using tmp = await tmpdir({
+      config: {
+        provider: {
+          groq: {
+            options: { apiKey: "key" },
+            models: { "llama-3.3-70b-versatile": { limit: { context: 131_072, output: 32_768 } } },
+          },
+        },
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const model = await Provider.getModel("groq", "llama-3.3-70b-versatile")
+        const error = await Provider.getLanguage(model).catch((e) => e)
+        expect(Provider.BaseURLMissingError.isInstance(error)).toBe(true)
+        expect(FormatError(error)).toBe(
+          `Provider "groq" has no base URL. Set "api" or "options.baseURL" for it under "provider" in aictrl.json.`,
+        )
+      },
+    })
+  })
+
   test("an openai-compatible provider defined in config works without the catalog", async () => {
     await using tmp = await tmpdir({
       config: {

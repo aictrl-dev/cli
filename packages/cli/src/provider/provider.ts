@@ -652,6 +652,19 @@ export namespace Provider {
     })
   export type Info = z.infer<typeof Info>
 
+  // The OpenAI-compatible SDK has no default endpoint. A provider outside the catalog that
+  // config declares without `api` or `options.baseURL` would otherwise fail with an invalid URL.
+  function lacksBaseURL(model: Model, options: Record<string, any>) {
+    if (model.api.npm !== "@ai-sdk/openai-compatible") return false
+    return model.api.url === undefined && options["baseURL"] === undefined
+  }
+
+  function baseURLMissing(providerID: string) {
+    const error = new BaseURLMissingError({ providerID })
+    error.message = `Provider "${providerID}" has no base URL. Set "api" or "options.baseURL" for it under "provider" in aictrl.json.`
+    return error
+  }
+
   const state = Instance.state(async () => {
     using _ = log.time("state")
     const config = await Config.get()
@@ -1061,6 +1074,7 @@ export namespace Provider {
     if (s.models.has(key)) return s.models.get(key)!
 
     const provider = s.providers[model.providerID]
+    if (lacksBaseURL(model, provider.options)) throw baseURLMissing(model.providerID)
     const sdk = await getSDK(model)
 
     try {
@@ -1231,4 +1245,11 @@ export namespace Provider {
   )
 
   export const VertexConfigError = NamedError.create("VertexConfigError", z.object({ reason: z.string() }))
+
+  export const BaseURLMissingError = NamedError.create(
+    "ProviderBaseURLMissingError",
+    z.object({
+      providerID: z.string(),
+    }),
+  )
 }
