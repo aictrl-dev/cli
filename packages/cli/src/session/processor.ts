@@ -14,7 +14,6 @@ import { Config } from "@/config/config"
 import { SessionCompaction } from "./compaction"
 import { StreamIdle } from "./idle"
 import { PermissionNext } from "@/permission/next"
-import { Question } from "@/question"
 import { ProviderTermination } from "@/provider/termination"
 import { Flag } from "@/flag/flag"
 import { NamedError } from "@aictrl/util/error"
@@ -242,7 +241,7 @@ export namespace SessionProcessor {
                           input: value.input,
                         },
                         always: [value.toolName],
-                        ruleset: agent.permission,
+                        ruleset: PermissionNext.merge(agent.permission, streamInput.permission ?? []),
                       })
                     }
                   }
@@ -288,11 +287,7 @@ export namespace SessionProcessor {
                       },
                     })
 
-                    if (
-                      shouldBreak &&
-                      (value.error instanceof PermissionNext.RejectedError ||
-                        value.error instanceof Question.RejectedError)
-                    ) {
+                    if (shouldBreak && value.error instanceof PermissionNext.RejectedError) {
                       blocked.add(match.tool)
                     }
                     delete toolcalls[value.toolCallId]

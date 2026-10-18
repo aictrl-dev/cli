@@ -92,10 +92,12 @@ export const TaskTool = Tool.define("task", async (ctx) => {
           if (found) return found
         }
 
+        // only denies apply down the subagent tree: a caller's allow must not widen the subagent's agent
+        const inherited = (await Session.get(ctx.sessionID)).permission?.filter((rule) => rule.action === "deny") ?? []
         return await Session.create({
           parentID: ctx.sessionID,
           title: params.description + ` (@${agent.name} subagent)`,
-          permission: [
+          permission: PermissionNext.merge(inherited, [
             {
               permission: "todowrite",
               pattern: "*",
@@ -117,10 +119,10 @@ export const TaskTool = Tool.define("task", async (ctx) => {
                 ]),
             ...(config.experimental?.primary_tools?.map((t) => ({
               pattern: "*",
-              action: "allow" as const,
+              action: "deny" as const,
               permission: t,
             })) ?? []),
-          ],
+          ]),
         })
       })
 
@@ -163,12 +165,6 @@ export const TaskTool = Tool.define("task", async (ctx) => {
           providerID: model.providerID,
         },
         agent: agent.name,
-        tools: {
-          todowrite: false,
-          todoread: false,
-          ...(hasTaskPermission ? {} : { task: false }),
-          ...Object.fromEntries((config.experimental?.primary_tools ?? []).map((t) => [t, false])),
-        },
         parts: promptParts,
       })
 

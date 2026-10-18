@@ -18,7 +18,6 @@ export namespace Flag {
   export declare const AICTRL_DISABLE_PROJECT_CONFIG: boolean
   export const AICTRL_FAKE_VCS = process.env["AICTRL_FAKE_VCS"]
   export declare const AICTRL_CLIENT: string
-  export const AICTRL_ENABLE_QUESTION_TOOL = truthy("AICTRL_ENABLE_QUESTION_TOOL")
   export declare const AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS: number
 
   // Experimental
@@ -29,7 +28,6 @@ export namespace Flag {
   export const AICTRL_EXPERIMENTAL_OUTPUT_TOKEN_MAX = number("AICTRL_EXPERIMENTAL_OUTPUT_TOKEN_MAX")
   export const AICTRL_EXPERIMENTAL_OXFMT = AICTRL_EXPERIMENTAL || truthy("AICTRL_EXPERIMENTAL_OXFMT")
   export const AICTRL_DISABLE_FILETIME_CHECK = truthy("AICTRL_DISABLE_FILETIME_CHECK")
-  export const AICTRL_EXPERIMENTAL_PLAN_MODE = AICTRL_EXPERIMENTAL || truthy("AICTRL_EXPERIMENTAL_PLAN_MODE")
   export const AICTRL_MODELS_URL = process.env["AICTRL_MODELS_URL"]
   export const AICTRL_MODELS_PATH = process.env["AICTRL_MODELS_PATH"]
 

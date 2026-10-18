@@ -1,8 +1,11 @@
 import path from "path"
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import { fileURLToPath } from "url"
+import { Identifier } from "../../src/id/id"
+import type { PermissionNext } from "../../src/permission/next"
 import { Instance } from "../../src/project/instance"
 import { Session } from "../../src/session"
+import { LLM } from "../../src/session/llm"
 import { MessageV2 } from "../../src/session/message-v2"
 import { SessionPrompt } from "../../src/session/prompt"
 import { Log } from "../../src/util/log"
@@ -208,4 +211,194 @@ describe("session.prompt agent variant", () => {
       else process.env.OPENAI_API_KEY = prev
     }
   })
+})
+
+describe("session.prompt session permission", () => {
+  test("passes the session's permission rules to the model request", async () => {
+    await using tmp = await tmpdir({
+      git: true,
+      config: {
+        provider: {
+          fixture: {
+            npm: "@ai-sdk/google",
+            options: { apiKey: "fixture" },
+            models: { "gemini-fixture": { name: "fixture", limit: { context: 100000, output: 1000 } } },
+          },
+        },
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const permission: PermissionNext.Ruleset = [{ permission: "webfetch", action: "deny", pattern: "*" }]
+        const session = await Session.create({ title: "Session permission", permission })
+        const requests: LLM.StreamInput[] = []
+        const stream = spyOn(LLM, "stream").mockImplementation(async (input) => {
+          requests.push(input)
+          return {
+            fullStream: (async function* () {
+              yield { type: "start-step" }
+              yield { type: "finish-step", finishReason: "stop", usage: { inputTokens: 1, outputTokens: 1 } }
+            })(),
+          } as unknown as Awaited<ReturnType<typeof LLM.stream>>
+        })
+        try {
+          await SessionPrompt.prompt({
+            sessionID: session.id,
+            agent: "build",
+            model: { providerID: "fixture", modelID: "gemini-fixture" },
+            parts: [{ type: "text", text: "Finish the task" }],
+          })
+          const turns = requests.filter((request) => request.agent.name === "build")
+          expect(turns).toHaveLength(1)
+          expect(turns[0].permission).toEqual(permission)
+        } finally {
+          stream.mockRestore()
+          await Session.remove(session.id)
+        }
+      },
+    })
+  })
+})
+
+describe("session.prompt unknown agent", () => {
+  test("names the missing agent when a client still asks for the removed plan agent", async () => {
+    await using tmp = await tmpdir({ git: true })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({})
+        await expect(
+          SessionPrompt.prompt({
+            sessionID: session.id,
+            agent: "plan",
+            noReply: true,
+            parts: [{ type: "text", text: "Plan the change" }],
+          }),
+        ).rejects.toMatchObject({
+          data: { message: expect.stringContaining('Agent not found: "plan". Available agents:') },
+        })
+        await Session.remove(session.id)
+      },
+    })
+  })
+})
+
+describe("session.prompt removed tools", () => {
+  test("continues a session whose history calls the removed question and plan tools", async () => {
+    const requests: Record<string, unknown>[] = []
+    const server = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        requests.push((await request.json()) as Record<string, unknown>)
+        const chunks = [
+          { id: "chatcmpl-1", object: "chat.completion.chunk", choices: [{ index: 0, delta: { role: "assistant" } }] },
+          { id: "chatcmpl-1", object: "chat.completion.chunk", choices: [{ index: 0, delta: { content: "Done" } }] },
+          {
+            id: "chatcmpl-1",
+            object: "chat.completion.chunk",
+            choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+          },
+        ]
+        const body = chunks
+          .map((chunk) => `data: ${JSON.stringify(chunk)}`)
+          .concat("data: [DONE]")
+          .join("\n\n")
+        return new Response(body + "\n\n", { status: 200, headers: { "Content-Type": "text/event-stream" } })
+      },
+    })
+    try {
+      await using tmp = await tmpdir({
+        git: true,
+        config: {
+          enabled_providers: ["alibaba"],
+          provider: { alibaba: { options: { apiKey: "test-key", baseURL: `${server.url.origin}/v1` } } },
+        },
+      })
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const model = { providerID: "alibaba", modelID: "qwen-plus" }
+          const session = await Session.create({ title: "Session from an older release" })
+          const user = await Session.updateMessage({
+            id: Identifier.ascending("message"),
+            sessionID: session.id,
+            role: "user",
+            time: { created: Date.now() },
+            agent: "plan",
+            model,
+          })
+          await Session.updatePart({
+            id: Identifier.ascending("part"),
+            sessionID: session.id,
+            messageID: user.id,
+            type: "text",
+            text: "Plan the change",
+          })
+          const assistant = await Session.updateMessage({
+            id: Identifier.ascending("message"),
+            sessionID: session.id,
+            parentID: user.id,
+            role: "assistant",
+            mode: "plan",
+            agent: "plan",
+            path: { cwd: tmp.path, root: tmp.path },
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            modelID: model.modelID,
+            providerID: model.providerID,
+            finish: "stop",
+            time: { created: Date.now(), completed: Date.now() },
+          })
+          const calls = [
+            { tool: "question", error: undefined },
+            { tool: "plan_enter", error: "The user dismissed this question" },
+            { tool: "plan_exit", error: undefined },
+          ]
+          for (const call of calls) {
+            await Session.updatePart({
+              id: Identifier.ascending("part"),
+              sessionID: session.id,
+              messageID: assistant.id,
+              type: "tool",
+              callID: `call_${call.tool}`,
+              tool: call.tool,
+              state: call.error
+                ? { status: "error", input: {}, error: call.error, time: { start: 1, end: 2 } }
+                : {
+                    status: "completed",
+                    input: {},
+                    output: "User answered",
+                    title: call.tool,
+                    metadata: {},
+                    time: { start: 1, end: 2 },
+                  },
+            })
+          }
+
+          const result = await SessionPrompt.prompt({
+            sessionID: session.id,
+            model,
+            parts: [{ type: "text", text: "Continue" }],
+          })
+
+          expect(result.info.role).toBe("assistant")
+          if (result.info.role !== "assistant") throw new Error("expected assistant message")
+          expect(result.info.error).toBeUndefined()
+          expect(requests).toHaveLength(1)
+          const history = JSON.stringify(requests[0].messages)
+          for (const call of calls) expect(history).toContain(`call_${call.tool}`)
+          const tools = (requests[0].tools as Array<{ function: { name: string } }>).map((item) => item.function.name)
+          expect(tools).toContain("read")
+          expect(tools).not.toContain("question")
+          expect(tools).not.toContain("plan_enter")
+          expect(tools).not.toContain("plan_exit")
+          await Session.remove(session.id)
+        },
+      })
+    } finally {
+      server.stop()
+    }
+  }, 15_000)
 })

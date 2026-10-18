@@ -10,6 +10,7 @@ import { ModelsDev } from "../../src/provider/models"
 import { Filesystem } from "../../src/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
 import type { Agent } from "../../src/agent/agent"
+import type { PermissionNext } from "../../src/permission/next"
 import type { MessageV2 } from "../../src/session/message-v2"
 
 describe("session.llm.hasToolCalls", () => {
@@ -798,6 +799,97 @@ describe("session.llm.stream", () => {
           nullable: true,
           items: { type: "string", enum: ["first", "second"] },
         })
+      },
+    })
+  })
+
+  test("omits tools the session denies from the request while the agent allows them", async () => {
+    const server = state.server
+    if (!server) {
+      throw new Error("Server not initialized")
+    }
+
+    const providerID = "alibaba"
+    const modelID = "qwen-plus"
+    const fixture = await loadFixture(providerID, modelID)
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "aictrl.json"),
+          JSON.stringify({
+            $schema: "https://aictrl.ai/config.json",
+            enabled_providers: [providerID],
+            provider: {
+              [providerID]: {
+                options: {
+                  apiKey: "test-key",
+                  baseURL: `${server.url.origin}/v1`,
+                },
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const resolved = await Provider.getModel(providerID, fixture.model.id)
+        // an explicit agent allow, so the session rules must be merged after the agent's to win
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [
+            { permission: "*", pattern: "*", action: "allow" },
+            { permission: "task", pattern: "*", action: "allow" },
+          ],
+        } satisfies Agent.Info
+        // the session rule the task tool creates subagent sessions with
+        const subagent: PermissionNext.Ruleset = [{ permission: "task", action: "deny", pattern: "*" }]
+
+        async function requestTools(sessionID: string, permission?: PermissionNext.Ruleset) {
+          const request = waitRequest(
+            "/chat/completions",
+            new Response(createChatStream("Hello"), {
+              status: 200,
+              headers: { "Content-Type": "text/event-stream" },
+            }),
+          )
+          const stub = () =>
+            tool({
+              description: "stub",
+              inputSchema: jsonSchema({ type: "object", properties: {} }),
+              execute: async () => "ok",
+            })
+          const stream = await LLM.stream({
+            user: {
+              id: `user-${sessionID}`,
+              sessionID,
+              role: "user",
+              time: { created: Date.now() },
+              agent: agent.name,
+              model: { providerID, modelID: resolved.id },
+            },
+            sessionID,
+            model: resolved,
+            agent,
+            permission,
+            system: ["You are a helpful assistant."],
+            abort: new AbortController().signal,
+            messages: [{ role: "user", content: "Hello" }],
+            tools: { task: stub(), webfetch: stub(), read: stub() },
+          })
+          for await (const _ of stream.fullStream) {
+          }
+          const body = (await request).body
+          return (body.tools as Array<{ function: { name: string } }>).map((item) => item.function.name).sort()
+        }
+
+        expect(await requestTools("session-primary")).toEqual(["read", "task", "webfetch"])
+        expect(await requestTools("session-subagent", subagent)).toEqual(["read", "webfetch"])
       },
     })
   })
