@@ -538,13 +538,14 @@ Emitted when a child session completes.
 
 ### `subagent_message_complete`
 
-Emitted when an assistant message of a child session (a `task` subagent announced by `subagent_start`) finishes, one per child LLM turn. It carries the same fields as `message_complete` (`messageID`, `modelID`, `providerID`, `agent`, `status`, `usageStatus`, `cost`, `tokens`, `context`, `finish`) plus `subagentSessionID`. `sessionID` is the primary session, as on every event. A child may use a different model from the parent, so price each event by its own `providerID`/`modelID`.
+Emitted when an assistant message of a child session (a `task` subagent announced by `subagent_start`) finishes, one per child LLM turn. It carries the same fields as `message_complete` (`messageID`, `modelID`, `providerID`, `agent`, `status`, `usageStatus`, `cost`, `tokens`, `context`, `finish`) plus `subagentSessionID` and `parentSessionID`, like the other subagent events. `sessionID` is the primary session, as on every event. A child may use a different model from the parent, so price each event by its own `providerID`/`modelID`.
 
 ```json
 {
   "type": "subagent_message_complete",
   "sessionID": "session_01abc...",
   "subagentSessionID": "session_01xyz...",
+  "parentSessionID": "session_01abc...",
   "messageID": "msg_01def...",
   "modelID": "claude-sonnet-4-20250514",
   "providerID": "anthropic",
@@ -558,9 +559,9 @@ Emitted when an assistant message of a child session (a `task` subagent announce
 }
 ```
 
-### Totalling a run
+#### Totalling a run
 
-A run's model usage is the sum of `tokens` (and `cost`) over every `message_complete` (the primary session's turns) and every `subagent_message_complete` (its subagents' turns). Each message appears in exactly one of the two events, at most once, so nothing is double-counted. An event with `usageStatus: "missing"` has `tokens: null`; when any event in the run has it, the sum is a lower bound. Subagents are the primary session's direct children (those announced by `subagent_start`); turns of a subagent's own nested `task` calls are not reported.
+For a run whose subagents do not delegate further, its model usage is the sum of `tokens` (and `cost`) over every `message_complete` (the primary session's turns) and every `subagent_message_complete` (its subagents' turns). Each message appears in exactly one of the two events, at most once, so nothing is double-counted. An event with `usageStatus: "missing"` has `tokens: null`; when any event in the run has it, the sum is a lower bound. Subagents are the primary session's direct children (those announced by `subagent_start`); turns of a subagent's own nested `task` calls (possible only when config grants `task` to subagents) are not reported, so under nested delegation the sum is also a lower bound.
 
 ## Error Events
 

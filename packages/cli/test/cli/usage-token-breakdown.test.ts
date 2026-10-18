@@ -92,7 +92,7 @@ describe("buildContextWindow (#86)", () => {
   })
 })
 
-describe("message_complete emit block shape (source-verified, #86)", () => {
+describe("completedMessage payload shape (source-verified, #86)", () => {
   // These source-text checks verify structural wiring in the emit call site
   // that cannot be covered by pure unit-testing buildContextWindow.
   const RUN_SRC = path.resolve(import.meta.dir, "../../src/cli/cmd/run.ts")
@@ -116,21 +116,21 @@ describe("message_complete emit block shape (source-verified, #86)", () => {
     const source = await Bun.file(RUN_SRC).text()
     expect(source).toContain('emit("message_complete", message)')
     const start = source.indexOf("async function completedMessage(")
-    const end = source.indexOf("\n      }\n", start)
+    const end = source.indexOf("const subscriptionAbort", start)
     expect(start).toBeGreaterThan(-1)
     expect(end).toBeGreaterThan(start)
     return source.slice(start, end)
   }
 
-  test("emit block calls buildContextWindow (not inline ternary)", async () => {
+  test("completedMessage calls buildContextWindow (not inline ternary)", async () => {
     expect(await payloadBlock()).toContain("buildContextWindow")
   })
 
-  test("emit block includes context field", async () => {
+  test("completedMessage includes context field", async () => {
     expect(await payloadBlock()).toContain("context,")
   })
 
-  test("cost field is still emitted (not regressed)", async () => {
+  test("completedMessage still emits the cost field (not regressed)", async () => {
     expect(await payloadBlock()).toContain("cost:")
   })
 

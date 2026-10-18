@@ -622,7 +622,10 @@ export const RunCommand = cmd({
         return false
       }
 
-      /** The `message_complete` payload for a finished assistant message: status, usage and context window. */
+      /**
+       * The payload for a finished assistant message, emitted as `message_complete` for the
+       * primary session and `subagent_message_complete` for a child session: status, usage and context window.
+       */
       async function completedMessage(info: MessageV2.Assistant) {
         const usage = terminalUsage(info)
 
@@ -791,7 +794,7 @@ export const RunCommand = cmd({
                 const message = await completedMessage(info)
                 // message_complete stays primary-session only; child turns get their own event (#213)
                 if (own) emit("message_complete", message)
-                else emit("subagent_message_complete", { subagentSessionID: info.sessionID, ...message })
+                else emit("subagent_message_complete", { subagentSessionID: info.sessionID, parentSessionID: sessionID, ...message })
               }
             } else if (toggles.get("start") !== true) {
               UI.empty()

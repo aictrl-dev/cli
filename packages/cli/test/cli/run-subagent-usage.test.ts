@@ -19,6 +19,7 @@ type Event = {
   type: string
   sessionID: string
   subagentSessionID?: string
+  parentSessionID?: string
   messageID?: string
   tokens?: Tokens | null
   usageStatus?: string
@@ -133,7 +134,11 @@ describe("subagent token usage (#213)", () => {
     // message_complete keeps its primary-session meaning.
     expect(parentTurns).toHaveLength(2)
     expect(childTurns).toHaveLength(1)
-    expect(childTurns[0]).toMatchObject({ subagentSessionID: child, usageStatus: "reported" })
+    expect(childTurns[0]).toMatchObject({
+      subagentSessionID: child,
+      parentSessionID: childTurns[0].sessionID,
+      usageStatus: "reported",
+    })
     expect(childTurns[0].messageID).not.toBe(parentTurns[0].messageID)
 
     const total = [...parentTurns, ...childTurns].reduce((sum, event) => sum + event.tokens!.total, 0)
