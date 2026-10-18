@@ -74,6 +74,16 @@ In headless mode, Aictrl automatically rejects all interactive permission reques
 every request, and a one-shot run has nobody following a todo list. To track a plan, instruct
 the agent to keep one in a file.
 
+### Skill Scope
+
+`aictrl run` does not list skills from `~/.claude`, `~/.agents` or `~/.opencode`;
+list them explicitly in config `skills.paths` (e.g. `["~/.claude/skills"]`) to use
+them. Project skills, the global aictrl
+config directories (`~/.config/aictrl`, `~/.aictrl`) and config
+`skills.paths`/`skills.urls` are still listed. Pass `--skill <name>` (repeatable)
+or set config `skills.allow` to list and load only the named skills.
+See the [full contract](packages/cli/README.md#skill-scope).
+
 ### CI/CD Integration
 
 Set `AICTRL_HEADLESS=true` in your environment to force headless behavior even in pseudo-TTYs.

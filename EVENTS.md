@@ -132,6 +132,8 @@ Emitted once per session, immediately after `session_start` and before the first
 
 #### `skills[]` — skill packs resolved for this session (separate from `tools[]`)
 
+Only skills in scope for the run are listed; see [Skill Events](#skill-events).
+
 - **`name`** (string, **required**) — skill name from `SKILL.md` frontmatter.
 - **`version`** (string or null, **required**) — version string from the `version` field in `SKILL.md` frontmatter. `null` when no version is declared.
 
@@ -432,6 +434,8 @@ with truthful process/session failure status.
 
 Skills are loaded progressively. The model first sees skill names and descriptions in the tool schema. Full skill content only enters context when the model explicitly invokes the skill tool.
 
+Skill events, and `tool_catalog.skills[]`, cover only the skills in scope for the run. Without `--attach`, `aictrl run` skips `~/.claude/skills`, `~/.agents/skills` and `~/.opencode/skills` (config `skills.paths` can list home skills explicitly), and `--skill <name>` (repeatable) or config `skills.allow` limits the set further (see [Skill Scope](packages/cli/README.md#skill-scope)). A skill outside the allowlist is neither discovered nor loadable: the skill tool rejects it with `Skill "<name>" is not in the skill allowlist for this run`, and no `skill_loaded` event is emitted. With `--attach`, the attached server's own skill discovery applies.
+
 ### `skill_discovered`
 
 Emitted per skill when the skill tool is initialized and skill descriptions are registered in the tool schema. This happens at the start of each LLM turn.
@@ -441,7 +445,7 @@ Emitted per skill when the skill tool is initialized and skill descriptions are 
   "type": "skill_discovered",
   "name": "commit",
   "description": "Create well-structured git commits",
-  "location": "/home/user/.claude/skills/commit/SKILL.md"
+  "location": "/work/repo/.claude/skills/commit/SKILL.md"
 }
 ```
 
@@ -453,7 +457,7 @@ Emitted when the model invokes the skill tool and the full SKILL.md content ente
 {
   "type": "skill_loaded",
   "name": "commit",
-  "location": "/home/user/.claude/skills/commit/SKILL.md"
+  "location": "/work/repo/.claude/skills/commit/SKILL.md"
 }
 ```
 
@@ -465,7 +469,7 @@ Emitted when the model reads a file that belongs to a skill directory (e.g., a s
 {
   "type": "skill_resource_loaded",
   "skillName": "commit",
-  "filePath": "/home/user/.claude/skills/commit/templates/conventional.md"
+  "filePath": "/work/repo/.claude/skills/commit/templates/conventional.md"
 }
 ```
 

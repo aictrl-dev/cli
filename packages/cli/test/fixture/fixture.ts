@@ -45,3 +45,17 @@ export async function tmpdir<T>(options?: TmpDirOptions<T>) {
   }
   return result
 }
+
+/** Writes `<dir>/<name>/SKILL.md` with name and description frontmatter. */
+export async function writeSkill(dir: string, name: string, description = `${name} fixture skill.`) {
+  await Bun.write(
+    path.join(dir, name, "SKILL.md"),
+    `---
+name: ${name}
+description: ${description}
+---
+
+# ${name}
+`,
+  )
+}

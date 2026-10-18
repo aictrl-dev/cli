@@ -100,6 +100,43 @@ In headless mode, Aictrl automatically rejects permissions that would otherwise 
 every request, and a one-shot run has nobody following a todo list. To track a plan, instruct
 the agent to keep one in a file.
 
+### Skill Scope
+
+`aictrl run` lists project skills (`.aictrl/skill(s)/`, and `.claude/skills/`,
+`.agents/skills/` or `.opencode/skills/` from the working directory up to the
+repository root), skills in the global config directory (`~/.config/aictrl/`,
+`~/.aictrl/`) and config `skills.paths`/`skills.urls`. It does **not** scan
+`~/.claude/skills/`, `~/.agents/skills/` or `~/.opencode/skills/`, so the skill
+list does not depend on what happens to be in `$HOME`. To use home skills, list
+their folder explicitly in config `skills.paths` (`~/` expands to the home directory):
+
+```json
+{ "skills": { "paths": ["~/.claude/skills"] } }
+```
+
+To limit a run to the skills it needs, pass `--skill <name>` (repeatable) or set
+config `skills.allow`. Only those skills are then listed in the `skill` tool,
+loadable by it, and reported in `tool_catalog`/`skill_discovered` events, for the
+main session and every subagent. An allowlist filters discovered skills; it does
+not bring back home-directory skills. `skills.allow: []` allows no skills.
+
+An allowlist matches skill **names**, not where a skill comes from. When several
+sources define the same name, the later source wins (project over home, config
+`skills.paths`/`skills.urls` last), so in a repository you do not control, the
+content under an allowed name can come from that repository.
+
+`skills.allow` follows normal config precedence, so a project config can replace
+a global value. It applies to every command that reads config (for example
+`aictrl acp`), not only `aictrl run`. `--skill` replaces `skills.allow` for a single
+`aictrl run`.
+
+With `--attach`, the attached server discovers skills: its own skill discovery
+applies, and `--skill` is rejected.
+
+```bash
+aictrl run --skill code-review "review this PR"
+```
+
 ## Configuration
 
 Aictrl reads config from `.aictrl/` (project) or `~/.config/aictrl/` (global).

@@ -1,11 +1,12 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import path from "path"
 import { pathToFileURL } from "url"
 import type { PermissionNext } from "../../src/permission/next"
 import type { Tool } from "../../src/tool/tool"
 import { Instance } from "../../src/project/instance"
+import { Skill } from "../../src/skill"
 import { SkillTool } from "../../src/tool/skill"
-import { tmpdir } from "../fixture/fixture"
+import { tmpdir, writeSkill } from "../fixture/fixture"
 
 const baseCtx: Omit<Tool.Context, "ask"> = {
   sessionID: "test",
@@ -108,5 +109,81 @@ Use this skill.
     } finally {
       process.env.AICTRL_TEST_HOME = home
     }
+  })
+
+  describe("allowlist", () => {
+    async function project() {
+      return tmpdir({
+        git: true,
+        init: async (dir) => {
+          for (const name of ["allowed-skill", "blocked-skill"]) {
+            await writeSkill(path.join(dir, ".aictrl", "skill"), name)
+          }
+        },
+      })
+    }
+
+    afterEach(() => Skill.setScope({}))
+
+    test("description lists only allowed skills", async () => {
+      await using tmp = await project()
+      Skill.setScope({ allow: ["allowed-skill"] })
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const tool = await SkillTool.init()
+          expect(tool.description).toContain("<name>allowed-skill</name>")
+          expect(tool.description).not.toContain("blocked-skill")
+        },
+      })
+    })
+
+    test("execute rejects a skill outside the allowlist", async () => {
+      await using tmp = await project()
+      Skill.setScope({ allow: ["allowed-skill"] })
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const tool = await SkillTool.init()
+          const ctx: Tool.Context = { ...baseCtx, ask: async () => {} }
+          await expect(tool.execute({ name: "blocked-skill" }, ctx)).rejects.toThrow(
+            'Skill "blocked-skill" is not in the skill allowlist for this run. Allowed skills: allowed-skill',
+          )
+          const result = await tool.execute({ name: "allowed-skill" }, ctx)
+          expect(result.output).toContain(`<skill_content name="allowed-skill">`)
+        },
+      })
+    })
+
+    test("allowlist error lists only allowed skills that were discovered", async () => {
+      await using tmp = await project()
+      Skill.setScope({ allow: ["allowed-skill", "ghost-skill"] })
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const tool = await SkillTool.init()
+          const ctx: Tool.Context = { ...baseCtx, ask: async () => {} }
+          const error = await tool.execute({ name: "blocked-skill" }, ctx).catch((error: Error) => error.message)
+          expect(error).toBe(
+            'Skill "blocked-skill" is not in the skill allowlist for this run. Allowed skills: allowed-skill',
+          )
+        },
+      })
+    })
+
+    test("unknown skill error names the available skills", async () => {
+      await using tmp = await project()
+      await Instance.provide({
+        directory: tmp.path,
+        fn: async () => {
+          const tool = await SkillTool.init()
+          const ctx: Tool.Context = { ...baseCtx, ask: async () => {} }
+          const error = await tool.execute({ name: "missing-skill" }, ctx).catch((error: Error) => error.message)
+          expect(error).toStartWith('Skill "missing-skill" not found. Available skills: ')
+          expect(error).toContain("allowed-skill")
+          expect(error).toContain("blocked-skill")
+        },
+      })
+    })
   })
 })

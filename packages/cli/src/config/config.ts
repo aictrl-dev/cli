@@ -661,6 +661,12 @@ export namespace Config {
       .array(z.string())
       .optional()
       .describe("URLs to fetch skills from (e.g., https://example.com/.well-known/skills/)"),
+    allow: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Only skills with these names are listed and loadable, from whichever source defines them; `aictrl run --skill` overrides it",
+      ),
   })
   export type Skills = z.infer<typeof Skills>
 

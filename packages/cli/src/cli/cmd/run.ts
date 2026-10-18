@@ -39,6 +39,7 @@ import { CodeSearchTool } from "../../tool/codesearch"
 import { WebSearchTool } from "../../tool/websearch"
 import { TaskTool } from "../../tool/task"
 import { SkillTool } from "../../tool/skill"
+import { Skill } from "../../skill"
 import { BashTool } from "../../tool/bash"
 import { TodoWriteTool } from "../../tool/todo"
 import { Locale } from "../../util/locale"
@@ -422,6 +423,13 @@ export const RunCommand = cmd({
         describe: "show thinking blocks",
         default: false,
       })
+      .option("skill", {
+        type: "string",
+        array: true,
+        // One value per flag, so a trailing message is not taken as a skill name.
+        nargs: 1,
+        describe: "only list and load this skill (repeatable); overrides config skills.allow",
+      })
   },
   handler: async (args) => {
     const invocation = createRunInvocation(args.format === "json")
@@ -494,6 +502,17 @@ export const RunCommand = cmd({
 
     if (args.fork && !args.continue && !args.session) {
       await fail("--fork requires --continue or --session", "INVOCATION_INVALID_ARGUMENTS")
+    }
+
+    if (args.skill?.length && args.attach) {
+      // The attached server discovers skills, so a local allowlist cannot reach it.
+      await fail("--skill is not supported with --attach", "INVOCATION_INVALID_ARGUMENTS")
+    }
+
+    const allowlist = args.skill?.map((name) => name.trim())
+    if (allowlist?.some((name) => !name)) {
+      // An empty name (e.g. an unset shell variable) would otherwise silently allow no skills.
+      await fail("--skill requires a skill name", "INVOCATION_INVALID_ARGUMENTS")
     }
 
     const rules: PermissionNext.Ruleset = [
@@ -1131,6 +1150,7 @@ export const RunCommand = cmd({
 
     // Sessions this process serves belong to the headless run until it finishes.
     HeadlessRun.enable()
+    Skill.setScope({ allow: allowlist })
     const execution = bootstrap(process.cwd(), async () => {
       const sdk = {
         session: {
