@@ -14,6 +14,9 @@ const entries = {
 
 type Request = { messages: { role: string; content?: unknown }[] }
 
+// The runner's own AICTRL_* settings (for example AICTRL_CONFIG_DIR) would change the prompt under test.
+const runnerEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("AICTRL_")))
+
 /** Runs `aictrl run` from `entry` and returns the system messages of the first model request. */
 async function firstSystemPrompt(entry: string, root: string) {
   const requests: Request[] = []
@@ -47,7 +50,7 @@ async function firstSystemPrompt(entry: string, root: string) {
     {
       cwd: path.join(root, "project"),
       env: {
-        ...process.env,
+        ...runnerEnv,
         AICTRL_CONFIG_CONTENT: JSON.stringify(config),
         HOME: path.join(root, "home"),
         AICTRL_TEST_HOME: path.join(root, "home"),
