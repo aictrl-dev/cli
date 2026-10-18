@@ -37,39 +37,19 @@
    `sandbox` before `main`; verify a sandbox review persists MCP findings and
    a stalled stream reports a timeout rather than waiting for the job limit.
 
-## 0.5.0 candidate
+## 0.5.1 candidate
 
-- **Why a minor bump (0.5.0):** the release removes public surface rather than
-  adding models. Caret ranges on `^0.4.x` do not pick it up; consumers opt in.
-- **Breaking:**
-  - The built-in provider set narrows to the 18 providers in
-    `packages/cli/src/provider/catalog.json`, shipped in the binary; models.dev
-    is no longer fetched or cached (#202). Other providers must be defined under
-    `provider` in `aictrl.json`. GitHub Copilot is removed (#193).
-  - Commands removed: `github`, `pr` (#192) and `acp` (#204) print a
-    replacement hint and exit 1; `debug lsp`, `debug snapshot` and
-    `models --refresh` are gone; `run --share` and `import <url>` fail (#195);
-    `run --agent plan` fails (#162).
-  - Subsystems and tools removed: LSP (#191), snapshots/revert/session diffs
-    (#184), session sharing (#195), the file watcher (#204), `question` and
-    plan mode (#162), `todowrite`/`todoread` (#183).
-  - Prompt changes: the `bash` description has no git procedures or rules, and
-    no default deny rules ship; callers use `permission.bash` (#161). Headless
-    runs no longer discover `~/.claude`, `~/.agents` or `~/.opencode` skills
-    (#165).
-  - Config keys `lsp`, `permission.lsp`, `snapshot`, `share`, `autoshare`,
-    `enterprise` and `watcher` still load as warned no-ops.
-- **NDJSON v1 additions:** `session_error` reason `usage_limit`, code
-  `PROVIDER_USAGE_LIMIT` and `resetAt` (#174); `structured_output_rejected`
-  keyword `rejected` (#179).
-- Stored sessions from 0.4.x still load and continue (covered by e2e tests in
-  #183, #184, #191, #195).
-- Evidence (0.4.8 vs the candidate, GLM-5.3, 8 headless tasks × 3 runs, same Bun):
-  - pass rate 24/24 on both; no retries, hangs or `session_error`;
-  - uncached input tokens −25%, tool definitions −47% (36.8k → 19.4k chars),
-    no title request; output tokens median +5% per run;
-  - trivial run 558 → 389 ms, peak RSS 270 → 174 MB, binary 114 → 105 MB,
-    no network at startup.
+- **Why a patch bump (0.5.1):** model-only support change. It restores the
+  built-in `google` provider (Google AI Studio, `@ai-sdk/google`) that 0.5.0
+  left out of the static catalog, so `google/<model>` works with only
+  `GOOGLE_GENERATIVE_AI_API_KEY`, `GEMINI_API_KEY` or `GOOGLE_API_KEY` set.
+- The catalog gains one provider and 22 models (18 → 19 providers, 1354 → 1376
+  models); every other provider's entry is byte-identical to 0.5.0.
+- No CLI flags, config schema or NDJSON events change. One config behaviour
+  changes: a `provider.google` defined in `aictrl.json` on 0.5.0 now extends
+  the built-in, so its models without `npm` use `@ai-sdk/google` again (as up
+  to 0.4.8) and the built-in models are listed too. The CHANGELOG gives the
+  `npm` + `whitelist` opt-out.
 
 Publication and executor promotion are separate gates. Preparing this candidate
 PR does not publish npm packages or deploy an executor image.
