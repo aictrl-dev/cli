@@ -5,12 +5,16 @@ import { Filesystem } from "../../src/util/filesystem"
 import fs from "fs/promises"
 import path from "path"
 
-const FIXTURES_DIR = path.join(import.meta.dir, "fixtures")
+// A JSON document well over Truncate.MAX_BYTES; `indent` spreads it over many lines.
+function largeJson(indent?: number) {
+  const items = Array.from({ length: 1000 }, (_, i) => ({ id: `item-${i}`, description: "x".repeat(100) }))
+  return JSON.stringify(items, null, indent)
+}
 
 describe("Truncate", () => {
   describe("output", () => {
     test("truncates large json file by bytes", async () => {
-      const content = await Filesystem.readText(path.join(FIXTURES_DIR, "models-api.json"))
+      const content = largeJson(2)
       const result = await Truncate.output(content)
 
       expect(result.truncated).toBe(true)
@@ -70,7 +74,7 @@ describe("Truncate", () => {
     })
 
     test("large single-line file truncates with byte message", async () => {
-      const content = await Filesystem.readText(path.join(FIXTURES_DIR, "models-api.json"))
+      const content = largeJson()
       const result = await Truncate.output(content)
 
       expect(result.truncated).toBe(true)

@@ -104,7 +104,6 @@ describe("aictrl run --continue on a session with todowrite history (#182)", () 
       XDG_DATA_HOME: path.join(data, "share"),
       XDG_STATE_HOME: path.join(data, "state"),
       AICTRL_DISABLE_DEFAULT_PLUGINS: "true",
-      AICTRL_DISABLE_MODELS_FETCH: "true",
       AICTRL_DISABLE_AUTOCOMPACT: "true",
     }
 

@@ -13,6 +13,7 @@ import { MessageV2 } from "../../src/session/message-v2"
 import { OutputSchema } from "../../src/session/output-schema"
 import { tmpdir } from "../fixture/fixture"
 import { schema, corpus, pathArgs } from "../fixture/output-schema"
+import { alibabaProvider } from "../fixture/providers"
 
 async function run(
   inputs: string[],
@@ -220,7 +221,7 @@ async function run(
                 models: { "gemini-fixture": { name: "fixture", limit: { context: 100000, output: 1000 } } },
               },
             }
-          : { alibaba: { options: { apiKey: "test-key", baseURL: `${server.url.origin}/v1` } } },
+          : { alibaba: { ...alibabaProvider, options: { apiKey: "test-key", baseURL: `${server.url.origin}/v1` } } },
       },
     })
     return await Instance.provide({

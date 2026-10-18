@@ -6,6 +6,7 @@ import { SessionPrompt } from "../../src/session/prompt"
 import { MessageV2 } from "../../src/session/message-v2"
 import { LLM } from "../../src/session/llm"
 import { tmpdir } from "../fixture/fixture"
+import { alibabaProvider } from "../fixture/providers"
 
 function tool(input: {
   status?: "pending" | "running" | "completed" | "error"
@@ -103,7 +104,7 @@ describe("session prompt tool-call continuation", () => {
     await using tmp = await tmpdir({
       config: {
         enabled_providers: ["alibaba"],
-        provider: { alibaba: { options: { apiKey: "test-key" } } },
+        provider: { alibaba: { ...alibabaProvider, options: { apiKey: "test-key" } } },
       },
     })
     await Instance.provide({
@@ -193,6 +194,7 @@ describe("session prompt tool-call continuation", () => {
               enabled_providers: ["alibaba"],
               provider: {
                 alibaba: {
+                  ...alibabaProvider,
                   options: {
                     apiKey: "test-key",
                     baseURL: `${server.url.origin}/v1`,

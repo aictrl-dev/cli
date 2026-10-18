@@ -5,7 +5,6 @@
   bun,
   sysctl,
   makeBinaryWrapper,
-  models-dev,
   ripgrep,
   installShellFiles,
   versionCheckHook,
@@ -21,7 +20,6 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     bun
     installShellFiles
     makeBinaryWrapper
-    models-dev
     writableTmpDirAsHomeHook
   ];
 
@@ -33,8 +31,6 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     runHook postConfigure
   '';
 
-  env.MODELS_DEV_API_JSON = "${models-dev}/dist/_api.json";
-  env.AICTRL_DISABLE_MODELS_FETCH = true;
   env.AICTRL_VERSION = finalAttrs.version;
   env.AICTRL_CHANNEL = "local";
 
@@ -80,7 +76,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     writableTmpDirAsHomeHook
   ];
   doInstallCheck = true;
-  versionCheckKeepEnvironment = [ "HOME" "AICTRL_DISABLE_MODELS_FETCH" ];
+  versionCheckKeepEnvironment = [ "HOME" ];
   versionCheckProgramArg = "--version";
 
   passthru = {

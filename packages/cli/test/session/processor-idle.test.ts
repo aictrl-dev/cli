@@ -12,13 +12,14 @@ import { SessionProcessor } from "../../src/session/processor"
 import { SessionStatus } from "../../src/session/status"
 import { MessageV2 } from "../../src/session/message-v2"
 import { tmpdir } from "../fixture/fixture"
+import { alibabaProvider } from "../fixture/providers"
 
 describe("session processor model stream idle timeout", () => {
   test("times out stalled model stream setup when enabled", async () => {
     await using tmp = await tmpdir({
       config: {
         enabled_providers: ["alibaba"],
-        provider: { alibaba: { options: { apiKey: "test-key" } } },
+        provider: { alibaba: { ...alibabaProvider, options: { apiKey: "test-key" } } },
       },
     })
     const original = process.env.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS
@@ -163,7 +164,7 @@ describe("session processor model stream idle timeout", () => {
       await using tmp = await tmpdir({
         config: {
           enabled_providers: ["alibaba"],
-          provider: { alibaba: { options: { apiKey: "test-key" } } },
+          provider: { alibaba: { ...alibabaProvider, options: { apiKey: "test-key" } } },
         },
       })
       const original = process.env.AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS

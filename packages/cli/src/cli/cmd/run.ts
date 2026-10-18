@@ -17,7 +17,7 @@ import { Filesystem } from "../../util/filesystem"
 import { createAictrlClient } from "@aictrl/sdk"
 import type { ToolPart } from "@aictrl/sdk/v2"
 import { Provider } from "../../provider/provider"
-import { ModelsDev } from "../../provider/models"
+import { lazy } from "../../util/lazy"
 import { Agent } from "../../agent/agent"
 import { PermissionNext } from "../../permission/next"
 import { Session } from "../../session"
@@ -120,9 +120,12 @@ export function buildContextWindow(
 export async function attachedContextLimit(
   providerID: string,
   modelID: string,
-  providers = ModelsDev.get(),
+  providers: Promise<Provider.Info[]>,
 ): Promise<number | null> {
-  return providers.then((providers) => providers[providerID]?.models[modelID]?.limit.context ?? null).catch(() => null)
+  return providers
+    .then((providers) => providers.find((provider) => provider.id === providerID))
+    .then((provider) => provider?.models[modelID]?.limit.context ?? null)
+    .catch(() => null)
 }
 
 type TerminalUsageInfo = Pick<MessageV2.Assistant, "finish" | "usageStatus" | "tokens">
@@ -542,6 +545,11 @@ export const RunCommand = cmd({
     let promptResult: Promise<any> = Promise.resolve()
 
     async function execute(sdk: any) {
+      // An attached server resolves models from its own provider registry, so ask it once per run.
+      const attachedProviders = lazy(
+        (): Promise<Provider.Info[]> => sdk.config.providers().then((res: any) => res.data?.providers ?? []),
+      )
+
       function tool(part: ToolPart) {
         try {
           if (part.tool === "bash") return bash(props<typeof BashTool>(part))
@@ -697,10 +705,10 @@ export const RunCommand = cmd({
                 // part of the prompt sent to the model and count against the context
                 // window, just billed at the cache-write rate. Excluding them
                 // undercounts utilization on the first turn of a conversation.
-                // limit comes from the model registry (models.dev). On lookup failure
-                // (or limit===0 for custom models) buildContextWindow returns null.
+                // limit comes from the provider registry (the built-in catalog plus config, or the attached server's).
+                // On lookup failure (or limit===0 for custom models) buildContextWindow returns null.
                 const contextLimit = await (args.attach
-                  ? attachedContextLimit(info.providerID, info.modelID)
+                  ? attachedContextLimit(info.providerID, info.modelID, attachedProviders())
                   : Provider.getModel(info.providerID, info.modelID)
                       .then((m) => m.limit.context)
                       .catch((e) => {

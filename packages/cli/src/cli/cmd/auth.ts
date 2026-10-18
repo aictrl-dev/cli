@@ -2,8 +2,8 @@ import { Auth } from "../../auth"
 import { cmd } from "./cmd"
 import * as prompts from "@clack/prompts"
 import { UI } from "../ui"
-import { ModelsDev } from "../../provider/models"
-import { map, pipe, sortBy, values } from "remeda"
+import { ModelCatalog } from "../../provider/catalog"
+import { map, pickBy, pipe, sortBy, values } from "remeda"
 import path from "path"
 import os from "os"
 import { Config } from "../../config/config"
@@ -163,7 +163,7 @@ async function handlePluginAuth(plugin: { auth: PluginAuth }, provider: string):
 
 /**
  * Build a deduplicated list of plugin-registered auth providers that are not
- * already present in models.dev, respecting enabled/disabled provider lists.
+ * already built into the model catalog, respecting enabled/disabled provider lists.
  * Pure function with no side effects; safe to test without mocking.
  */
 export function resolvePluginProviders(input: {
@@ -212,7 +212,7 @@ export const AuthListCommand = cmd({
     const displayPath = authPath.startsWith(homedir) ? authPath.replace(homedir, "~") : authPath
     prompts.intro(`Credentials ${UI.Style.TEXT_DIM}${displayPath}`)
     const results = Object.entries(await Auth.all())
-    const database = await ModelsDev.get()
+    const database = ModelCatalog.providers()
 
     for (const [providerID, result] of results) {
       const name = database[providerID]?.name || providerID
@@ -288,30 +288,21 @@ export const AuthLoginCommand = cmd({
           prompts.outro("Done")
           return
         }
-        await ModelsDev.refresh().catch(() => {})
-
         const config = await Config.get()
 
         const disabled = new Set(config.disabled_providers ?? [])
         const enabled = config.enabled_providers ? new Set(config.enabled_providers) : undefined
 
-        const providers = await ModelsDev.get().then((x) => {
-          const filtered: Record<string, (typeof x)[string]> = {}
-          for (const [key, value] of Object.entries(x)) {
-            if ((enabled ? enabled.has(key) : true) && !disabled.has(key)) {
-              filtered[key] = value
-            }
-          }
-          return filtered
-        })
+        const providers = pickBy(
+          ModelCatalog.providers(),
+          (_, id) => (enabled ? enabled.has(id) : true) && !disabled.has(id),
+        )
 
         const priority: Record<string, number> = {
-          aictrl: 0,
-          anthropic: 1,
-          openai: 2,
-          google: 3,
-          openrouter: 4,
-          vercel: 5,
+          anthropic: 0,
+          openai: 1,
+          openrouter: 2,
+          vercel: 3,
         }
         const pluginProviders = resolvePluginProviders({
           hooks: await Plugin.list(),
@@ -335,7 +326,6 @@ export const AuthLoginCommand = cmd({
                 label: x.name,
                 value: x.id,
                 hint: {
-                  aictrl: "recommended",
                   anthropic: "Claude Max or API key",
                   openai: "ChatGPT Plus/Pro or API key",
                 }[x.id],
@@ -392,10 +382,6 @@ export const AuthLoginCommand = cmd({
           )
         }
 
-        if (provider === "aictrl") {
-          prompts.log.info("Create an api key at https://aictrl.ai/auth")
-        }
-
         if (provider === "vercel") {
           prompts.log.info("You can create an api key at https://vercel.link/ai-gateway-token")
         }
@@ -433,7 +419,7 @@ export const AuthLogoutCommand = cmd({
       prompts.log.error("No credentials found")
       return
     }
-    const database = await ModelsDev.get()
+    const database = ModelCatalog.providers()
     const providerID = await prompts.select({
       message: "Select provider",
       options: credentials.map(([key, value]) => ({

@@ -59,7 +59,6 @@ test("provider termination survives adapter, storage, and headless NDJSON withou
       cwd: tmp.path,
       env: {
         ...process.env,
-        AICTRL_DISABLE_MODELS_FETCH: "true",
         AICTRL_DISABLE_AUTOCOMPACT: "true",
       },
       stdout: "pipe",

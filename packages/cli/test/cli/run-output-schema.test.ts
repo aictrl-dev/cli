@@ -3,6 +3,7 @@ import path from "path"
 import fs from "fs/promises"
 import { tmpdir } from "../fixture/fixture"
 import { schema, pathArgs } from "../fixture/output-schema"
+import { alibabaProvider } from "../fixture/providers"
 import { outputResult } from "../../src/cli/cmd/run.output"
 
 const entry = path.resolve(import.meta.dir, "../../src/index.ts")
@@ -103,7 +104,9 @@ async function run(
     path.join(tmp.path, "aictrl.json"),
     JSON.stringify({
       enabled_providers: ["alibaba"],
-      provider: { alibaba: { options: { apiKey: "test-key", baseURL: `${server.url.origin}/v1` } } },
+      provider: {
+        alibaba: { ...alibabaProvider, options: { apiKey: "test-key", baseURL: `${server.url.origin}/v1` } },
+      },
       agent: { title: { disable: true }, ...(options.steps ? { build: { steps: options.steps } } : {}) },
     }),
   )
@@ -215,7 +218,6 @@ SessionPrompt.prompt = async (input) => {
         XDG_DATA_HOME: path.join(home, ".local/share"),
         XDG_CACHE_HOME: path.join(home, ".cache"),
         AICTRL_TEST_HOME: home,
-        AICTRL_DISABLE_MODELS_FETCH: "true",
         AICTRL_DISABLE_AUTOCOMPACT: "true",
         AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS: options.timeout ? "100" : "0",
       },
@@ -695,7 +697,7 @@ for (const [name, value, failure, code] of [
       ],
       {
         cwd: tmp.path,
-        env: { ...process.env, AICTRL_DISABLE_MODELS_FETCH: "true" },
+        env: { ...process.env },
         stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",

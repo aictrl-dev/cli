@@ -14,8 +14,10 @@ export function FormatError(input: unknown) {
       ...(Array.isArray(suggestions) && suggestions.length ? ["Did you mean: " + suggestions.join(", ")] : []),
       `Try: \`aictrl models\` to list available models`,
       `Or check your config (aictrl.json) provider/model names`,
+      `Providers that are not built in must be defined under "provider" in aictrl.json`,
     ].join("\n")
   }
+  if (Provider.BaseURLMissingError.isInstance(input)) return input.message
   if (Provider.InitError.isInstance(input)) {
     return `Failed to initialize provider "${input.data.providerID}". Check credentials and configuration.`
   }
