@@ -148,6 +148,27 @@ describe("provider registry", () => {
     })
   })
 
+  test("GLM Coding Plan models keep their forced reasoning-effort variants", async () => {
+    await using tmp = await tmpdir({ config: {} })
+    await Instance.provide({
+      directory: tmp.path,
+      init: async () => {
+        Env.set("ZHIPU_API_KEY", "key")
+      },
+      fn: async () => {
+        const models = (await Provider.list())["zai-coding-plan"].models
+        expect(models["glm-5.2"].variants).toEqual({
+          low: { reasoningEffort: "high" },
+          medium: { reasoningEffort: "high" },
+          high: { reasoningEffort: "high" },
+          xhigh: { reasoningEffort: "max" },
+          max: { reasoningEffort: "max" },
+        })
+        expect(models["glm-5.3"].variants?.["max"]).toEqual({ reasoningEffort: "max" })
+      },
+    })
+  })
+
   test("an openai-compatible provider defined in config works without the catalog", async () => {
     await using tmp = await tmpdir({
       config: {

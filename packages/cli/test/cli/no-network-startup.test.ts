@@ -12,7 +12,17 @@ async function runGuarded(entry: string, args: string[], env: Record<string, str
   await using tmp = await tmpdir()
   const proc = Bun.spawn(["bun", "--preload", guard, "--conditions=browser", entry, ...args], {
     cwd: tmp.path,
-    env: { ...process.env, ...env },
+    // Config, auth, cache and state live under the fresh tmpdir, so nothing shared can change what loads.
+    env: {
+      ...process.env,
+      XDG_DATA_HOME: path.join(tmp.path, "data"),
+      XDG_CACHE_HOME: path.join(tmp.path, "cache"),
+      XDG_CONFIG_HOME: path.join(tmp.path, "config"),
+      XDG_STATE_HOME: path.join(tmp.path, "state"),
+      AICTRL_TEST_HOME: tmp.path,
+      AICTRL_TEST_MANAGED_CONFIG_DIR: path.join(tmp.path, "managed"),
+      ...env,
+    },
     stdout: "pipe",
     stderr: "pipe",
   })
