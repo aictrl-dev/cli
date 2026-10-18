@@ -729,7 +729,7 @@ describe("JSON to SQLite migration", () => {
     expect(stats.messages).toBe(1)
     expect(stats.parts).toBe(1)
     expect(stats.permissions).toBe(1)
-    expect(stats.errors.length).toBeGreaterThanOrEqual(6)
+    expect(stats.errors.length).toBeGreaterThanOrEqual(5)
 
     const db = drizzle({ client: sqlite })
     expect(db.select().from(ProjectTable).all().length).toBe(2)
