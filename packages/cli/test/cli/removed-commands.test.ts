@@ -45,14 +45,16 @@ describe("removed acp command (#190)", () => {
   const MESSAGE = "`aictrl acp` was removed. aictrl is headless-only; drive it with `aictrl run` instead."
 
   test.each([
-    ["index", ENTRY],
-    ["headless", HEADLESS_ENTRY],
-  ])("%s entry: aictrl acp fails with a removal message", async (_name, entry) => {
-    for (const args of [["acp"], ["acp", "--cwd", "/tmp"], ["acp", "--help"]]) {
-      const { stderr, exit } = await invokeEntry(entry, ...args)
-      expect(exit).toBe(1)
-      expect(stderr).toContain(MESSAGE)
-    }
+    ["index", ENTRY, ["acp"]],
+    ["index", ENTRY, ["acp", "--cwd", "/tmp"]],
+    ["index", ENTRY, ["acp", "--help"]],
+    ["headless", HEADLESS_ENTRY, ["acp"]],
+    ["headless", HEADLESS_ENTRY, ["acp", "--cwd", "/tmp"]],
+    ["headless", HEADLESS_ENTRY, ["acp", "--help"]],
+  ])("%s entry: aictrl %p fails with a removal message", async (_name, entry, args) => {
+    const { stderr, exit } = await invokeEntry(entry, ...args)
+    expect(exit).toBe(1)
+    expect(stderr).toContain(MESSAGE)
   })
 
   test.each([
