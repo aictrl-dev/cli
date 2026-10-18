@@ -15,7 +15,13 @@ const WRAP_UP =
 // - "hang": a stream that starts and never finishes
 type Turn = "slow" | "valid" | "hang"
 
-async function run(options: { turns: Turn[]; deadline?: (now: number) => string; schema?: boolean; left?: number }) {
+async function run(options: {
+  turns: Turn[]
+  deadline?: (now: number) => string
+  schema?: boolean
+  left?: number
+  flags?: string[]
+}) {
   await using tmp = await tmpdir()
   const requests: Record<string, unknown>[] = []
   const flag = options.deadline?.(Date.now())
@@ -100,6 +106,7 @@ async function run(options: { turns: Turn[]; deadline?: (now: number) => string;
       "Deadline fixture",
       ...(options.schema === false ? [] : ["--output-schema", "schema.json"]),
       ...(flag ? ["--deadline", flag] : []),
+      ...(options.flags ?? []),
       "Return a result.",
     ],
     {
@@ -235,3 +242,18 @@ for (const [name, deadline] of [
     ])
   }, 25000)
 }
+
+test("--deadline with --attach is rejected before connecting", async () => {
+  // Nothing listens on port 1: validation must fail before any connection attempt.
+  const result = await run({
+    turns: ["valid"],
+    flags: ["--attach", "http://127.0.0.1:1"],
+    deadline: (now) => String(now + 3600_000),
+  })
+  expect(result.exit, result.stderr).toBe(1)
+  expect(result.stderr).toContain("--deadline is not supported with --attach")
+  expect(result.requests).toEqual([])
+  expect(of(result.events, "invocation_error")).toMatchObject([
+    { phase: "validation", code: "INVOCATION_INVALID_ARGUMENTS" },
+  ])
+}, 25000)

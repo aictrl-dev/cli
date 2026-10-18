@@ -50,9 +50,9 @@ aictrl run --output-schema result.schema.json --output-schema-retries 2 \
 - `--output-result <file>`: atomically write only the validated JSON value,
   indented with two spaces and a trailing newline. Failures preserve an existing
   file and leave an absent file absent. The destination directory must exist.
-- `--deadline <instant>`: wall-clock limit for the run, as an ISO-8601 date-time
-  with an offset (`2026-10-17T12:00:00Z`) or epoch milliseconds; invalid or past
-  values fail with `INVOCATION_INVALID_ARGUMENTS`. When the time left after a step
+- `--deadline <instant>`: wall-clock limit for a local run, as an ISO-8601
+  date-time with an offset (`2026-10-17T12:00:00Z`) or epoch milliseconds; invalid
+  or past values, or use with `--attach`, fail with `INVOCATION_INVALID_ARGUMENTS`. When the time left after a step
   drops below a wrap-up margin (twice the slowest step so far, raised to at least
   one minute, then capped at a fifth of the run's window, so windows under five
   minutes get less than a minute), the next turn forces `StructuredOutput`

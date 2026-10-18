@@ -156,7 +156,6 @@ export namespace SessionPrompt {
         "@deprecated tools and permissions have been merged, you can set permissions on the session itself now",
       ),
     format: MessageV2.Format.optional(),
-    deadline: Deadline.Input,
     system: z.string().optional(),
     variant: z.string().optional(),
     parts: z.array(
@@ -206,7 +205,11 @@ export namespace SessionPrompt {
   })
   export type PromptInput = z.infer<typeof PromptInput>
 
-  export const prompt = fn(PromptInput, async (input) => {
+  // A deadline is set only by in-process callers (`aictrl run --deadline`); the request
+  // schema above does not carry it.
+  const LocalPromptInput = PromptInput.extend({ deadline: Deadline.Input })
+
+  export const prompt = fn(LocalPromptInput, async (input) => {
     if (input.format?.type === "json_schema") OutputSchema.compile(input.format.schema)
     const session = await Session.get(input.sessionID)
 
@@ -1946,7 +1949,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
     arguments: z.string(),
     command: z.string(),
     format: MessageV2.Format.optional(),
-    deadline: Deadline.Input,
     variant: z.string().optional(),
     parts: z
       .array(
@@ -1973,7 +1975,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
    * Does not match when preceded by word characters or backticks (to avoid email addresses and quoted references)
    */
 
-  export async function command(input: CommandInput) {
+  export async function command(input: CommandInput & { deadline?: number }) {
     log.info("command", input)
     const command = await Command.get(input.command)
     const agentName = command.agent ?? input.agent ?? (await Agent.defaultAgent())

@@ -2555,7 +2555,6 @@ export type SessionMessagesResponse = SessionMessagesResponses[keyof SessionMess
 
 export type SessionPromptData = {
   body?: {
-    deadline?: number
     format?: OutputFormat
     messageID?: string
     model?: {
@@ -2652,7 +2651,6 @@ export type SessionMessageResponse = SessionMessageResponses[keyof SessionMessag
 
 export type SessionPromptAsyncData = {
   body?: {
-    deadline?: number
     format?: OutputFormat
     messageID?: string
     model?: {
@@ -2703,7 +2701,6 @@ export type SessionPromptAsyncResponse = SessionPromptAsyncResponses[keyof Sessi
 
 export type SessionCommandData = {
   body?: {
-    deadline?: number
     format?: OutputFormat
     messageID?: string
     agent?: string

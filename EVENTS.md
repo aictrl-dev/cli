@@ -636,15 +636,15 @@ is added, but the corrective reminder still follows. Both corrective turns force
 the StructuredOutput tool choice. Without `--output-schema`, a rejected tool
 call still ends the run.
 `--deadline <instant>` (ISO-8601 date-time with an offset, or epoch milliseconds)
-sets a wall-clock limit for the run (#138); an invalid or past value fails
-validation with `INVOCATION_INVALID_ARGUMENTS`. After each step, when the time left
+sets a wall-clock limit for a local run (#138); an invalid or past value, or
+`--deadline` with `--attach`, fails validation with `INVOCATION_INVALID_ARGUMENTS`.
+After each step, when the time left
 falls below a wrap-up margin, the next turn forces the StructuredOutput tool
 choice once, with the reminder
 `Time is nearly up. Using what you already have, write the final result as JSON to a file in the working directory, then call StructuredOutput with its path now`.
 The margin is twice the slowest step so far, raised to at least one minute, then
 capped at a fifth of the time between the run's start and the deadline; the cap
-wins, so windows shorter than five minutes get a margin under one minute. A
-deadline moved earlier by a joining prompt restarts that window. Running tools finish
+wins, so windows shorter than five minutes get a margin under one minute. Running tools finish
 first; the wrap-up turn is an ordinary attempt against the corrective budget, so
 validation and repair still apply, and no extra `structured_output_rejected` is
 emitted for it. A corrective turn that is already due goes first; the wrap-up
@@ -653,10 +653,7 @@ the deadline passes, the in-flight step (model stream and running tools) is
 aborted, `session_error` reports `deadline`, the terminal event is
 `{ "status": "failed", "reason": "deadline" }` and the process exits 3. Without
 `--output-schema`, `--deadline` only stops the run: no wrap-up turn,
-`session_error` reason `deadline`, exit 1. SDK prompt and command requests take
-the same instant as `deadline` (epoch ms, any positive integer); a past value
-ends the run at once with `deadline`, and a prompt that joins a session's running
-loop moves that loop's deadline earlier, never later.
+`session_error` reason `deadline`, exit 1.
 Other tools remain usable until a valid final result; their outputs are not final
 results. Only the `{ path }` tool schema is sent to the provider; local validation
 of the file always uses the canonical schema.

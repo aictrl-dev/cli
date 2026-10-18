@@ -306,12 +306,15 @@ test("a passed deadline is reported even when cleanup fails", async () => {
   }
 }, 20000)
 
-test("the prompt and command inputs carry the deadline to the loop", () => {
+test("the request schemas do not carry a deadline; only in-process callers can set one", () => {
   const sessionID = "ses_0123456789abcdefghijklmnop"
-  expect(SessionPrompt.PromptInput.parse({ sessionID, parts: [], deadline: T0 }).deadline).toBe(T0)
-  expect(SessionPrompt.CommandInput.parse({ sessionID, arguments: "", command: "c", deadline: T0 }).deadline).toBe(T0)
-  expect(SessionPrompt.PromptInput.safeParse({ sessionID, parts: [], deadline: -1 }).success).toBe(false)
-  expect(SessionPrompt.PromptInput.safeParse({ sessionID, parts: [], deadline: 1.5 }).success).toBe(false)
+  expect(SessionPrompt.PromptInput.parse({ sessionID, parts: [], deadline: T0 })).not.toHaveProperty("deadline")
+  expect(SessionPrompt.CommandInput.parse({ sessionID, arguments: "", command: "c", deadline: T0 })).not.toHaveProperty(
+    "deadline",
+  )
+  expect(Deadline.Input.parse(T0)).toBe(T0)
+  expect(Deadline.Input.safeParse(-1).success).toBe(false)
+  expect(Deadline.Input.safeParse(1.5).success).toBe(false)
 })
 
 test("--deadline accepts ISO-8601 with an offset or epoch milliseconds", () => {

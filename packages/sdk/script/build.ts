@@ -64,16 +64,12 @@ for (const name of ["SessionPromptData", "SessionPromptAsyncData", "SessionComma
   if (start < 0 || end < 0 || (next >= 0 && end >= next))
     throw new Error(`Legacy ${name} declaration not found; update the SDK schema bridge`)
   const body = source.slice(start, end)
-  // Prompt options added after the legacy client was generated.
-  // In the order the committed bodies use, so a fresh insert matches them.
-  const fields = ["deadline?: number", "format?: OutputFormat"].filter((field) => !body.includes(field))
-  if (!fields.length) continue
-  if (!body.includes("  body?: {"))
-    throw new Error(`Legacy ${name} body anchor not found; update the SDK schema bridge`)
-  source =
-    source.slice(0, start) +
-    body.replace("  body?: {", ["  body?: {", ...fields.map((field) => `    ${field}`)].join("\n")) +
-    source.slice(end)
+  if (!body.includes("format?: OutputFormat")) {
+    if (!body.includes("  body?: {"))
+      throw new Error(`Legacy ${name} body anchor not found; update the SDK schema bridge`)
+    source =
+      source.slice(0, start) + body.replace("  body?: {", "  body?: {\n    format?: OutputFormat") + source.slice(end)
+  }
 }
 for (const name of ["EventSessionStructuredOutput", "EventSessionStructuredOutputRejected"]) {
   if (source.includes(`  | ${name}\n`)) continue

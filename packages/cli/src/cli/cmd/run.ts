@@ -395,7 +395,7 @@ export const RunCommand = cmd({
       .option("deadline", {
         type: "string",
         describe:
-          "stop the run at this instant (ISO-8601 with offset, or epoch ms); with --output-schema the agent gets a final turn to submit first",
+          "stop the run at this instant (ISO-8601 with offset, or epoch ms); with --output-schema the agent gets a final turn to submit first; not with --attach",
       })
       .option("file", {
         alias: ["f"],
@@ -471,6 +471,10 @@ export const RunCommand = cmd({
         OUTPUT_CONFIG_EXIT,
       )
     })
+
+    // The deadline is enforced by the in-process loop, so it is not forwarded to an attached server.
+    if (args.attach && args.deadline !== undefined)
+      await fail("--deadline is not supported with --attach", "INVOCATION_INVALID_ARGUMENTS")
 
     // parseDeadline throws only Errors with a user-facing message.
     const deadline = await (async () => parseDeadline(args.deadline))().catch((error: Error) =>
