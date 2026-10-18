@@ -57,12 +57,15 @@ function addLegacyTodoHistory(database: string) {
         "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?, ?)",
       )
       .run("prt_zzzzlegacytodowrite", message.id, message.session_id, now, now, JSON.stringify(part))
+    // Databases from versions with the todo tool also hold its rows, while the old
+    // `todo` table still exists; reconciling the schema may drop it (#185).
+    const todoTable = sqlite.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'todo'").get()
+    if (!todoTable) return
     sqlite
       .query(
         "INSERT INTO todo (session_id, content, status, priority, position, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
       .run(message.session_id, "Check the input", "completed", "high", 0, now, now)
-    return message.session_id
   } finally {
     sqlite.close()
   }
