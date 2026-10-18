@@ -6,6 +6,7 @@ import { ModelCatalog } from "../../src/provider/catalog"
 import { Auth } from "../../src/auth"
 import { Env } from "../../src/env"
 
+// In precedence order: the loader passes the first one set.
 const KEY_ENV = ["GOOGLE_GENERATIVE_AI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"]
 
 // A fake Gemini API endpoint that records the API key each request carries.
@@ -58,8 +59,7 @@ describe("google provider", () => {
   test("is built in with the Google AI Studio SDK and current Gemini models", () => {
     const google = ModelCatalog.providers()["google"]
     expect(google.name).toBe("Google")
-    expect([...google.env].sort()).toEqual([...KEY_ENV].sort())
-    expect([...Provider.GOOGLE_AI_STUDIO_KEY_ENV].sort()).toEqual([...KEY_ENV].sort())
+    expect(google.env).toEqual(KEY_ENV)
     expect(ModelCatalog.sdkDefaults("google")).toEqual({ npm: "@ai-sdk/google", api: undefined })
 
     for (const id of ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.5-flash", "gemini-3.1-pro-preview"]) {
@@ -103,6 +103,43 @@ describe("google provider", () => {
   test("a config apiKey wins over env vars", async () => {
     await withGoogle({ env: { GEMINI_API_KEY: "gemini" }, options: { apiKey: "configured" } }, async () => {
       expect(await sentKey()).toBe("configured")
+    })
+  })
+
+  test("a config model on google without npm uses @ai-sdk/google, as up to 0.4.8", async () => {
+    await using tmp = await tmpdir({
+      config: { provider: { google: { options: { apiKey: "k" }, models: { "my-gemini": {} } } } },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const google = (await Provider.list())["google"]
+        expect(google.models["my-gemini"].api.npm).toBe("@ai-sdk/google")
+        expect(google.models["gemini-3.8-flash"]).toBeDefined()
+      },
+    })
+  })
+
+  test("an OpenAI-compatible provider.google keeps its SDK and models with npm and whitelist", async () => {
+    await using tmp = await tmpdir({
+      config: {
+        provider: {
+          google: {
+            npm: "@ai-sdk/openai-compatible",
+            options: { baseURL: "https://proxy.example/v1", apiKey: "k" },
+            models: { "my-gemini": {} },
+            whitelist: ["my-gemini"],
+          },
+        },
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const google = (await Provider.list())["google"]
+        expect(Object.keys(google.models)).toEqual(["my-gemini"])
+        expect(google.models["my-gemini"].api.npm).toBe("@ai-sdk/openai-compatible")
+      },
     })
   })
 

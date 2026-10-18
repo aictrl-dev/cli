@@ -451,7 +451,7 @@
     "id": "google",
     "name": "Google",
     "source": "custom",
-    "env": ["GOOGLE_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "GEMINI_API_KEY"],
+    "env": ["GOOGLE_GENERATIVE_AI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
     "options": {},
     "npm": "@ai-sdk/google",
     "models": {

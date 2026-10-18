@@ -45,7 +45,11 @@
   `GEMINI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY` or `GOOGLE_API_KEY` set.
 - The catalog gains one provider and 22 models (18 → 19 providers, 1354 → 1376
   models); every other provider's entry is byte-identical to 0.5.0.
-- No CLI flags, config schema or NDJSON events change.
+- No CLI flags, config schema or NDJSON events change. One config behaviour
+  changes: a `provider.google` defined in `aictrl.json` on 0.5.0 now extends
+  the built-in, so its models without `npm` use `@ai-sdk/google` again (as up
+  to 0.4.8) and the built-in models are listed too. The CHANGELOG gives the
+  `npm` + `whitelist` opt-out.
 
 Publication and executor promotion are separate gates. Preparing this candidate
 PR does not publish npm packages or deploy an executor image.

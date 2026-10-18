@@ -141,7 +141,7 @@ Aictrl reads config from `.aictrl/` (project) or `~/.config/aictrl/` (global).
 |----------|---------|
 | Anthropic | `ANTHROPIC_API_KEY` |
 | OpenAI | `OPENAI_API_KEY` |
-| Google AI Studio | `GEMINI_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY` or `GOOGLE_API_KEY` |
+| Google AI Studio | `GOOGLE_GENERATIVE_AI_API_KEY`, `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
 | OpenRouter | `OPENROUTER_API_KEY` |
 
 Use `--variant` to select provider-specific reasoning effort. For OpenAI-compatible
