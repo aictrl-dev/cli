@@ -37,38 +37,33 @@
    `sandbox` before `main`; verify a sandbox review persists MCP findings and
    a stalled stream reports a timeout rather than waiting for the job limit.
 
-## 0.4.8 candidate
+## 0.5.0 candidate
 
-- **BREAKING for `--output-schema` callers (#142, closes #140):** `StructuredOutput`
-  takes only `{ "path": "<file>" }`. The model writes its final result as JSON to a
-  file in the working directory and passes the path. The CLI validates that file with
-  Ajv and publishes the parsed file. Result objects passed as tool arguments are
-  rejected. Callers must change prompts that say "call StructuredOutput with the
-  result" to say "write a file and pass its path".
-- **Why a patch bump (0.4.8):** schema mode is used only by the aictrl executor,
-  which pins exact versions. Consumers on a caret range (`^0.4.x`) must update their
-  schema-mode prompts to the file+path form before upgrading.
-- Only `{ path }` reaches the provider, so provider schema conversion can no longer
-  drop result fields. On 0.4.7, Gemini emptied map-typed fields (#139).
-- The result file must:
-  - resolve inside the working directory (symlinks are followed when checking, and a
-    post-open inode re-check also covers swap races; `O_NOFOLLOW`/`O_NONBLOCK` are
-    used where the platform defines them);
-  - be a regular file of at most 2 MiB (reads are bounded).
-- Every failure is a fixed, counted `structured_output_rejected` diagnostic; EVENTS.md
-  lists them verbatim. The prose-only `missing` diagnostic and reminder now say
-  "write the final result as JSON to a file in the working directory, then call
-  StructuredOutput with its path".
-- Evidence (#139 reproduction, 6-key map):
-  - 0.4.7: Gemini 3.8 Flash published `elements: {}` 7/7 (silent on 2, exit 3 on 5).
-  - #142 builds (POC and first PR head): Gemini 10/10 and GLM 4/4 published all 6 keys identically.
-  - Gemini output + reasoning tokens fell from 2.5–3.9k to 1.0–1.8k.
-- Executor adoption, in one aictrl PR:
-  - bump the `docker/executor/Dockerfile` pin;
-  - update the prompts that ask for the result as tool arguments: `prompt-builder.ts`
-    structured paragraph, `pr-explanation-output-contract.ts`, and the `explain-change`
-    skill step that says to call StructuredOutput "with the contents of `$RESULT`";
-  - confirm `$RESULT` lies inside the CLI's `--dir`.
+- **Why a minor bump (0.5.0):** the release removes public surface rather than
+  adding models. Caret ranges on `^0.4.x` do not pick it up; consumers opt in.
+- **Breaking:**
+  - The built-in provider set narrows to the 18 providers in
+    `packages/cli/src/provider/catalog.json`, shipped in the binary; models.dev
+    is no longer fetched or cached (#202). Other providers must be defined under
+    `provider` in `aictrl.json`. GitHub Copilot is removed (#193).
+  - Commands removed: `github`, `pr` (#192) and `acp` (#204) print a
+    replacement hint and exit 1; `debug lsp`, `debug snapshot` and
+    `models --refresh` are gone; `run --share` and `import <url>` fail (#195);
+    `run --agent plan` fails (#162).
+  - Subsystems and tools removed: LSP (#191), snapshots/revert/session diffs
+    (#184), session sharing (#195), the file watcher (#204), `question` and
+    plan mode (#162), `todowrite`/`todoread` (#183).
+  - Prompt changes: the `bash` description has no git procedures or rules, and
+    no default deny rules ship; callers use `permission.bash` (#161). Headless
+    runs no longer discover `~/.claude`, `~/.agents` or `~/.opencode` skills
+    (#165).
+  - Config keys `lsp`, `permission.lsp`, `snapshot`, `share`, `autoshare`,
+    `enterprise` and `watcher` still load as warned no-ops.
+- **NDJSON v1 additions:** `session_error` reason `usage_limit`, code
+  `PROVIDER_USAGE_LIMIT` and `resetAt` (#174); `structured_output_rejected`
+  keyword `rejected` (#179).
+- Stored sessions from 0.4.x still load and continue (covered by e2e tests in
+  #183, #184, #191, #195).
 
 Publication and executor promotion are separate gates. Preparing this candidate
 PR does not publish npm packages or deploy an executor image.
