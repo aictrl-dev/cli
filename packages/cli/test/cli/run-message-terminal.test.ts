@@ -64,7 +64,6 @@ function server(events: unknown[]) {
     fetch(req) {
       const url = new URL(req.url)
       if (req.method === "POST" && url.pathname === "/session") return Response.json({ id: sessionID })
-      if (req.method === "GET" && url.pathname === "/config") return Response.json({})
       if (req.method === "POST" && url.pathname.endsWith("/message")) return Response.json({})
       if (req.method === "GET" && url.pathname === "/event") {
         return new Response(

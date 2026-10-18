@@ -197,7 +197,7 @@ export namespace Config {
 
     if (Flag.AICTRL_PERMISSION) {
       const permission = JSON.parse(Flag.AICTRL_PERMISSION)
-      warnDeprecatedLsp({ permission }, "AICTRL_PERMISSION")
+      warnRemovedKeys({ permission }, "AICTRL_PERMISSION")
       result.permission = mergeDeep(result.permission ?? {}, permission)
     }
 
@@ -216,14 +216,6 @@ export namespace Config {
     }
 
     if (!result.username) result.username = os.userInfo().username
-
-    // `snapshot` toggled the removed worktree snapshots (#181). It stays valid so old configs still load.
-    if (result.snapshot !== undefined) log.warn("config key `snapshot` is deprecated and ignored")
-
-    // Handle migration from autoshare to share field
-    if (result.autoshare === true && !result.share) {
-      result.share = "auto"
-    }
 
     // Apply flag overrides for compaction settings
     if (Flag.AICTRL_DISABLE_AUTOCOMPACT) {
@@ -781,8 +773,6 @@ export namespace Config {
       stash_delete: z.string().optional().default("ctrl+d").describe("Delete stash entry"),
       model_provider_list: z.string().optional().default("ctrl+a").describe("Open provider list from model dialog"),
       model_favorite_toggle: z.string().optional().default("ctrl+f").describe("Toggle model favorite status"),
-      session_share: z.string().optional().default("none").describe("Share current session"),
-      session_unshare: z.string().optional().default("none").describe("Unshare current session"),
       session_interrupt: z.string().optional().default("escape").describe("Interrupt current session"),
       session_compact: z.string().optional().default("<leader>c").describe("Compact the session"),
       messages_page_up: z.string().optional().default("pageup,ctrl+alt+b").describe("Scroll messages up by one page"),
@@ -1009,16 +999,8 @@ export namespace Config {
         .boolean()
         .optional()
         .describe("@deprecated Worktree snapshots were removed; this key is accepted and ignored."),
-      share: z
-        .enum(["manual", "auto", "disabled"])
-        .optional()
-        .describe(
-          "Control sharing behavior:'manual' allows manual sharing via commands, 'auto' enables automatic sharing, 'disabled' disables all sharing",
-        ),
-      autoshare: z
-        .boolean()
-        .optional()
-        .describe("@deprecated Use 'share' field instead. Share newly created sessions automatically"),
+      share: z.unknown().optional().describe("@deprecated Session sharing was removed; this key is ignored."),
+      autoshare: z.unknown().optional().describe("@deprecated Session sharing was removed; this key is ignored."),
       autoupdate: z
         .union([z.boolean(), z.literal("notify")])
         .optional()
@@ -1101,11 +1083,7 @@ export namespace Config {
       layout: Layout.optional().describe("@deprecated Always uses stretch layout."),
       permission: Permission.optional(),
       tools: z.record(z.string(), z.boolean()).optional(),
-      enterprise: z
-        .object({
-          url: z.string().optional().describe("Enterprise URL"),
-        })
-        .optional(),
+      enterprise: z.unknown().optional().describe("@deprecated Session sharing was removed; this key is ignored."),
       compaction: z
         .object({
           auto: z.boolean().optional().describe("Enable automatic compaction when context is full (default: true)"),
@@ -1185,14 +1163,20 @@ export namespace Config {
     return load(text, { path: filepath })
   }
 
-  // The LSP subsystem was removed (#144). Configs written before then may still set the
-  // `lsp` block or an `lsp` permission rule. The schema accepts both as no-ops and keeps
-  // them, so rewriting a config file preserves them; each config file that sets one warns once.
-  function warnDeprecatedLsp(config: Record<string, unknown>, source: string) {
-    const permission = config.permission
-    const hasLspPermission = typeof permission === "object" && permission !== null && "lsp" in permission
-    if (!("lsp" in config) && !hasLspPermission) return
-    log.warn("lsp config is deprecated and ignored; the LSP subsystem was removed", { path: source })
+  // Config keys of subsystems that were removed: LSP (#144), worktree snapshots (#181) and
+  // session sharing (#189; `enterprise.url` was the share service URL). The schema accepts them
+  // as no-ops and keeps them, so rewriting a config file preserves them; each config source
+  // that sets any warns once.
+  function removedKeys(config: Record<string, unknown>) {
+    const keys = ["lsp", "snapshot", "share", "autoshare", "enterprise"].filter((key) => key in config)
+    if (isRecord(config.permission) && "lsp" in config.permission) keys.push("permission.lsp")
+    return keys
+  }
+
+  function warnRemovedKeys(config: Record<string, unknown>, source: string) {
+    const keys = removedKeys(config)
+    if (keys.length === 0) return
+    log.warn(`deprecated config is ignored, its subsystem was removed: ${keys.join(", ")}`, { path: source })
   }
 
   async function load(text: string, options: { path: string } | { dir: string; source: string }) {
@@ -1207,7 +1191,7 @@ export namespace Config {
     const normalized = (() => {
       if (!data || typeof data !== "object" || Array.isArray(data)) return data
       const copy = { ...(data as Record<string, unknown>) }
-      warnDeprecatedLsp(copy, source)
+      warnRemovedKeys(copy, source)
       const hadLegacy = "theme" in copy || "keybinds" in copy || "tui" in copy
       if (!hadLegacy) return copy
       delete copy.theme

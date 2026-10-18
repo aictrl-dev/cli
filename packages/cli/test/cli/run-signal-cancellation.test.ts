@@ -19,9 +19,6 @@ async function server(options: { provider?: boolean; hold?: boolean; expire?: bo
       if (request.method === "POST" && url.pathname === "/session") {
         return Response.json({ id: sessionID })
       }
-      if (request.method === "GET" && url.pathname === "/config") {
-        return Response.json({})
-      }
       if (request.method === "GET" && url.pathname === "/event") {
         return new Response(
           new ReadableStream({

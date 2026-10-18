@@ -20,6 +20,7 @@ export const SessionTable = sqliteTable(
     directory: text().notNull(),
     title: text().notNull(),
     version: text().notNull(),
+    // Legacy (#189): share URL written by versions that synced sessions to a share service; no longer read.
     share_url: text(),
     // Legacy (#181): diff summary and revert state written by older versions; no longer read.
     summary_additions: integer(),

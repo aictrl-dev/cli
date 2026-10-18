@@ -1,9 +1,8 @@
 {
   "$schema": "https://turborepo.com/schema.json",
-  "globalEnv": ["CI", "AICTRL_DISABLE_SHARE", "AICTRL_VERSION", "AICTRL_BUILD_SINGLE"],
+  "globalEnv": ["CI", "AICTRL_VERSION", "AICTRL_BUILD_SINGLE"],
   "globalPassThroughEnv": [
     "CI",
-    "AICTRL_DISABLE_SHARE",
     "AICTRL_CHANNEL",
     "AICTRL_RELEASE",
     "MODELS_DEV_API_JSON",

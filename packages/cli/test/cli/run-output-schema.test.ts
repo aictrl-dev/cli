@@ -140,7 +140,6 @@ SessionPrompt.prompt = async (input) => {
         const { Instance } = await import("../../src/project/instance")
         const { Session } = await import("../../src/session")
         const { SessionPrompt } = await import("../../src/session/prompt")
-        const { Config } = await import("../../src/config/config")
         const { GlobalBus } = await import("../../src/bus/global")
         return Bun.serve({
           port: 0,
@@ -175,7 +174,6 @@ SessionPrompt.prompt = async (input) => {
             return Instance.provide({
               directory: tmp.path,
               fn: async () => {
-                if (url === "/config") return Response.json(await Config.get())
                 if (url === "/session") return Response.json(await Session.create(Session.create.schema.parse(body)))
                 const id = url.split("/")[2]
                 if (url.endsWith("/abort")) {
@@ -600,7 +598,6 @@ for (const [name, value, failure, code] of [
             }),
             { headers: { "Content-Type": "text/event-stream" } },
           )
-        if (url === "/config") return Response.json({ share: "disabled" })
         if (url.endsWith("/abort")) return Response.json(true)
         const body = request.method === "POST" ? ((await request.json()) as Record<string, unknown>) : {}
         requests.push({ url, body })

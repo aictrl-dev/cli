@@ -149,7 +149,7 @@ describe("headless run without the LSP subsystem (#144)", () => {
     const result = await aictrl(["--print-logs", "--log-level", "WARN", "debug", "config"], ws.repo, env)
 
     expect(result.exit, result.output).toBe(0)
-    const warnings = result.output.split("\n").filter((line) => line.includes("lsp config is deprecated"))
+    const warnings = result.output.split("\n").filter((line) => line.includes("deprecated config is ignored"))
     expect(warnings).toHaveLength(1)
     expect(warnings[0]).toContain("path=AICTRL_PERMISSION")
   }, 30000)
