@@ -6,12 +6,11 @@ import { Global } from "../../src/global"
 import { Instance } from "../../src/project/instance"
 import { Provider } from "../../src/provider/provider"
 import { ProviderTransform } from "../../src/provider/transform"
-import { ModelsDev } from "../../src/provider/models"
-import { Filesystem } from "../../src/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
 import type { Agent } from "../../src/agent/agent"
 import type { PermissionNext } from "../../src/permission/next"
 import type { MessageV2 } from "../../src/session/message-v2"
+import { alibabaProvider } from "../fixture/providers"
 
 describe("session.llm.hasToolCalls", () => {
   test("returns false for empty messages array", () => {
@@ -185,18 +184,42 @@ function createChatStream(text: string) {
   })
 }
 
-async function loadFixture(providerID: string, modelID: string) {
-  const fixturePath = path.join(import.meta.dir, "../tool/fixtures/models-api.json")
-  const data = await Filesystem.readJson<Record<string, ModelsDev.Provider>>(fixturePath)
-  const provider = data[providerID]
-  if (!provider) {
-    throw new Error(`Missing provider in fixture: ${providerID}`)
-  }
-  const model = provider.models[modelID]
-  if (!model) {
-    throw new Error(`Missing model in fixture: ${modelID}`)
-  }
-  return { provider, model }
+// Models outside the built-in catalog, declared the way a user's aictrl.json would declare them.
+const CONFIG_PROVIDERS = {
+  alibaba: alibabaProvider,
+  anthropic: {
+    models: {
+      "claude-3-5-sonnet-20241022": {
+        name: "Claude Sonnet 3.5 v2",
+        family: "claude-sonnet",
+        attachment: true,
+        reasoning: false,
+        tool_call: true,
+        temperature: true,
+        release_date: "2024-10-22",
+        modalities: { input: ["text", "image", "pdf"], output: ["text"] },
+        cost: { input: 3, output: 15, cache_read: 0.3, cache_write: 3.75 },
+        limit: { context: 200_000, output: 8192 },
+      },
+    },
+  },
+  google: {
+    npm: "@ai-sdk/google",
+    models: {
+      "gemini-2.5-flash": {
+        name: "Gemini 2.5 Flash",
+        family: "gemini-flash",
+        attachment: true,
+        reasoning: true,
+        tool_call: true,
+        temperature: true,
+        release_date: "2025-03-20",
+        modalities: { input: ["text", "image", "audio", "video", "pdf"], output: ["text"] },
+        cost: { input: 0.3, output: 2.5, cache_read: 0.075 },
+        limit: { context: 1_048_576, output: 65_536 },
+      },
+    },
+  },
 }
 
 function createEventStream(chunks: unknown[], includeDone = false) {
@@ -230,9 +253,6 @@ describe("session.llm.stream", () => {
 
     const providerID = "alibaba"
     const modelID = "qwen-plus"
-    const fixture = await loadFixture(providerID, modelID)
-    const provider = fixture.provider
-    const model = fixture.model
 
     const request = waitRequest(
       "/chat/completions",
@@ -251,6 +271,7 @@ describe("session.llm.stream", () => {
             enabled_providers: [providerID],
             provider: {
               [providerID]: {
+                ...CONFIG_PROVIDERS[providerID],
                 options: {
                   apiKey: "test-key",
                   baseURL: `${server.url.origin}/v1`,
@@ -265,7 +286,7 @@ describe("session.llm.stream", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const resolved = await Provider.getModel(providerID, model.id)
+        const resolved = await Provider.getModel(providerID, modelID)
         const sessionID = "session-test-1"
         const agent = {
           name: "test",
@@ -331,8 +352,6 @@ describe("session.llm.stream", () => {
     }
 
     const providerID = "zai-coding-plan"
-    const fixture = await loadFixture(providerID, modelID)
-    const model = fixture.model
 
     const request = waitRequest(
       "/chat/completions",
@@ -365,7 +384,7 @@ describe("session.llm.stream", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const resolved = await Provider.getModel(providerID, model.id)
+        const resolved = await Provider.getModel(providerID, modelID)
         const sessionID = `session-test-${modelID}`
         const agent = {
           name: "test",
@@ -423,8 +442,7 @@ describe("session.llm.stream", () => {
       throw new Error("Server not initialized")
     }
 
-    const source = await loadFixture("openai", "gpt-5.2")
-    const model = source.model
+    const modelID = "gpt-5.2"
 
     const responseChunks = [
       {
@@ -432,7 +450,7 @@ describe("session.llm.stream", () => {
         response: {
           id: "resp-1",
           created_at: Math.floor(Date.now() / 1000),
-          model: model.id,
+          model: modelID,
           service_tier: null,
         },
       },
@@ -471,9 +489,6 @@ describe("session.llm.stream", () => {
                 env: ["OPENAI_API_KEY"],
                 npm: "@ai-sdk/openai",
                 api: "https://api.openai.com/v1",
-                models: {
-                  [model.id]: model,
-                },
                 options: {
                   apiKey: "test-openai-key",
                   baseURL: `${server.url.origin}/v1`,
@@ -488,7 +503,7 @@ describe("session.llm.stream", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const resolved = await Provider.getModel("openai", model.id)
+        const resolved = await Provider.getModel("openai", modelID)
         const sessionID = "session-test-2"
         const agent = {
           name: "test",
@@ -545,16 +560,13 @@ describe("session.llm.stream", () => {
 
     const providerID = "anthropic"
     const modelID = "claude-3-5-sonnet-20241022"
-    const fixture = await loadFixture(providerID, modelID)
-    const provider = fixture.provider
-    const model = fixture.model
 
     const chunks = [
       {
         type: "message_start",
         message: {
           id: "msg-1",
-          model: model.id,
+          model: modelID,
           usage: {
             input_tokens: 3,
             cache_creation_input_tokens: null,
@@ -596,6 +608,7 @@ describe("session.llm.stream", () => {
             enabled_providers: [providerID],
             provider: {
               [providerID]: {
+                ...CONFIG_PROVIDERS[providerID],
                 options: {
                   apiKey: "test-anthropic-key",
                   baseURL: `${server.url.origin}/v1`,
@@ -610,7 +623,7 @@ describe("session.llm.stream", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const resolved = await Provider.getModel(providerID, model.id)
+        const resolved = await Provider.getModel(providerID, modelID)
         const sessionID = "session-test-3"
         const agent = {
           name: "test",
@@ -664,10 +677,7 @@ describe("session.llm.stream", () => {
 
     const providerID = "google"
     const modelID = "gemini-2.5-flash"
-    const fixture = await loadFixture(providerID, modelID)
-    const provider = fixture.provider
-    const model = fixture.model
-    const pathSuffix = `/v1beta/models/${model.id}:streamGenerateContent`
+    const pathSuffix = `/v1beta/models/${modelID}:streamGenerateContent`
 
     const chunks = [
       {
@@ -697,6 +707,7 @@ describe("session.llm.stream", () => {
             enabled_providers: [providerID],
             provider: {
               [providerID]: {
+                ...CONFIG_PROVIDERS[providerID],
                 options: {
                   apiKey: "test-google-key",
                   baseURL: `${server.url.origin}/v1beta`,
@@ -711,7 +722,7 @@ describe("session.llm.stream", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        const resolved = await Provider.getModel(providerID, model.id)
+        const resolved = await Provider.getModel(providerID, modelID)
         const sessionID = "session-test-4"
         const agent = {
           name: "test",

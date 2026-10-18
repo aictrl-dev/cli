@@ -87,7 +87,6 @@ async function run(input: { args?: string[]; skills?: { paths: string[] }; calls
         ...process.env,
         AICTRL_CONFIG_CONTENT: JSON.stringify(config),
         AICTRL_DISABLE_DEFAULT_PLUGINS: "true",
-        AICTRL_DISABLE_MODELS_FETCH: "true",
         AICTRL_DISABLE_AUTOCOMPACT: "true",
         HOME: home,
         AICTRL_TEST_HOME: home,

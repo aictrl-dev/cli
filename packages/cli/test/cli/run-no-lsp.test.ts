@@ -42,7 +42,6 @@ async function workspace() {
     XDG_DATA_HOME: path.join(home.path, ".local/share"),
     XDG_CACHE_HOME: path.join(home.path, ".cache"),
     AICTRL_TEST_HOME: home.path,
-    AICTRL_DISABLE_MODELS_FETCH: "true",
     AICTRL_DISABLE_AUTOCOMPACT: "true",
   }
   return { repo: repo.path, home: home.path, env, binDir: path.join(home.path, ".local/share", "aictrl", "bin") }

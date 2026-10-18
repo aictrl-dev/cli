@@ -146,10 +146,7 @@ export namespace ToolRegistry {
     const result = await Promise.all(
       tools
         .filter((t) => {
-          // Enable websearch/codesearch for zen users OR via enable flag
-          if (t.id === "codesearch" || t.id === "websearch") {
-            return model.providerID === "aictrl" || Flag.AICTRL_ENABLE_EXA
-          }
+          if (t.id === "codesearch" || t.id === "websearch") return Flag.AICTRL_ENABLE_EXA
 
           // use apply tool in same format as codex
           const usePatch =

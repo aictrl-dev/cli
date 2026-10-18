@@ -729,8 +729,8 @@ export namespace Session {
             .add(new Decimal(tokens.output).mul(costInfo?.output ?? 0).div(1_000_000))
             .add(new Decimal(tokens.cache.read).mul(costInfo?.cache?.read ?? 0).div(1_000_000))
             .add(new Decimal(tokens.cache.write).mul(costInfo?.cache?.write ?? 0).div(1_000_000))
-            // TODO: update models.dev to have better pricing model, for now:
-            // charge reasoning tokens at the same rate as output tokens
+            // The catalog has no separate reasoning price, so charge reasoning tokens
+            // at the same rate as output tokens
             .add(new Decimal(tokens.reasoning).mul(costInfo?.output ?? 0).div(1_000_000))
             .toNumber(),
         ),

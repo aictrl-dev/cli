@@ -14,7 +14,6 @@ export namespace Flag {
   export const AICTRL_PERMISSION = process.env["AICTRL_PERMISSION"]
   export const AICTRL_ENABLE_EXPERIMENTAL_MODELS = truthy("AICTRL_ENABLE_EXPERIMENTAL_MODELS")
   export const AICTRL_DISABLE_AUTOCOMPACT = truthy("AICTRL_DISABLE_AUTOCOMPACT")
-  export const AICTRL_DISABLE_MODELS_FETCH = truthy("AICTRL_DISABLE_MODELS_FETCH")
   export declare const AICTRL_DISABLE_PROJECT_CONFIG: boolean
   export const AICTRL_FAKE_VCS = process.env["AICTRL_FAKE_VCS"]
   export declare const AICTRL_CLIENT: string
@@ -28,8 +27,6 @@ export namespace Flag {
   export const AICTRL_EXPERIMENTAL_OUTPUT_TOKEN_MAX = number("AICTRL_EXPERIMENTAL_OUTPUT_TOKEN_MAX")
   export const AICTRL_EXPERIMENTAL_OXFMT = AICTRL_EXPERIMENTAL || truthy("AICTRL_EXPERIMENTAL_OXFMT")
   export const AICTRL_DISABLE_FILETIME_CHECK = truthy("AICTRL_DISABLE_FILETIME_CHECK")
-  export const AICTRL_MODELS_URL = process.env["AICTRL_MODELS_URL"]
-  export const AICTRL_MODELS_PATH = process.env["AICTRL_MODELS_PATH"]
 
   function number(key: string) {
     const value = process.env[key]

@@ -84,7 +84,6 @@ describe("headless retry after missing finish reason", () => {
           XDG_CONFIG_HOME: path.join(home, ".config"),
           XDG_DATA_HOME: path.join(home, ".local/share"),
           XDG_CACHE_HOME: path.join(home, ".cache"),
-          AICTRL_DISABLE_MODELS_FETCH: "true",
           AICTRL_DISABLE_AUTOCOMPACT: "true",
         },
         stdout: "pipe",

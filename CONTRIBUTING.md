@@ -26,8 +26,9 @@ Want to take on an issue? Leave a comment and a maintainer may assign it to you 
 
 ## Adding New Providers
 
-New providers shouldn't require many if ANY code changes, but if you want to add support for a new provider first make a PR to:
-https://github.com/anomalyco/models.dev
+Built-in providers and models live in the static catalog at `packages/cli/src/provider/catalog.json` (one model per line, in the `Provider.Model` shape). To add or update a built-in model, edit that file; providers that need custom loading also need an entry in `CUSTOM_LOADERS` in `packages/cli/src/provider/provider.ts`.
+
+Any other OpenAI-compatible provider does not need a code change: users define it under `provider` in `aictrl.json`.
 
 ## Developing Aictrl
 

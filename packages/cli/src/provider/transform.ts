@@ -3,11 +3,10 @@ import { mergeDeep, unique } from "remeda"
 import type { JSONSchema7 } from "@ai-sdk/provider"
 import type { JSONSchema } from "zod/v4/core"
 import type { Provider } from "./provider"
-import type { ModelsDev } from "./models"
 import { iife } from "@/util/iife"
 import { Flag } from "@/flag/flag"
 
-type Modality = NonNullable<ModelsDev.Model["modalities"]>["input"][number]
+type Modality = keyof Provider.Model["capabilities"]["input"]
 
 const GEMINI_ANNOTATIONS = new Set([
   "$schema",
@@ -449,7 +448,7 @@ export namespace ProviderTransform {
       id.includes("glm") ||
       id.includes("mistral") ||
       id.includes("kimi") ||
-      // TODO: Remove this after models.dev data is fixed to use "kimi-k2.5" instead of "k2p5"
+      // TODO: Remove this once catalog data uses "kimi-k2.5" instead of "k2p5"
       id.includes("k2p5")
     )
       return {}
@@ -791,10 +790,7 @@ export namespace ProviderTransform {
       }
     }
 
-    if (
-      input.model.providerID === "baseten" ||
-      (input.model.providerID === "aictrl" && ["kimi-k2-thinking", "glm-4.6", "glm-5.1"].includes(input.model.api.id))
-    ) {
+    if (input.model.providerID === "baseten") {
       result["chat_template_args"] = { enable_thinking: true }
     }
 
@@ -862,12 +858,6 @@ export namespace ProviderTransform {
         input.model.providerID !== "azure"
       ) {
         result["textVerbosity"] = "low"
-      }
-
-      if (input.model.providerID.startsWith("aictrl")) {
-        result["promptCacheKey"] = input.sessionID
-        result["include"] = ["reasoning.encrypted_content"]
-        result["reasoningSummary"] = "auto"
       }
     }
 

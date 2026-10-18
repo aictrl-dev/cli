@@ -10,6 +10,7 @@ import { SystemPrompt } from "../../src/session/system"
 import { InstructionPrompt } from "../../src/session/instruction"
 import { ToolRegistry } from "../../src/tool/registry"
 import { HeadlessRun } from "../../src/flag/headless-run"
+import { alibabaProvider } from "../fixture/providers"
 
 /**
  * Characters in the fixed prefix (system prompt plus tool definitions) that a
@@ -80,7 +81,7 @@ describe("headless request prefix budget (#160)", () => {
       git: true,
       config: {
         enabled_providers: ["alibaba"],
-        provider: { alibaba: { options: { apiKey: "test-key" } } },
+        provider: { alibaba: { ...alibabaProvider, options: { apiKey: "test-key" } } },
       },
     })
 

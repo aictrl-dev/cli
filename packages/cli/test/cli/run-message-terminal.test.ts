@@ -3,7 +3,10 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { attachedContextLimit } from "../../src/cli/cmd/run"
 
 const cli = path.resolve(import.meta.dir, "../../src/index.ts")
-const models = path.resolve(import.meta.dir, "../tool/fixtures/models-api.json")
+// The attached server's provider registry, as GET /config/providers returns it.
+const attachedProviders = [
+  { id: "zai", models: { "glm-4.7": { id: "glm-4.7", limit: { context: 204_800, output: 131_072 } } } },
+]
 const eventsDoc = path.resolve(import.meta.dir, "../../../../EVENTS.md")
 const sessionID = "ses_primary"
 const servers: Bun.Server<unknown>[] = []
@@ -64,6 +67,8 @@ function server(events: unknown[]) {
     fetch(req) {
       const url = new URL(req.url)
       if (req.method === "POST" && url.pathname === "/session") return Response.json({ id: sessionID })
+      if (req.method === "GET" && url.pathname === "/config/providers")
+        return Response.json({ providers: attachedProviders, default: {} })
       if (req.method === "POST" && url.pathname.endsWith("/message")) return Response.json({})
       if (req.method === "GET" && url.pathname === "/event") {
         return new Response(
@@ -132,10 +137,7 @@ describe("run --format json terminal assistant telemetry (#93, #45)", () => {
     ]
     const proc = Bun.spawn(["bun", "run", cli, "run", "--format", "json", "--attach", server(events), "test prompt"], {
       cwd: process.cwd(),
-      env: {
-        ...process.env,
-        AICTRL_MODELS_PATH: models,
-      },
+      env: process.env,
       stdout: "pipe",
       stderr: "pipe",
     })

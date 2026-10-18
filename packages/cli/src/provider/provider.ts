@@ -7,7 +7,7 @@ import { NoSuchModelError, type Provider as SDK } from "ai"
 import { Log } from "../util/log"
 import { BunProc } from "../bun"
 import { Plugin } from "../plugin"
-import { ModelsDev } from "./models"
+import { ModelCatalog } from "./catalog"
 import { NamedError } from "@aictrl/util/error"
 import { Auth } from "../auth"
 import { Env } from "../env"
@@ -126,28 +126,6 @@ export namespace Provider {
         },
       }
     },
-    async aictrl(input) {
-      const hasKey = await (async () => {
-        const env = Env.all()
-        if (input.env.some((item) => env[item])) return true
-        if (await Auth.get(input.id)) return true
-        const config = await Config.get()
-        if (config.provider?.["aictrl"]?.options?.apiKey) return true
-        return false
-      })()
-
-      if (!hasKey) {
-        for (const [key, value] of Object.entries(input.models)) {
-          if (value.cost.input === 0) continue
-          delete input.models[key]
-        }
-      }
-
-      return {
-        autoload: Object.keys(input.models).length > 0,
-        options: hasKey ? {} : { apiKey: "public" },
-      }
-    },
     openai: async () => {
       return {
         autoload: false,
@@ -249,7 +227,7 @@ export namespace Provider {
         options: providerOptions,
         async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
           // Skip region prefixing if model already has a cross-region inference profile prefix
-          // Models from models.dev may already include prefixes like us., eu., global., etc.
+          // Catalog model IDs may already include prefixes like us., eu., global., etc.
           const crossRegionPrefixes = ["global.", "us.", "eu.", "jp.", "apac.", "au."]
           if (crossRegionPrefixes.some((prefix) => modelID.startsWith(prefix))) {
             return sdk.languageModel(modelID)
@@ -577,111 +555,8 @@ export namespace Provider {
         },
       }
     },
-    "zai-coding-plan": async (input) => {
+    "zai-coding-plan": async () => {
       const apiKey = Env.get("ZHIPU_API_KEY")
-      input.models["glm-5.3"] ??= {
-        id: "glm-5.3",
-        providerID: input.id,
-        api: {
-          id: "glm-5.3",
-          url: "https://api.z.ai/api/coding/paas/v4",
-          npm: "@ai-sdk/openai-compatible",
-        },
-        name: "GLM-5.3",
-        family: "glm",
-        capabilities: {
-          temperature: true,
-          reasoning: true,
-          attachment: false,
-          toolcall: true,
-          input: {
-            text: true,
-            audio: false,
-            image: false,
-            video: false,
-            pdf: false,
-          },
-          output: {
-            text: true,
-            audio: false,
-            image: false,
-            video: false,
-            pdf: false,
-          },
-          interleaved: { field: "reasoning_content" },
-        },
-        cost: {
-          input: 0,
-          output: 0,
-          cache: {
-            read: 0,
-            write: 0,
-          },
-        },
-        limit: {
-          context: 1_000_000,
-          output: 131_072,
-        },
-        status: "active",
-        options: {},
-        headers: {},
-        release_date: "2026-08-14",
-      }
-      input.models["glm-5.2"] ??= {
-        id: "glm-5.2",
-        providerID: input.id,
-        api: {
-          id: "glm-5.2",
-          url: "https://api.z.ai/api/coding/paas/v4",
-          npm: "@ai-sdk/openai-compatible",
-        },
-        name: "GLM-5.2",
-        family: "glm",
-        capabilities: {
-          temperature: true,
-          reasoning: true,
-          attachment: false,
-          toolcall: true,
-          input: {
-            text: true,
-            audio: false,
-            image: false,
-            video: false,
-            pdf: false,
-          },
-          output: {
-            text: true,
-            audio: false,
-            image: false,
-            video: false,
-            pdf: false,
-          },
-          interleaved: { field: "reasoning_content" },
-        },
-        cost: {
-          input: 0,
-          output: 0,
-          cache: {
-            read: 0,
-            write: 0,
-          },
-        },
-        limit: {
-          context: 1_000_000,
-          output: 131_072,
-        },
-        status: "active",
-        options: {},
-        headers: {},
-        release_date: "2026-06-13",
-        variants: {
-          low: { reasoningEffort: "high" },
-          medium: { reasoningEffort: "high" },
-          high: { reasoningEffort: "high" },
-          xhigh: { reasoningEffort: "max" },
-          max: { reasoningEffort: "max" },
-        },
-      }
       return {
         autoload: !!apiKey,
         options: {
@@ -777,89 +652,10 @@ export namespace Provider {
     })
   export type Info = z.infer<typeof Info>
 
-  function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model): Model {
-    const m: Model = {
-      id: model.id,
-      providerID: provider.id,
-      name: model.name,
-      family: model.family,
-      api: {
-        id: model.id,
-        url: model.provider?.api ?? provider.api!,
-        npm: model.provider?.npm ?? provider.npm ?? "@ai-sdk/openai-compatible",
-      },
-      status: model.status ?? "active",
-      headers: model.headers ?? {},
-      options: model.options ?? {},
-      cost: {
-        input: model.cost?.input ?? 0,
-        output: model.cost?.output ?? 0,
-        cache: {
-          read: model.cost?.cache_read ?? 0,
-          write: model.cost?.cache_write ?? 0,
-        },
-        experimentalOver200K: model.cost?.context_over_200k
-          ? {
-              cache: {
-                read: model.cost.context_over_200k.cache_read ?? 0,
-                write: model.cost.context_over_200k.cache_write ?? 0,
-              },
-              input: model.cost.context_over_200k.input,
-              output: model.cost.context_over_200k.output,
-            }
-          : undefined,
-      },
-      limit: {
-        context: model.limit.context,
-        input: model.limit.input,
-        output: model.limit.output,
-      },
-      capabilities: {
-        temperature: model.temperature,
-        reasoning: model.reasoning,
-        attachment: model.attachment,
-        toolcall: model.tool_call,
-        input: {
-          text: model.modalities?.input?.includes("text") ?? false,
-          audio: model.modalities?.input?.includes("audio") ?? false,
-          image: model.modalities?.input?.includes("image") ?? false,
-          video: model.modalities?.input?.includes("video") ?? false,
-          pdf: model.modalities?.input?.includes("pdf") ?? false,
-        },
-        output: {
-          text: model.modalities?.output?.includes("text") ?? false,
-          audio: model.modalities?.output?.includes("audio") ?? false,
-          image: model.modalities?.output?.includes("image") ?? false,
-          video: model.modalities?.output?.includes("video") ?? false,
-          pdf: model.modalities?.output?.includes("pdf") ?? false,
-        },
-        interleaved: model.interleaved ?? false,
-      },
-      release_date: model.release_date,
-      variants: {},
-    }
-
-    m.variants = mapValues(ProviderTransform.variants(m), (v) => v)
-
-    return m
-  }
-
-  export function fromModelsDevProvider(provider: ModelsDev.Provider): Info {
-    return {
-      id: provider.id,
-      source: "custom",
-      name: provider.name,
-      env: provider.env ?? [],
-      options: {},
-      models: mapValues(provider.models, (model) => fromModelsDevModel(provider, model)),
-    }
-  }
-
   const state = Instance.state(async () => {
     using _ = log.time("state")
     const config = await Config.get()
-    const modelsDev = await ModelsDev.get()
-    const database = mapValues(modelsDev, fromModelsDevProvider)
+    const database = ModelCatalog.providers()
 
     const disabled = new Set(config.disabled_providers ?? [])
     const enabled = config.enabled_providers ? new Set(config.enabled_providers) : null
@@ -898,6 +694,7 @@ export namespace Provider {
     // extend database from config
     for (const [providerID, provider] of configProviders) {
       const existing = database[providerID]
+      const sdkDefaults = ModelCatalog.sdkDefaults(providerID)
       const parsed: Info = {
         id: providerID,
         name: provider.name ?? existing?.name ?? providerID,
@@ -922,9 +719,9 @@ export namespace Provider {
               model.provider?.npm ??
               provider.npm ??
               existingModel?.api.npm ??
-              modelsDev[providerID]?.npm ??
+              sdkDefaults.npm ??
               "@ai-sdk/openai-compatible",
-            url: model.provider?.api ?? provider?.api ?? existingModel?.api.url ?? modelsDev[providerID]?.api,
+            url: model.provider?.api ?? provider?.api ?? existingModel?.api.url ?? sdkDefaults.api,
           },
           status: model.status ?? existingModel?.status ?? "active",
           name,
@@ -1020,7 +817,7 @@ export namespace Provider {
       if (disabled.has(providerID)) continue
       const data = database[providerID]
       if (!data) {
-        log.error("Provider does not exist in model list " + providerID)
+        log.error("Provider does not exist in the model catalog " + providerID)
         continue
       }
       const result = await fn(data).catch((error) => {
@@ -1310,7 +1107,7 @@ export namespace Provider {
 
     const provider = await state().then((state) => state.providers[providerID])
     if (provider) {
-      let priority = [
+      const priority = [
         "claude-haiku-4-5",
         "claude-haiku-4.5",
         "3-5-haiku",
@@ -1319,9 +1116,6 @@ export namespace Provider {
         "gemini-2.5-flash",
         "gpt-5-nano",
       ]
-      if (providerID.startsWith("aictrl")) {
-        priority = ["gpt-5-nano"]
-      }
       for (const item of priority) {
         if (providerID === "amazon-bedrock") {
           const crossRegionPrefixes = ["global.", "us.", "eu."]
@@ -1353,16 +1147,10 @@ export namespace Provider {
       }
     }
 
-    // Check if aictrl provider is available before using it
-    const aictrlProvider = await state().then((state) => state.providers["aictrl"])
-    if (aictrlProvider && aictrlProvider.models["gpt-5-nano"]) {
-      return getModel("aictrl", "gpt-5-nano")
-    }
-
     return undefined
   }
 
-  const priority = ["gpt-5", "claude-sonnet-4", "big-pickle", "gemini-3-pro"]
+  const priority = ["gpt-5", "claude-sonnet-4", "gemini-3-pro"]
   export function sort(models: Model[]) {
     return sortBy(
       models,

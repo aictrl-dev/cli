@@ -5,8 +5,6 @@
     "CI",
     "AICTRL_CHANNEL",
     "AICTRL_RELEASE",
-    "MODELS_DEV_API_JSON",
-    "AICTRL_MODELS_URL",
     "GH_REPO"
   ],
   "tasks": {

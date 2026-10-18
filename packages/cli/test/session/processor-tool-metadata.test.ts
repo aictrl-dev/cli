@@ -9,13 +9,14 @@ import { LLM } from "../../src/session/llm"
 import { SessionProcessor } from "../../src/session/processor"
 import { MessageV2 } from "../../src/session/message-v2"
 import { tmpdir } from "../fixture/fixture"
+import { alibabaProvider } from "../fixture/providers"
 
 describe("session processor tool metadata", () => {
   test("persists provider-executed attribution from the stream", async () => {
     await using tmp = await tmpdir({
       config: {
         enabled_providers: ["alibaba"],
-        provider: { alibaba: { options: { apiKey: "test-key" } } },
+        provider: { alibaba: { ...alibabaProvider, options: { apiKey: "test-key" } } },
       },
     })
 

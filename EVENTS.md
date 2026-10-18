@@ -268,7 +268,7 @@ For compatibility with sessions written before usage provenance was persisted, a
 **`context`** (context-window utilization):
 
 - `used` (number) — tokens occupying the model's context window this turn: `input + cache.read + cache.write`.
-- `limit` (number) — the model's total context-window size in tokens, sourced from the models.dev registry (`model.limit.context`).
+- `limit` (number) — the model's total context-window size in tokens, sourced from the provider registry: the built-in model catalog plus `provider` config (`model.limit.context`).
 - `ratio` (number) — `used / limit` (≥0; may exceed 1 if usage exceeds the model's registered limit). A value approaching or exceeding 1 signals context-exhaustion risk.
 - `null` — emitted when the model's context limit is not known (e.g. unregistered custom endpoint), or usage is missing.
 

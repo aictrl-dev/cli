@@ -16,12 +16,10 @@ import {
 import { mergeDeep, pipe } from "remeda"
 import { ProviderTransform } from "@/provider/transform"
 import { Config } from "@/config/config"
-import { Instance } from "@/project/instance"
 import type { Agent } from "@/agent/agent"
 import type { MessageV2 } from "./message-v2"
 import { Plugin } from "@/plugin"
 import { SystemPrompt } from "./system"
-import { Flag } from "@/flag/flag"
 import { PermissionNext } from "@/permission/next"
 import { Auth } from "@/auth"
 import { ProviderTermination } from "@/provider/termination"
@@ -222,18 +220,11 @@ export namespace LLM {
       maxOutputTokens,
       abortSignal: input.abort,
       headers: {
-        ...(input.model.providerID.startsWith("aictrl")
+        ...(input.model.providerID !== "anthropic"
           ? {
-              "x-aictrl-project": Instance.project.id,
-              "x-aictrl-session": input.sessionID,
-              "x-aictrl-request": input.user.id,
-              "x-aictrl-client": Flag.AICTRL_CLIENT,
+              "User-Agent": `aictrl/${Installation.VERSION}`,
             }
-          : input.model.providerID !== "anthropic"
-            ? {
-                "User-Agent": `aictrl/${Installation.VERSION}`,
-              }
-            : undefined),
+          : undefined),
         ...input.model.headers,
         ...headers,
       },

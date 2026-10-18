@@ -4,7 +4,6 @@ import { pathToFileURL, fileURLToPath } from "url"
 import { createRequire } from "module"
 import os from "os"
 import z from "zod"
-import { ModelsDev } from "../provider/models"
 import { mergeDeep, pipe, unique } from "remeda"
 import { Global } from "../global"
 import fs from "fs/promises"
@@ -33,7 +32,7 @@ import { ConfigPaths } from "./paths"
 import { Filesystem } from "@/util/filesystem"
 
 export namespace Config {
-  const ModelId = z.string().meta({ $ref: "https://models.dev/model-schema.json#/$defs/Model" })
+  const ModelId = z.string()
 
   const log = Log.create({ service: "config" })
 
@@ -926,28 +925,73 @@ export namespace Config {
   })
   export type Layout = z.infer<typeof Layout>
 
-  export const Provider = ModelsDev.Provider.partial()
-    .extend({
-      whitelist: z.array(z.string()).optional(),
-      blacklist: z.array(z.string()).optional(),
-      models: z
+  const ModelCost = z.object({
+    input: z.number(),
+    output: z.number(),
+    cache_read: z.number().optional(),
+    cache_write: z.number().optional(),
+  })
+
+  const Modality = z.enum(["text", "audio", "image", "video", "pdf"])
+
+  // Model fields a config can set on a provider model; every field is optional and
+  // overrides the built-in catalog entry when the model already exists.
+  const ProviderModel = z
+    .object({
+      id: z.string(),
+      name: z.string(),
+      family: z.string(),
+      release_date: z.string(),
+      attachment: z.boolean(),
+      reasoning: z.boolean(),
+      temperature: z.boolean(),
+      tool_call: z.boolean(),
+      interleaved: z.union([
+        z.literal(true),
+        z
+          .object({
+            field: z.enum(["reasoning_content", "reasoning_details"]),
+          })
+          .strict(),
+      ]),
+      cost: ModelCost.extend({ context_over_200k: ModelCost.optional() }),
+      limit: z.object({
+        context: z.number(),
+        input: z.number().optional(),
+        output: z.number(),
+      }),
+      modalities: z.object({
+        input: z.array(Modality),
+        output: z.array(Modality),
+      }),
+      experimental: z.boolean(),
+      status: z.enum(["alpha", "beta", "deprecated"]),
+      options: z.record(z.string(), z.any()),
+      headers: z.record(z.string(), z.string()),
+      provider: z.object({ npm: z.string().optional(), api: z.string().optional() }),
+      variants: z
         .record(
           z.string(),
-          ModelsDev.Model.partial().extend({
-            variants: z
-              .record(
-                z.string(),
-                z
-                  .object({
-                    disabled: z.boolean().optional().describe("Disable this variant for the model"),
-                  })
-                  .catchall(z.any()),
-              )
-              .optional()
-              .describe("Variant-specific configuration"),
-          }),
+          z
+            .object({
+              disabled: z.boolean().optional().describe("Disable this variant for the model"),
+            })
+            .catchall(z.any()),
         )
-        .optional(),
+        .describe("Variant-specific configuration"),
+    })
+    .partial()
+
+  export const Provider = z
+    .object({
+      api: z.string().optional(),
+      name: z.string().optional(),
+      env: z.array(z.string()).optional(),
+      id: z.string().optional(),
+      npm: z.string().optional(),
+      whitelist: z.array(z.string()).optional(),
+      blacklist: z.array(z.string()).optional(),
+      models: z.record(z.string(), ProviderModel).optional(),
       options: z
         .object({
           apiKey: z.string().optional(),
