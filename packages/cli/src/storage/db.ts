@@ -1,6 +1,7 @@
 import { Database as BunDatabase } from "bun:sqlite"
 import { drizzle, type SQLiteBunDatabase } from "drizzle-orm/bun-sqlite"
 import { migrate } from "drizzle-orm/bun-sqlite/migrator"
+import { type MigrationsJournal } from "drizzle-orm/migrator"
 import { type SQLiteTransaction } from "drizzle-orm/sqlite-core"
 export * from "drizzle-orm"
 import { Context } from "../util/context"
@@ -13,7 +14,7 @@ import path from "path"
 import { readFileSync, readdirSync, existsSync } from "fs"
 import * as schema from "./schema"
 
-declare const AICTRL_MIGRATIONS: { sql: string; timestamp: number }[] | undefined
+declare const AICTRL_MIGRATIONS: MigrationsJournal | undefined
 
 export const NotFoundError = NamedError.create(
   "NotFoundError",
@@ -30,8 +31,6 @@ export namespace Database {
   export type Transaction = SQLiteTransaction<"sync", void, Schema>
 
   type Client = SQLiteBunDatabase<Schema>
-
-  type Journal = { sql: string; timestamp: number }[]
 
   const state = {
     sqlite: undefined as BunDatabase | undefined,
@@ -50,7 +49,15 @@ export namespace Database {
     )
   }
 
-  function migrations(dir: string): Journal {
+  /**
+   * Reads `migration/<timestamp>_<slug>/migration.sql` into a drizzle journal.
+   *
+   * drizzle tracks applied migrations by `name`, so it must be the directory
+   * name (as drizzle-kit uses). Databases written by older drizzle releases
+   * only stored `created_at`; drizzle backfills their names by matching that
+   * against `timestamp`, so both must stay stable for existing users.
+   */
+  export function migrations(dir: string): MigrationsJournal {
     const dirs = readdirSync(dir, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
@@ -62,9 +69,10 @@ export namespace Database {
         return {
           sql: readFileSync(file, "utf-8"),
           timestamp: time(name),
+          name,
         }
       })
-      .filter(Boolean) as Journal
+      .filter(Boolean) as MigrationsJournal
 
     return sql.sort((a, b) => a.timestamp - b.timestamp)
   }
@@ -137,13 +145,17 @@ export namespace Database {
     }
   }
 
-  export function transaction<T>(callback: (tx: TxOrDb) => T): T {
+  // bun-sqlite transactions are synchronous: an async callback would commit
+  // before its awaits run, so the type rejects callbacks that return a Promise.
+  type SyncResult<T> = T extends Promise<any> ? never : T
+
+  export function transaction<T>(callback: (tx: TxOrDb) => SyncResult<T>): T {
     try {
       return callback(ctx.use().tx)
     } catch (err) {
       if (err instanceof Context.NotFound) {
         const effects: (() => void | Promise<void>)[] = []
-        const result = Client().transaction((tx) => {
+        const result = Client().transaction<T>((tx) => {
           return ctx.provide({ tx, effects }, () => callback(tx))
         })
         for (const effect of effects) effect()

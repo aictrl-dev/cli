@@ -6,6 +6,10 @@
 
 - **Messages written in the same millisecond keep their order** — Reading a session's messages now breaks `time_created` ties by message ID. Before, messages written in the same millisecond came back oldest first. A compaction writes its request, its summary and the continue message in quick succession, so the prompt loop could miss the finished summary and compact again, sending an extra model request. (#200)
 
+### Security
+
+- **drizzle-orm 1.0.0-beta.20** — `drizzle-orm` and `drizzle-kit` move from `1.0.0-beta.12-a5629fb` to `1.0.0-beta.20`, the first release patched for GHSA-gpj5-g38j-94v9 (SQL injection through improperly escaped SQL identifiers; the CLI never passed untrusted identifiers to drizzle). Existing databases open as before: on first start drizzle adds `name` and `applied_at` columns to `__drizzle_migrations` and fills in the names of the migrations already applied, without running them again. The upgraded database still opens with 0.5.1. (closes #61)
+
 ## 0.5.1 (2026-10-18)
 
 ### Fixes

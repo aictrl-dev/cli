@@ -4,6 +4,7 @@ import { $ } from "bun"
 import fs from "fs"
 import path from "path"
 import { fileURLToPath } from "url"
+import type { MigrationsJournal } from "drizzle-orm/migrator"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -28,7 +29,7 @@ const migrationDirs = (
   .map((entry) => entry.name)
   .sort()
 
-const migrations = await Promise.all(
+const migrations: MigrationsJournal = await Promise.all(
   migrationDirs.map(async (name) => {
     const file = path.join(dir, "migration", name, "migration.sql")
     const sql = await Bun.file(file).text()
@@ -43,7 +44,8 @@ const migrations = await Promise.all(
           Number(match[6]),
         )
       : 0
-    return { sql, timestamp }
+    // drizzle tracks applied migrations by name; see Database.migrations().
+    return { sql, timestamp, name }
   }),
 )
 console.log(`Loaded ${migrations.length} migrations`)
