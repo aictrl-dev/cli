@@ -1,7 +1,7 @@
 import { Instance } from "../project/instance"
 
 import PROMPT_ANTHROPIC from "./prompt/anthropic.txt"
-import PROMPT_QWEN from "./prompt/qwen.txt"
+import PROMPT_DEFAULT from "./prompt/default.txt"
 import PROMPT_BEAST from "./prompt/beast.txt"
 import PROMPT_GEMINI from "./prompt/gemini.txt"
 
@@ -21,7 +21,7 @@ export namespace SystemPrompt {
     if (model.api.id.includes("gemini-")) return [PROMPT_GEMINI]
     if (model.api.id.includes("claude")) return [PROMPT_ANTHROPIC]
     if (model.api.id.toLowerCase().includes("trinity")) return [PROMPT_TRINITY]
-    return [PROMPT_QWEN]
+    return [PROMPT_DEFAULT]
   }
 
   export async function environment(model: Provider.Model) {
@@ -36,9 +36,6 @@ export namespace SystemPrompt {
         `  Platform: ${process.platform}`,
         `  Today's date: ${new Date().toDateString()}`,
         `</env>`,
-        `<directories>`,
-        `  `,
-        `</directories>`,
       ].join("\n"),
     ]
   }

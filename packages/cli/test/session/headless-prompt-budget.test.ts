@@ -18,7 +18,7 @@ import { alibabaProvider } from "../fixture/providers"
  * conversation content. Set just above the current size: lower it whenever a
  * change shrinks the prefix, and never raise it without a reason (#160).
  */
-const HEADLESS_PREFIX_BUDGET = 29_500
+const HEADLESS_PREFIX_BUDGET = 15_000
 
 type Piece = { name: string; chars: number }
 

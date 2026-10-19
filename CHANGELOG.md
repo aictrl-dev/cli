@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Internal
+
+- **Smaller first request: the default system prompt is trimmed to functional text** — The prompt sent to models without a dedicated prompt (GLM, Qwen, DeepSeek, Kimi and others; not Claude, GPT, Gemini or Trinity) shrinks from 9,684 to 2,475 characters. It keeps the conventions and task steps (check libraries exist, verify with tests, run lint and typecheck when provided), the no-comments rule, the Task tool file-search line, a one-sentence parallel tool calls rule, a one-line `<system-reminder>` note and the `file_path:line_number` rule. Removed: the `/help` and feedback lines, the aictrl docs WebFetch rule, both copies of the malicious-code refusal (permissions and isolation enforce safety), the line-count and one-word-answer rules with their examples (replaced by one conciseness line with an escape for tasks that need long output), the bash-explanation, monospace and emoji rules, the Proactiveness section, the ask-for-the-lint-command and commit-only-when-asked rules. The empty `<directories>` block is removed from the environment block. The file is renamed from `qwen.txt` to `default.txt`, since it is the fallback for every such model. On `zai-coding-plan/glm-5.3` the first request is about 1.5k tokens (28%) smaller. An A/B run of the 8-task benchmark suite passed 24/24 on both versions with no extra steps and 31% fewer total tokens; final answers are longer (median 540 vs 279 characters). (refs #214, #229)
+
 ## 0.5.3 (2026-10-19)
 
 ### Packaging
