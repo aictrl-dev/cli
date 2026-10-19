@@ -30,6 +30,11 @@
   "bin": {
     "aictrl": "./bin/aictrl"
   },
+  "files": [
+    "bin/aictrl",
+    "README.md",
+    "LICENSE"
+  ],
   "exports": {
     "./*": "./src/*.ts"
   },
