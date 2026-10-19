@@ -69,16 +69,16 @@ bun dev .
 To compile a standalone executable:
 
 ```bash
-./packages/aictrl/script/build.ts --single
+./packages/cli/script/build.ts --single
 ```
 
 Then run it with:
 
 ```bash
-./packages/aictrl/dist/aictrl-<platform>/bin/aictrl
+./packages/cli/dist/@aictrl/cli-<platform>/bin/aictrl
 ```
 
-Replace `<platform>` with your platform (e.g., `darwin-arm64`, `linux-x64`).
+Replace `<platform>` with your platform (e.g., `darwin-arm64`, `linux-x64-baseline`).
 
 - Core pieces:
   - `packages/aictrl`: Aictrl core business logic & server.

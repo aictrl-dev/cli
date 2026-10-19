@@ -17,138 +17,63 @@ function run(target) {
   process.exit(code)
 }
 
-// An explicit binary path is the caller's choice, so it skips the platform
-// package search and its version check below.
-const envPath = process.env.AICTRL_BIN_PATH
-if (envPath) {
-  run(envPath)
-}
-
-const scriptPath = fs.realpathSync(__filename)
-const scriptDir = path.dirname(scriptPath)
-
-//
-const cached = path.join(scriptDir, ".aictrl")
-if (fs.existsSync(cached)) {
-  run(cached)
-}
-
-const platformMap = {
+const platformNames = {
   darwin: "darwin",
   linux: "linux",
   win32: "windows",
 }
-const archMap = {
-  x64: "x64",
-  arm64: "arm64",
-  arm: "arm",
+
+// The platform packages that can hold this host's binary, preferred first.
+// Each x64 OS has one package, the -baseline build: Bun ships the same binary
+// for its baseline and AVX2 targets, so it runs on every x64 CPU. Linux has a
+// glibc and a musl package; npm installs only the one whose `libc` matches the
+// host, and the other stays a candidate for package managers that ignore
+// `libc`.
+function platformPackageNames(platform, arch, libc) {
+  const variant = arch === "x64" ? "-baseline" : ""
+  const glibcPackage = `@aictrl/cli-${platformNames[platform] || platform}-${arch}${variant}`
+  if (platform !== "linux") return [glibcPackage]
+
+  const muslPackage = `${glibcPackage}-musl`
+  if (libc === "musl") return [muslPackage, glibcPackage]
+  return [glibcPackage, muslPackage]
 }
 
-let platform = platformMap[os.platform()]
-if (!platform) {
-  platform = os.platform()
-}
-let arch = archMap[os.arch()]
-if (!arch) {
-  arch = os.arch()
-}
-const base = "@aictrl/cli-" + platform + "-" + arch
-const binary = platform === "windows" ? "aictrl.exe" : "aictrl"
-
-function supportsAvx2() {
-  if (arch !== "x64") return false
-
-  if (platform === "linux") {
-    try {
-      return /(^|\s)avx2(\s|$)/i.test(fs.readFileSync("/proc/cpuinfo", "utf8"))
-    } catch {
-      return false
-    }
-  }
-
-  if (platform === "darwin") {
-    try {
-      const result = childProcess.spawnSync("sysctl", ["-n", "hw.optional.avx2_0"], {
-        encoding: "utf8",
-        timeout: 1500,
-      })
-      if (result.status !== 0) return false
-      return (result.stdout || "").trim() === "1"
-    } catch {
-      return false
-    }
-  }
-
-  if (platform === "windows") {
-    const cmd =
-      '(Add-Type -MemberDefinition "[DllImport(""kernel32.dll"")] public static extern bool IsProcessorFeaturePresent(int ProcessorFeature);" -Name Kernel32 -Namespace Win32 -PassThru)::IsProcessorFeaturePresent(40)'
-
-    for (const exe of ["powershell.exe", "pwsh.exe", "pwsh", "powershell"]) {
-      try {
-        const result = childProcess.spawnSync(exe, ["-NoProfile", "-NonInteractive", "-Command", cmd], {
-          encoding: "utf8",
-          timeout: 3000,
-          windowsHide: true,
-        })
-        if (result.status !== 0) continue
-        const out = (result.stdout || "").trim().toLowerCase()
-        if (out === "true" || out === "1") return true
-        if (out === "false" || out === "0") return false
-      } catch {
-        continue
-      }
-    }
-
-    return false
-  }
-
-  return false
+function isMuslLibrary(file) {
+  return file.includes("libc.musl-") || file.includes("ld-musl-")
 }
 
-const names = (() => {
-  const avx2 = supportsAvx2()
-  const baseline = arch === "x64" && !avx2
+// The libc that Node's diagnostic report names for this process. npm reads the
+// same report to decide which `libc` package to install.
+function libcFromReport(report) {
+  if (report && report.header && report.header.glibcVersionRuntime) return "glibc"
+  if (report && Array.isArray(report.sharedObjects) && report.sharedObjects.some(isMuslLibrary)) return "musl"
+  return undefined
+}
 
-  if (platform === "linux") {
-    const musl = (() => {
-      try {
-        if (fs.existsSync("/etc/alpine-release")) return true
-      } catch {
-        // ignore
-      }
-
-      try {
-        const result = childProcess.spawnSync("ldd", ["--version"], { encoding: "utf8" })
-        const text = ((result.stdout || "") + (result.stderr || "")).toLowerCase()
-        if (text.includes("musl")) return true
-      } catch {
-        // ignore
-      }
-
-      return false
-    })()
-
-    if (musl) {
-      if (arch === "x64") {
-        if (baseline) return [`${base}-baseline-musl`, `${base}-musl`, `${base}-baseline`, base]
-        return [`${base}-musl`, `${base}-baseline-musl`, base, `${base}-baseline`]
-      }
-      return [`${base}-musl`, base]
-    }
-
-    if (arch === "x64") {
-      if (baseline) return [`${base}-baseline`, base, `${base}-baseline-musl`, `${base}-musl`]
-      return [base, `${base}-baseline`, `${base}-musl`, `${base}-baseline-musl`]
-    }
-    return [base, `${base}-musl`]
+function processReport() {
+  try {
+    process.report.excludeNetwork = true
+    return process.report.getReport()
+  } catch {
+    return undefined
   }
+}
 
-  if (arch === "x64") {
-    if (baseline) return [`${base}-baseline`, base]
-    return [base, `${base}-baseline`]
+// Reading the ldd script is one file read; building a diagnostic report takes
+// a few milliseconds, so it is only the fallback for hosts without ldd, such
+// as distroless images.
+function linuxLibc(lddPath = "/usr/bin/ldd") {
+  let ldd = ""
+  try {
+    ldd = fs.readFileSync(lddPath, "utf8")
+  } catch {
+    // no ldd on this host
   }
-  return [base]
-})()
+  if (ldd.includes("musl")) return "musl"
+  if (ldd.includes("GNU C Library")) return "glibc"
+  return libcFromReport(processReport())
+}
 
 function readPackageVersion(packageDir) {
   try {
@@ -158,16 +83,10 @@ function readPackageVersion(packageDir) {
   }
 }
 
-// Only a platform package of this wrapper's own release may run. An older one
-// left in an ancestor node_modules (CI images, npx caches) would otherwise run
-// silently whenever npm skipped the optional platform package.
-const wrapperPackageDir = path.resolve(scriptDir, "..")
-const wrapperVersion = readPackageVersion(wrapperPackageDir)
-
 // Every installed platform binary, nearest first. The walk starts in the
 // wrapper's own package, so its own install tree is searched before any
-// ancestor. Within one node_modules, variants keep the order of `names`.
-function findPlatformBinaries(startDir) {
+// ancestor. Within one node_modules, packages keep the order of `names`.
+function findPlatformBinaries(startDir, names, binary) {
   const found = []
   let current = startDir
   for (;;) {
@@ -187,17 +106,6 @@ function findPlatformBinaries(startDir) {
   }
 }
 
-function matchesWrapperVersion(platformBinary) {
-  return wrapperVersion !== undefined && platformBinary.version === wrapperVersion
-}
-
-// A package spec pinned to this wrapper's release, so following the advice
-// installs a binary the version check accepts. Only called once
-// wrapperVersion is known.
-function pinnedSpec(name) {
-  return `${name}@${wrapperVersion}`
-}
-
 // Versions and paths come from arbitrary ancestor node_modules, so strip
 // control, bidi-override and zero-width characters before echoing them to
 // the terminal.
@@ -205,7 +113,7 @@ function printable(text) {
   return String(text).replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩﻿]/g, "")
 }
 
-function unknownWrapperVersionMessage() {
+function unknownWrapperVersionMessage(wrapperPackageDir) {
   const manifest = printable(path.join(wrapperPackageDir, "package.json"))
   return [
     `Could not read the @aictrl/cli version from ${manifest}, so no platform binary can be verified.`,
@@ -213,26 +121,19 @@ function unknownWrapperVersionMessage() {
   ].join("\n")
 }
 
-function bunMissingMessage() {
-  if (!wrapperVersion) return "Bun is not installed.\n" + unknownWrapperVersionMessage()
+// `pinnedSpec` pins a package to the wrapper's release, so following the
+// advice installs a binary the version check accepts.
+function missingBinaryMessage({ names, skipped, wrapperVersion, wrapperPackageDir }) {
+  if (!wrapperVersion) return unknownWrapperVersionMessage(wrapperPackageDir)
 
-  return [
-    `No platform binary matching @aictrl/cli ${wrapperVersion} was found and Bun is not installed.`,
-    "Either install Bun (https://bun.sh) or install the platform package: " +
-      names.map((n) => `"${pinnedSpec(n)}"`).join(" or "),
-  ].join("\n")
-}
-
-function missingBinaryMessage(candidates) {
-  if (!wrapperVersion) return unknownWrapperVersionMessage()
-
+  const pinnedSpec = (name) => `${name}@${wrapperVersion}`
   const lines = [
-    "It seems that your package manager failed to install the right version of the aictrl CLI for your platform.",
-    `@aictrl/cli ${wrapperVersion} needs a platform package of the same version.`,
+    `@aictrl/cli ${wrapperVersion} found no aictrl binary of the same version for this platform.`,
+    `It runs the binary from the platform package ${pinnedSpec(names[0])}, an optional dependency that your package manager did not install (for example because optional dependencies were omitted).`,
   ]
-  if (candidates.length > 0) {
+  if (skipped.length > 0) {
     lines.push("Skipped platform packages with a different version:")
-    for (const entry of candidates) {
+    for (const entry of skipped) {
       lines.push(`  ${entry.name}@${printable(entry.version || "unknown")} at ${printable(entry.packageDir)}`)
     }
   }
@@ -247,30 +148,43 @@ function missingBinaryMessage(candidates) {
   return lines.join("\n")
 }
 
-const installed = findPlatformBinaries(scriptDir)
-const matching = installed.find(matchesWrapperVersion)
-if (matching) {
-  run(matching.target)
-}
-
-// No compiled binary of this version found — fall back to running from source with Bun
-const bunEntry = path.join(scriptDir, "..", "src", "index.ts")
-if (fs.existsSync(bunEntry)) {
-  const result = childProcess.spawnSync(
-    "bun",
-    ["run", "--conditions=browser", bunEntry, ...process.argv.slice(2)],
-    { stdio: "inherit" },
-  )
-  if (result.error) {
-    if (result.error.code === "ENOENT") {
-      console.error(bunMissingMessage())
-    } else {
-      console.error(result.error.message)
-    }
-    process.exit(1)
+function main() {
+  // An explicit binary path is the caller's choice, so it skips the platform
+  // package search and its version check below.
+  const envPath = process.env.AICTRL_BIN_PATH
+  if (envPath) {
+    run(envPath)
   }
-  process.exit(typeof result.status === "number" ? result.status : 0)
+
+  const scriptDir = path.dirname(fs.realpathSync(__filename))
+
+  const cached = path.join(scriptDir, ".aictrl")
+  if (fs.existsSync(cached)) {
+    run(cached)
+  }
+
+  const platform = os.platform()
+  const libc = platform === "linux" ? linuxLibc() : undefined
+  const names = platformPackageNames(platform, os.arch(), libc)
+  const binary = platform === "win32" ? "aictrl.exe" : "aictrl"
+
+  // Only a platform package of this wrapper's own release may run. An older
+  // one left in an ancestor node_modules (CI images, npx caches) would
+  // otherwise run silently whenever npm skipped the optional platform package.
+  const wrapperPackageDir = path.resolve(scriptDir, "..")
+  const wrapperVersion = readPackageVersion(wrapperPackageDir)
+  const installed = findPlatformBinaries(scriptDir, names, binary)
+  const matching = wrapperVersion && installed.find((entry) => entry.version === wrapperVersion)
+  if (matching) {
+    run(matching.target)
+  }
+
+  console.error(missingBinaryMessage({ names, skipped: installed, wrapperVersion, wrapperPackageDir }))
+  process.exit(1)
 }
 
-console.error(missingBinaryMessage(installed))
-process.exit(1)
+if (require.main === module) {
+  main()
+} else {
+  module.exports = { platformPackageNames, libcFromReport, linuxLibc }
+}

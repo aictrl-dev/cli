@@ -37,6 +37,30 @@
    `sandbox` before `main`; verify a sandbox review persists MCP findings and
    a stalled stream reports a timeout rather than waiting for the job limit.
 
+## Platform packages
+
+`packages/cli/script/build.ts` builds one binary per OS, CPU and libc, and the
+publish workflow publishes each as a platform package. It then lists them in
+the wrapper's `optionalDependencies`:
+
+| Package | `os` | `cpu` | `libc` |
+| --- | --- | --- | --- |
+| `@aictrl/cli-linux-x64-baseline` | linux | x64 | glibc |
+| `@aictrl/cli-linux-x64-baseline-musl` | linux | x64 | musl |
+| `@aictrl/cli-linux-arm64` | linux | arm64 | glibc |
+| `@aictrl/cli-linux-arm64-musl` | linux | arm64 | musl |
+| `@aictrl/cli-darwin-x64-baseline` | darwin | x64 | |
+| `@aictrl/cli-darwin-arm64` | darwin | arm64 | |
+| `@aictrl/cli-windows-x64-baseline` | win32 | x64 | |
+
+npm installs only the package that matches the host. Every x64 package is the
+baseline (no AVX2) build: Bun ships the same binary for its baseline and AVX2
+targets. The AVX2 names (`@aictrl/cli-linux-x64`, `-linux-x64-musl`,
+`-darwin-x64`, `-windows-x64`) were last published with 0.5.2. Before adding
+or renaming a platform package, update `bin/aictrl`'s `platformPackageNames`
+and its tests. The smoke job waits until every package in this table is visible
+on npm before it installs `@aictrl/cli`.
+
 ## Bun version
 
 The compiled binary embeds the Bun runtime that built it, so the Bun version is
