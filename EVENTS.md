@@ -177,12 +177,12 @@ Emitted immediately before `session_complete` when the session terminates abnorm
 - `message` (string, **required**) — human-readable error message.
 - `resetAt` (number, optional) — for `usage_limit`, when the provider said the limit resets, in Unix milliseconds. It comes from `Retry-After` / `retry-after-ms`, or from the reset time in a Z.ai quota message. Omitted when the provider gave no reset time the CLI can read, or one too far away to be a valid date.
 
-**Provider usage limits.** A provider usage or quota limit that will not reset soon fails the run immediately instead of retrying. The bound is 5 minutes: `MAX_RETRY_ATTEMPTS` (10) times the 30-second header-less delay cap. A limit is recognised when:
+**Provider usage limits.** A provider usage or quota limit that will not reset soon fails the run immediately instead of retrying. The bound is 5 minutes: `MAX_RETRY_ATTEMPTS` (10) times the 30-second backoff cap. A limit is recognised when:
 
 - an HTTP 429 response has a `Retry-After` or `retry-after-ms` header asking for a single wait longer than 5 minutes, or
 - an HTTP 429 response has a known quota-exhausted shape. Currently this is the Z.ai GLM Coding Plan rolling five-hour (`1308`) and weekly or monthly (`1310`) quota codes, or a `Usage limit reached for <n> hour` message. Z.ai gives the reset only in the message, as `reset at YYYY-MM-DD HH:MM:SS` with no time zone. The CLI reads it as UTC+8 (a fixed `+08:00` offset). A quota whose reset is 5 minutes away or less still retries. A quota whose reset is missing or cannot be read fails fast without `resetAt`.
 
-The run emits no `retry` event. The failed turn ends with an `error` status, `session_error` has `reason: "usage_limit"` and `code: "PROVIDER_USAGE_LIMIT"`, and `invocation_complete.status` is `error`. Headless execution exits 1. The message starts with `Provider usage limit reached` and keeps the provider's text, which can name its own reset time. Any other 429 still retries as `rate_limited`: one that asks for a wait of 5 minutes or less, a known quota that resets within 5 minutes, or one with no reset hint and no known quota shape. Those retries keep the existing delays. Each attempt waits for the provider's requested delay, or for exponential backoff when the response gives none, so a run of retries can last longer than 5 minutes in total.
+The run emits no `retry` event. The failed turn ends with an `error` status, `session_error` has `reason: "usage_limit"` and `code: "PROVIDER_USAGE_LIMIT"`, and `invocation_complete.status` is `error`. Headless execution exits 1. The message starts with `Provider usage limit reached` and keeps the provider's text, which can name its own reset time. Any other 429 still retries as `rate_limited`: one that asks for a wait of 5 minutes or less, a known quota that resets within 5 minutes, or one with no reset hint and no known quota shape. Those retries follow the bounded delays described under [`retry`](#retry).
 
 ```json
 {
@@ -198,7 +198,7 @@ The run emits no `retry` event. The failed turn ends with an `error` status, `se
 
 ### `retry`
 
-Emitted when a primary-session model attempt fails with a retryable error and the CLI schedules another attempt. This includes a thought-only `unknown` finish with no tool call or non-empty text. It is not emitted after retries are exhausted, for a provider usage limit (see `session_error`), or for an `unknown` finish that includes text or a tool call.
+Emitted when a primary-session model attempt fails with a retryable error and the CLI schedules another attempt. This includes a thought-only `unknown` finish with no tool call or non-empty text. It is not emitted after retries are exhausted, for a provider usage limit (see `session_error`), for a provider-requested wait over 5 minutes (see Retry delays below), or for an `unknown` finish that includes text or a tool call.
 
 ```json
 {
@@ -217,6 +217,8 @@ Emitted when a primary-session model attempt fails with a retryable error and th
 - `code` (string, **required**) — safe retry reason: `no_finish_reason`, `rate_limited`, `overloaded`, `server_error`, `network`, or `unknown`. Provider error text is omitted from this event.
 - `retry.code` `rate_limited` maps to `session_error.reason` `rate_limit`; `no_finish_reason`, `overloaded`, `server_error`, and `network` are retry-only codes.
 - `next` (number, **required**) — scheduled next-attempt time in Unix milliseconds.
+
+**Retry delays.** No single wait between attempts exceeds 5 minutes, whatever the status code or headers. Each retry waits for the provider's `Retry-After` / `retry-after-ms` when it asks for a positive wait, or else for exponential backoff of 2 s, 4 s, 8 s and 16 s, then 30 s for each later attempt. A retryable error whose provider asks for a wait longer than 5 minutes is not retried: a 429 fails as a provider usage limit (see `session_error`), and any other status (for example a 503 or 529 "overloaded" with `retry-after: 18000`) fails with that provider error, so `session_error.reason` is classified from its status as usual (`provider` for a 5xx). Neither emits a `retry` event. With at most 10 retries, the waits total at most 50 minutes when every response asks for 5 minutes, and 3.5 minutes (210 s) when no response gives a retry hint.
 
 ### `message_complete`
 
@@ -290,6 +292,7 @@ An `unknown` finish is triaged by delivered output. Nonempty text becomes `stop`
 | Other nonempty finish         | Existing behavior: end the loop without inferring failure from an unfamiliar reason.                                               |
 | Thrown provider error         | Existing retry/error handling; unrecoverable failures emit the failure lifecycle.                                                  |
 | Provider usage limit          | Not retried for a 429 that waits over 5 minutes or is a known quota without a sooner reset; `usage_limit` and exit 1.              |
+| Long provider-requested wait  | Not retried for any other status that waits over 5 minutes; the provider error fails the run and exits 1.                          |
 | Cancellation / stream timeout | Existing cancellation and timeout lifecycle; not reclassified as a provider finish error.                                          |
 
 With pinned Google SDK 2.0.54, `IMAGE_SAFETY`, `RECITATION`, `SAFETY`, `BLOCKLIST`, `PROHIBITED_CONTENT`, and `SPII` map to `content-filter`; `MALFORMED_FUNCTION_CALL` maps to `error`. `OTHER` and `FINISH_REASON_UNSPECIFIED` map to `other`, while `LANGUAGE` maps to `unknown`. These last mappings retain the behavior above; they do not prove successful task completion. Consumers can distinguish `other` from `stop` using `message_complete.finish`.
