@@ -408,8 +408,30 @@ export namespace ProviderTransform {
 
   const WIDELY_SUPPORTED_EFFORTS = ["low", "medium", "high"]
   const OPENAI_EFFORTS = ["none", "minimal", ...WIDELY_SUPPORTED_EFFORTS, "xhigh"]
-  const OPENAI_GPT_5_6_EFFORTS = ["none", ...WIDELY_SUPPORTED_EFFORTS, "xhigh", "max"]
-  const OPENAI_GPT_5_6_CODEX_EFFORTS = [...WIDELY_SUPPORTED_EFFORTS, "xhigh", "max"]
+  const OPENAI_MAX_EFFORTS = [...WIDELY_SUPPORTED_EFFORTS, "xhigh", "max"]
+
+  /**
+   * OpenAI models whose efforts run up to `max`. `none` is whether the API also accepts it
+   * (models.dev reasoning_options, OpenAI model pages); `ultra` is whether the Codex
+   * subscription offers its `ultra` alias for `max` (the Codex CLI model list).
+   */
+  const OPENAI_MAX_EFFORT_MODELS: Record<string, { none: boolean; ultra: boolean }> = {
+    "gpt-5.6": { none: true, ultra: true },
+    "gpt-5.6-sol": { none: true, ultra: true },
+    "gpt-5.6-terra": { none: true, ultra: true },
+    "gpt-5.6-luna": { none: true, ultra: false },
+    "gpt-6-astra": { none: false, ultra: true },
+    "gpt-6.1-sol": { none: false, ultra: true },
+    "gpt-6-sol": { none: true, ultra: true },
+    "gpt-6-luna": { none: true, ultra: false },
+  }
+
+  function openaiMaxEfforts(model: Provider.Model): string[] | undefined {
+    const support = OPENAI_MAX_EFFORT_MODELS[model.api.id]
+    if (!support) return undefined
+    if (model.family === "gpt-codex") return support.ultra ? [...OPENAI_MAX_EFFORTS, "ultra"] : OPENAI_MAX_EFFORTS
+    return support.none ? ["none", ...OPENAI_MAX_EFFORTS] : OPENAI_MAX_EFFORTS
+  }
 
   export function variants(model: Provider.Model): Record<string, Record<string, any>> {
     if (!model.capabilities.reasoning) {
@@ -568,13 +590,8 @@ export namespace ProviderTransform {
         // https://v5.ai-sdk.dev/providers/ai-sdk-providers/openai
         if (id === "gpt-5-pro") return {}
         const openaiEfforts = iife(() => {
-          if (["gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"].includes(model.api.id)) {
-            if (model.family === "gpt-codex" && model.api.id !== "gpt-5.6-luna") {
-              return [...OPENAI_GPT_5_6_CODEX_EFFORTS, "ultra"]
-            }
-            if (model.family === "gpt-codex") return OPENAI_GPT_5_6_CODEX_EFFORTS
-            return OPENAI_GPT_5_6_EFFORTS
-          }
+          const maxEfforts = openaiMaxEfforts(model)
+          if (maxEfforts) return maxEfforts
           if (id.includes("codex")) {
             if (id.includes("5.2") || id.includes("5.3")) return [...WIDELY_SUPPORTED_EFFORTS, "xhigh"]
             return WIDELY_SUPPORTED_EFFORTS

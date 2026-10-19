@@ -2519,6 +2519,54 @@ describe("ProviderTransform.variants", () => {
         include: ["reasoning.encrypted_content"],
       })
     })
+
+    // API efforts from models.dev reasoning_options and OpenAI's model pages:
+    // Astra and 6.1 Sol do not accept `none`.
+    test.each([
+      { id: "gpt-6.1-sol", efforts: ["low", "medium", "high", "xhigh", "max"] },
+      { id: "gpt-6-astra", efforts: ["low", "medium", "high", "xhigh", "max"] },
+      { id: "gpt-6-sol", efforts: ["none", "low", "medium", "high", "xhigh", "max"] },
+      { id: "gpt-6-luna", efforts: ["none", "low", "medium", "high", "xhigh", "max"] },
+    ])("$id exposes its API reasoning efforts", ({ id, efforts }) => {
+      const model = createMockModel({
+        id,
+        providerID: "openai",
+        api: {
+          id,
+          url: "https://api.openai.com",
+          npm: "@ai-sdk/openai",
+        },
+        release_date: "2026-09-22",
+      })
+      const result = ProviderTransform.variants(model)
+      expect(Object.keys(result)).toEqual([...efforts])
+      expect(result.max).toEqual({
+        reasoningEffort: "max",
+        reasoningSummary: "auto",
+        include: ["reasoning.encrypted_content"],
+      })
+    })
+
+    // Codex efforts from the Codex CLI model list: every GPT-6 model but Luna offers `ultra`.
+    test.each([
+      { id: "gpt-6.1-sol", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+      { id: "gpt-6-astra", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+      { id: "gpt-6-sol", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+      { id: "gpt-6-luna", efforts: ["low", "medium", "high", "xhigh", "max"] },
+    ])("$id exposes its Codex reasoning efforts", ({ id, efforts }) => {
+      const model = createMockModel({
+        id,
+        providerID: "openai",
+        family: "gpt-codex",
+        api: {
+          id,
+          url: "https://chatgpt.com/backend-api/codex",
+          npm: "@ai-sdk/openai",
+        },
+        release_date: "2026-09-22",
+      })
+      expect(Object.keys(ProviderTransform.variants(model))).toEqual([...efforts])
+    })
   })
 
   describe("@ai-sdk/anthropic", () => {

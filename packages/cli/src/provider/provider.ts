@@ -1140,6 +1140,7 @@ export namespace Provider {
         "3.5-haiku",
         "gemini-3-flash",
         "gemini-2.5-flash",
+        "gpt-6-luna",
         "gpt-5-nano",
       ]
       for (const item of priority) {
@@ -1176,11 +1177,20 @@ export namespace Provider {
     return undefined
   }
 
-  const priority = ["gpt-5", "claude-sonnet-4", "gemini-3-pro"]
+  /** Default-model preferences, most preferred first, each matched as a substring of the model ID. */
+  const DEFAULT_MODEL_PREFERENCE = ["gemini-3-pro", "claude-sonnet-4", "gpt-6.1-sol", "gpt-5"]
+
+  /** Position in DEFAULT_MODEL_PREFERENCE; models matching none of them rank last. */
+  function preferenceRank(model: Model) {
+    const rank = DEFAULT_MODEL_PREFERENCE.findIndex((filter) => model.id.includes(filter))
+    if (rank === -1) return DEFAULT_MODEL_PREFERENCE.length
+    return rank
+  }
+
   export function sort(models: Model[]) {
     return sortBy(
       models,
-      [(model) => priority.findIndex((filter) => model.id.includes(filter)), "desc"],
+      [preferenceRank, "asc"],
       [(model) => (model.id.includes("latest") ? 0 : 1), "asc"],
       [(model) => model.id, "desc"],
     )

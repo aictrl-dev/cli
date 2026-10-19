@@ -13,6 +13,48 @@ function createTestJwt(payload: object): string {
   return `${header}.${body}.sig`
 }
 
+/** Runs the Codex OAuth loader over an OpenAI provider holding API-shaped models with these IDs. */
+async function loadSubscription(ids: string[]) {
+  const hooks = await CodexAuthPlugin({} as never)
+  if (!hooks.auth?.loader) throw new Error("Codex auth loader is missing")
+  const provider = {
+    models: Object.fromEntries(
+      ids.map((id) => [
+        id,
+        {
+          id,
+          providerID: "openai",
+          api: { id, url: "https://api.openai.com", npm: "@ai-sdk/openai" },
+          name: id,
+          family: "gpt",
+          capabilities: {
+            temperature: false,
+            reasoning: true,
+            attachment: true,
+            toolcall: true,
+            input: { text: true, audio: false, image: true, video: false, pdf: true },
+            output: { text: true, audio: false, image: false, video: false, pdf: false },
+            interleaved: false,
+          },
+          cost: { input: 1, output: 1, cache: { read: 1, write: 1 } },
+          limit: { context: 1_050_000, input: 922_000, output: 128_000 },
+          status: "active",
+          options: {},
+          headers: {},
+          release_date: "2026-07-09",
+          variants: {} as Record<string, Record<string, unknown>>,
+        },
+      ]),
+    ),
+  }
+
+  await hooks.auth.loader(
+    async () => ({ type: "oauth", refresh: "refresh", access: "access", expires: Date.now() + 60_000 }),
+    provider as never,
+  )
+  return provider
+}
+
 describe("plugin.codex", () => {
   describe("parseJwtClaims", () => {
     test("parses valid JWT with claims", () => {
@@ -122,44 +164,31 @@ describe("plugin.codex", () => {
     })
   })
 
-  test("exposes GPT-5.6 Codex models with their supported effort levels", async () => {
-    const hooks = await CodexAuthPlugin({} as never)
-    if (!hooks.auth?.loader) throw new Error("Codex auth loader is missing")
-    const provider = {
-      models: Object.fromEntries(
-        ["gpt-4o", "gpt-5.3-codex", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"].map((id) => [
-          id,
-          {
-            id,
-            providerID: "openai",
-            api: { id, url: "https://api.openai.com", npm: "@ai-sdk/openai" },
-            name: id,
-            family: "gpt",
-            capabilities: {
-              temperature: false,
-              reasoning: true,
-              attachment: true,
-              toolcall: true,
-              input: { text: true, audio: false, image: true, video: false, pdf: true },
-              output: { text: true, audio: false, image: false, video: false, pdf: false },
-              interleaved: false,
-            },
-            cost: { input: 1, output: 1, cache: { read: 1, write: 1 } },
-            limit: { context: 1_050_000, input: 922_000, output: 128_000 },
-            status: "active",
-            options: {},
-            headers: {},
-            release_date: "2026-07-09",
-            variants: {} as Record<string, Record<string, unknown>>,
-          },
-        ]),
-      ),
-    }
+  test("keeps the GPT-6 models on the subscription with Codex limits", async () => {
+    const ids = ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]
+    const provider = await loadSubscription(["gpt-4o", ...ids])
 
-    await hooks.auth.loader(
-      async () => ({ type: "oauth", refresh: "refresh", access: "access", expires: Date.now() + 60_000 }),
-      provider as never,
-    )
+    expect(provider.models["gpt-4o"]).toBeUndefined()
+    for (const id of ids) {
+      const model = provider.models[id]
+      expect(model, id).toBeDefined()
+      expect(model.family).toBe("gpt-codex")
+      expect(model.limit).toEqual({ context: 400_000, input: 272_000, output: 128_000 })
+      expect(model.cost).toEqual({ input: 0, output: 0, cache: { read: 0, write: 0 } })
+    }
+    expect(Object.keys(provider.models["gpt-6.1-sol"].variants)).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ])
+    expect(Object.keys(provider.models["gpt-6-luna"].variants)).toEqual(["low", "medium", "high", "xhigh", "max"])
+  })
+
+  test("exposes GPT-5.6 Codex models with their supported effort levels", async () => {
+    const provider = await loadSubscription(["gpt-4o", "gpt-5.3-codex", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"])
 
     expect(provider.models["gpt-4o"]).toBeUndefined()
     expect(provider.models["gpt-5.6-sol"].limit).toEqual({ context: 400_000, input: 272_000, output: 128_000 })
