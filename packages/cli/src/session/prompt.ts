@@ -181,12 +181,12 @@ export namespace SessionPrompt {
     // fails before it leaves a message for the running loop to pick up.
     const abort = start(input.sessionID)
     const message = await recordPrompt(input).catch((error) => {
-      release(input.sessionID, abort)
+      endBeforeLoop(input.sessionID, abort)
       throw error
     })
 
     if (input.noReply === true) {
-      release(input.sessionID, abort)
+      endBeforeLoop(input.sessionID, abort)
       return message
     }
 
@@ -279,23 +279,31 @@ export namespace SessionPrompt {
     return controller.signal
   }
 
-  // Frees a claim that never reached the loop, without publishing idle.
+  // Only the prompt that claimed a session frees it, so a cancelled prompt that
+  // is still unwinding can never free a newer prompt's claim.
   function release(sessionID: string, abort: AbortSignal) {
     const s = state()
     if (s[sessionID]?.signal === abort) delete s[sessionID]
   }
 
-  // Returns false when a prompt was running: its loop publishes idle on exit.
+  // Ends a prompt that stops before its loop: a failed message write, or noReply.
+  // A cancelled prompt publishes idle, because cancel() leaves that to the owner.
+  // Otherwise no idle is published: run.ts sees the rejection instead.
+  function endBeforeLoop(sessionID: string, abort: AbortSignal) {
+    release(sessionID, abort)
+    if (abort.aborted) SessionStatus.set(sessionID, { type: "idle" })
+  }
+
+  // Asks the running prompt to stop and returns false: the prompt that owns the
+  // claim frees it and publishes idle. With no prompt running, publishes idle.
   export function cancel(sessionID: string) {
     log.info("cancel", { sessionID })
-    const s = state()
-    const match = s[sessionID]
+    const match = state()[sessionID]
     if (!match) {
       SessionStatus.set(sessionID, { type: "idle" })
       return true
     }
     match.abort()
-    delete s[sessionID]
     return false
   }
 
@@ -306,7 +314,7 @@ export namespace SessionPrompt {
 
   async function run(sessionID: string, abort: AbortSignal) {
     using _ = defer(() => {
-      if (cancel(sessionID)) return
+      release(sessionID, abort)
       // Keep idle after processor persistence. Headless consumers use this as
       // the boundary after which all terminal message events have been queued.
       SessionStatus.set(sessionID, { type: "idle" })

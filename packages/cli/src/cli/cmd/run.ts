@@ -1092,10 +1092,10 @@ export const RunCommand = cmd({
       }
 
       // Race loopDone against promptResult to handle early prompt failures.
-      // If SessionPrompt.prompt() rejects BEFORE it enters its internal loop()
-      // (e.g., Session.get() fails, model not found), no session.status idle event
-      // is emitted, so loopDone would hang forever. Racing ensures we surface
-      // the error and exit.
+      // If SessionPrompt.prompt() rejects before it starts its model loop
+      // (e.g., Session.get() fails, model not found, Session.BusyError), no
+      // session.status idle event is emitted, so loopDone would hang forever.
+      // Racing ensures we surface the error and exit.
       const result = await Promise.race([
         loopDone,
         promptResult.then(

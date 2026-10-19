@@ -3,6 +3,8 @@ import { describe, expect, spyOn, test } from "bun:test"
 import { Log } from "../../src/util/log"
 import { SessionRetry } from "../../src/session/retry"
 import { Instance } from "../../src/project/instance"
+import { Bus } from "../../src/bus"
+import { SessionStatus } from "../../src/session/status"
 import { SessionPrompt } from "../../src/session/prompt"
 import { Session } from "../../src/session"
 import { LLM } from "../../src/session/llm"
@@ -100,6 +102,126 @@ describe("prompt.ts reliability guards", () => {
           const message = await SessionPrompt.prompt(input)
           expect(message.info.role).toBe("user")
         } finally {
+          await Session.remove(session.id)
+        }
+      },
+    })
+  })
+
+  // Holds the user-message write of the next prompt open until `resume` is called.
+  function holdMessageWrite() {
+    const original = Session.touch
+    let reached!: () => void
+    const writing = new Promise<void>((resolve) => (reached = resolve))
+    let resume!: () => void
+    const resumed = new Promise<void>((resolve) => (resume = resolve))
+    const held = async (sessionID: string) => {
+      touch.mockRestore()
+      reached()
+      await resumed
+      return original(sessionID)
+    }
+    const touch = spyOn(Session, "touch").mockImplementation(Object.assign(held, original))
+    return { writing, resume, restore: () => touch.mockRestore() }
+  }
+
+  function idleEvents(sessionID: string) {
+    const events: string[] = []
+    const unsubscribe = Bus.subscribe(SessionStatus.Event.Status, (event) => {
+      if (event.properties.sessionID === sessionID) events.push(event.properties.status.type)
+    })
+    return { count: () => events.filter((type) => type === "idle").length, unsubscribe }
+  }
+
+  test("a prompt cancelled during its message write keeps the session until it unwinds", async () => {
+    await using tmp = await tmpdir({ git: true, config: { provider } })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "Cancel during write" })
+        const stream = spyOn(LLM, "stream").mockImplementation(
+          async () =>
+            ({
+              fullStream: (async function* () {
+                yield { type: "start-step" }
+                yield { type: "text-start" }
+                yield { type: "text-delta", text: "Done" }
+                yield { type: "text-end" }
+                yield { type: "finish-step", finishReason: "stop", usage: { inputTokens: 1, outputTokens: 1 } }
+              })(),
+            }) as unknown as Awaited<ReturnType<typeof LLM.stream>>,
+        )
+        const write = holdMessageWrite()
+        const idle = idleEvents(session.id)
+        const input = {
+          sessionID: session.id,
+          agent: "build",
+          model: { providerID: "fixture", modelID: "gemini-fixture" },
+        }
+        try {
+          const cancelled = SessionPrompt.prompt({ ...input, parts: [{ type: "text", text: "Cancelled" }] })
+          const settled = cancelled.then(
+            () => undefined,
+            () => undefined,
+          )
+          await write.writing
+          expect(SessionPrompt.cancel(session.id)).toBe(false)
+
+          // The cancelled prompt still owns the session until it unwinds.
+          const early = SessionPrompt.prompt({ ...input, parts: [{ type: "text", text: "Too early" }] })
+          await expect(early).rejects.toBeInstanceOf(Session.BusyError)
+
+          write.resume()
+          await settled
+          expect(idle.count()).toBe(1)
+          expect(stream).not.toHaveBeenCalled()
+
+          const answer = await SessionPrompt.prompt({ ...input, parts: [{ type: "text", text: "Newer" }] })
+          expect(answer.info.role).toBe("assistant")
+          if (answer.info.role !== "assistant") throw new Error("expected assistant")
+          expect(answer.info.error).toBeUndefined()
+          expect(answer.info.finish).toBe("stop")
+          expect(stream).toHaveBeenCalledTimes(1)
+        } finally {
+          write.resume()
+          write.restore()
+          idle.unsubscribe()
+          stream.mockRestore()
+          await Session.remove(session.id)
+        }
+      },
+    })
+  })
+
+  test("a noReply prompt cancelled during its message write publishes idle", async () => {
+    await using tmp = await tmpdir({ git: true, config: { provider } })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "Cancel noReply" })
+        const write = holdMessageWrite()
+        const idle = idleEvents(session.id)
+        const input = {
+          sessionID: session.id,
+          agent: "build",
+          model: { providerID: "fixture", modelID: "gemini-fixture" },
+          noReply: true,
+          parts: [{ type: "text" as const, text: "Hello" }],
+        }
+        try {
+          const cancelled = SessionPrompt.prompt(input)
+          await write.writing
+          expect(SessionPrompt.cancel(session.id)).toBe(false)
+          expect(idle.count()).toBe(0)
+
+          write.resume()
+          expect((await cancelled).info.role).toBe("user")
+          expect(idle.count()).toBe(1)
+          expect((await SessionPrompt.prompt(input)).info.role).toBe("user")
+        } finally {
+          write.resume()
+          write.restore()
+          idle.unsubscribe()
           await Session.remove(session.id)
         }
       },
