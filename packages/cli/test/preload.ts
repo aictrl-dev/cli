@@ -3,30 +3,32 @@
 import os from "os"
 import path from "path"
 import fs from "fs/promises"
-import { afterAll } from "bun:test"
 
 // Set XDG env vars FIRST, before any src/ imports
-const dir = path.join(os.tmpdir(), "aictrl-test-data-" + process.pid)
+const DATA_PREFIX = "aictrl-test-data-"
+const dir = path.join(os.tmpdir(), DATA_PREFIX + process.pid)
 await fs.mkdir(dir, { recursive: true })
-afterAll(async () => {
-  const { Database } = await import("../src/storage/db")
-  Database.close()
-  const busy = (error: unknown) =>
-    typeof error === "object" && error !== null && "code" in error && error.code === "EBUSY"
-  const rm = async (left: number): Promise<void> => {
-    Bun.gc(true)
-    await Bun.sleep(100)
-    return fs.rm(dir, { recursive: true, force: true }).catch((error) => {
-      if (!busy(error)) throw error
-      if (left <= 1) throw error
-      return rm(left - 1)
-    })
-  }
 
-  // Windows can keep SQLite WAL handles alive until GC finalizers run, so we
-  // force GC and retry teardown to avoid flaky EBUSY in test cleanup.
-  await rm(30)
+// bun has no hook that runs once at the end of a test run: preload hooks run
+// after every `--rerun-each` pass, and removing the directory there leaves the
+// next pass without its database. So each run removes the data directories of
+// earlier runs whose process has exited instead.
+function running(pid: number) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM"
+  }
+}
+const stale = (await fs.readdir(os.tmpdir())).filter((name) => {
+  const pid = Number(name.slice(DATA_PREFIX.length))
+  return name.startsWith(DATA_PREFIX) && Number.isInteger(pid) && pid > 0 && pid !== process.pid && !running(pid)
 })
+// Best effort: a directory that cannot be removed now is retried by the next run.
+await Promise.all(
+  stale.map((name) => fs.rm(path.join(os.tmpdir(), name), { recursive: true, force: true }).catch(() => {})),
+)
 
 process.env["XDG_DATA_HOME"] = path.join(dir, "share")
 process.env["XDG_CACHE_HOME"] = path.join(dir, "cache")

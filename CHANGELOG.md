@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+
+- **Messages written in the same millisecond keep their order** — Reading a session's messages now breaks `time_created` ties by message ID. Before, messages written in the same millisecond came back oldest first. A compaction writes its request, its summary and the continue message in quick succession, so the prompt loop could miss the finished summary and compact again, sending an extra model request. (#200)
+
 ## 0.5.1 (2026-10-18)
 
 ### Fixes

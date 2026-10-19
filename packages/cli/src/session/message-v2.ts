@@ -747,7 +747,8 @@ export namespace MessageV2 {
           .select()
           .from(MessageTable)
           .where(eq(MessageTable.session_id, sessionID))
-          .orderBy(desc(MessageTable.time_created))
+          // Messages often share a millisecond. IDs ascend with creation, so desc(id) breaks ties newest first.
+          .orderBy(desc(MessageTable.time_created), desc(MessageTable.id))
           .limit(size)
           .offset(offset)
           .all(),
