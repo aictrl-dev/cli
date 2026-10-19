@@ -97,7 +97,8 @@ export const BashTool = Tool.define("bash", async () => {
     // Replacer functions insert values literally, without `$` pattern expansion
     description: DESCRIPTION.replaceAll("${directory}", () => Instance.directory)
       .replaceAll("${maxLines}", () => String(Truncate.MAX_LINES))
-      .replaceAll("${maxBytes}", () => String(Truncate.MAX_BYTES)),
+      .replaceAll("${maxBytes}", () => String(Truncate.MAX_BYTES))
+      .replaceAll("${timeout}", () => String(DEFAULT_TIMEOUT)),
     parameters: z.object({
       command: z.string().describe("The command to execute"),
       timeout: z.number().describe("Optional timeout in milliseconds").optional(),

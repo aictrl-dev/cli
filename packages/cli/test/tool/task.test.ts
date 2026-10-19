@@ -146,6 +146,17 @@ describe("task tool description", () => {
     expect(text).toContain("- explore: ")
     expect(text).toContain("`task_id`")
   })
+
+  test("inserts agent descriptions literally", async () => {
+    await using tmp = await tmpdir({
+      config: { agent: { pricey: { mode: "subagent", description: "Costs $& or $$ per run" } } },
+    })
+    const text = await Instance.provide({
+      directory: tmp.path,
+      fn: async () => (await TaskTool.init()).description,
+    })
+    expect(text).toContain("- pricey: Costs $& or $$ per run")
+  })
 })
 
 describe("task tool subagent session", () => {

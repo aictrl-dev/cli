@@ -4,7 +4,7 @@ Do not use it for file operations; use the dedicated tools instead: Glob (not fi
 
 All commands run in ${directory} by default. To run elsewhere, set `workdir` instead of using `cd`.
 
-Commands time out after 120000ms (2 minutes) unless `timeout` (milliseconds) is set.
+Commands time out after ${timeout}ms unless `timeout` (milliseconds) is set.
 
 Output over ${maxLines} lines or ${maxBytes} bytes is truncated and the full output is written to a file; read it with Read (offset/limit) or search it with Grep. So do not limit output with `head`, `tail` or other truncation commands; run the command directly.
 

@@ -54,8 +54,8 @@ export const TaskTool = Tool.define("task", async (ctx) => {
     ? agents.filter((a) => PermissionNext.evaluate("task", a.name, caller.permission).action !== "deny")
     : agents
 
-  const description = DESCRIPTION.replace(
-    "{agents}",
+  // A replacer function inserts agent descriptions literally, without `$` pattern expansion
+  const description = DESCRIPTION.replace("{agents}", () =>
     accessibleAgents
       .map((a) => `- ${a.name}: ${a.description ?? "This subagent should only be called manually by the user."}`)
       .join("\n"),
