@@ -85,7 +85,9 @@ Moving from Bun 1.3.10 to 1.4.3 alone changed them by about 85 ms and 85 MB.
   #233, #234 and #235. They change the system prompt and add the GPT-6
   family, which CLAUDE.md treats as patch-level model support. No CLI flag,
   command, config key or NDJSON event field is removed, and `schemaVersion`
-  stays `"1"`.
+  stays `"1"`. One model option is removed: with an API key, `gpt-6-astra`
+  and `gpt-6.1-sol` no longer offer the `none` effort variant, which OpenAI
+  rejects for them, so no working configuration loses it (#234).
 - **System prompt:** every model except Codex sign-in sessions now gets one
   shared base prompt, `default.txt` (#233 trims it and renames it from
   `qwen.txt`; #235 removes `anthropic.txt`, `beast.txt`, `gemini.txt` and
@@ -124,6 +126,13 @@ Moving from Bun 1.3.10 to 1.4.3 alone changed them by about 85 ms and 85 MB.
     `libc` match the table. publish.yml's manifest step, run on a copy, writes
     exactly those 7 names at `0.5.4` into `optionalDependencies`; the wrapper
     tarball has 4 files, 18.3 kB unpacked.
+  - not repeated from 0.5.3: the local-registry (verdaccio) publish, the
+    visibility step and the fresh-container installs. `bin/aictrl`,
+    `script/build.ts` and `publish.yml` are unchanged in `v0.5.3..e88ed7f432`,
+    and the tarballs above match 0.5.3's except for the version, so those
+    checks would exercise the same code. The publish workflow's visibility
+    gate and install smoke, and the clean `npm install` in step 5, still check
+    0.5.4 itself after merge.
 
 Publication and executor promotion are separate gates. Preparing this candidate
 PR does not publish npm packages or deploy an executor image.
