@@ -79,57 +79,53 @@ compare time to first response and RSS: run a one-turn `aictrl run` against a
 stub model in a fresh, CPU- and memory-limited container, several times each.
 Moving from Bun 1.3.10 to 1.4.3 alone changed them by about 85 ms and 85 MB.
 
-## 0.5.2 candidate
+## 0.5.3 candidate
 
-- **Why a patch bump (0.5.2):** only additive NDJSON events, fixes and
-  internal changes. No CLI flag, command, config key or NDJSON event field is
-  removed, and `schemaVersion` stays `"1"`. Range `v0.5.1..d4d9696dbc` (11 PRs):
-  #222, #220, #217, #218, #224, #225, #221, #226, #219, #228, #229.
-- **NDJSON additions:** `user_message` (#224) and `subagent_message_complete`
-  (#221). `session_start.permissions` keeps its shape and now carries the full
-  evaluated ruleset (#218). `user_message` takes numbers from the shared
-  `sequenceNum` counter, so `text`, `reasoning` and `tool_use` numbers can have
-  gaps; they stay monotonic.
-- **Behaviour changes worth knowing:**
-  - a retryable error asking for more than 5 minutes fails at once, for any
-    status (#217);
-  - a second prompt for a busy session fails with `Session <id> is busy`
-    instead of queuing; only parallel `task` calls resuming one `task_id`
-    reach it (#225);
-  - `AICTRL_HEADLESS` is ignored (#219). A full-binary run that set it now
-    gets the full environment block and the `AICTRL_CONFIG_DIR` / global
-    `AGENTS.md` files. The production executor does not set it.
-- **Prompt:** #229 trims the `bash` and `task` tool descriptions (about
-  9.7k → 3.4k characters, first request −21.7% tokens on glm-5.3). Tool names
-  and parameters are unchanged; its A/B passed 24/24 with no extra steps.
-- **Database:** drizzle 1.0.0-beta.20 (#220) adds `name` and `applied_at` to
-  `__drizzle_migrations` on first start; a database upgraded by 0.5.2 still
-  opens with 0.5.1.
-- **SDK:** #228 regenerates the v2 `@aictrl/sdk` client with
-  `@hey-api/openapi-ts` 0.97.3 (GHSA-hhx9-57xq-r5rw) and hand-patches the
-  legacy client's `buildClientParams`. The CLI uses only the legacy client
-  (`--attach`, plugins), where only that helper changes. `@aictrl/sdk` is not
-  bumped by this release.
-- **Bun:** the first release built under the `packageManager` pin (#226). The
-  binary must embed `Bun v1.4.3`.
+- **Why a patch bump (0.5.3):** the range `v0.5.2..b95059eb3e` is one PR,
+  #231, and it changes which npm packages are published, not what the CLI
+  does. No CLI flag, command, config key or NDJSON event changes, and
+  `schemaVersion` stays `"1"`. Wrappers up to 0.5.2 pin their own platform
+  package versions, which stay on npm, so they keep working.
+- **Published package set:** 7 platform packages instead of 11 (the table
+  above). `@aictrl/cli-linux-x64`, `-linux-x64-musl`, `-darwin-x64` and
+  `-windows-x64` get no 0.5.3. The linux packages declare `libc`. Every
+  remaining name already exists on npm with 0.5.2, so no new package needs
+  trusted publishing set up.
+- **Wrapper:** a `files` allowlist ships `bin/aictrl`, `README.md`, `LICENSE`
+  and `package.json` only. `bin/aictrl` drops AVX2 detection and the
+  `bun run src/index.ts` fallback, and reads the libc from `/usr/bin/ldd`.
+- **Publish workflow:** the manifest step copies `LICENSE` and exports the
+  platform package list; the smoke job waits until every listed package is
+  visible at the release version before the install check.
+- **Bun:** the binary must embed `Bun v1.4.3`.
 - Evidence, on the release commit with Bun 1.4.3:
-  - step-2 regressions: 88 pass, 0 fail (8 files);
-  - `bun test --timeout 30000` (packages/cli): 1760 pass, 6 skip, 0 fail
-    (1766 tests, 147 files);
+  - step-2 regressions: 95 pass, 0 fail (8 files);
+  - `bun test --timeout 30000` (packages/cli): 1784 pass, 6 skip, 0 fail
+    (1790 tests, 147 files);
   - `bun turbo typecheck --force`: 6/6;
-  - `test/security/sdk-build-client-params.test.ts`: 12 pass, 0 fail;
-  - `AICTRL_VERSION=0.5.2 AICTRL_BUILD_SINGLE=true bun turbo build --force`
-    (CI's build): 3/3 tasks; `aictrl --version` prints `0.5.2` and the
-    binary embeds `Bun v1.4.3`;
+  - `AICTRL_VERSION=0.5.3 AICTRL_BUILD_SINGLE=true bun turbo build --force`
+    (CI's build): 3/3 tasks, builds only `cli-linux-x64-baseline`;
+    `aictrl --version` prints `0.5.3` and the binary embeds `Bun v1.4.3`;
   - the five binary-capable `aictrl run` suites with `AICTRL_TEST_BINARY` set
     to that binary: 21 pass, 0 fail;
-  - NDJSON schema tests (`run-schema-v1`, `events-command`, `run-user-message`,
-    `run-event-race`) and `bun-version-pin`: 27 pass, 0 fail;
-  - one-turn `aictrl run --format json` smoke runs of the binary against
-    a stub OpenAI-compatible endpoint: exit 0, one model request, every line
-    is JSON, `schemaVersion` `"1"`, `session_start.permissions` contains the
-    config rule, `user_message` precedes `text`, `message_complete.status`
-    `completed`, `invocation_complete.status` `completed`.
+  - `wrapper-binary-resolution`, the NDJSON schema tests (`run-schema-v1`,
+    `events-command`, `run-user-message`, `run-event-race`) and
+    `bun-version-pin`: 54 pass, 0 fail;
+  - `AICTRL_VERSION=0.5.3 bun run build` builds the 7 targets. `npm pack` of
+    each platform package gives `bin/aictrl` (`aictrl.exe` on windows),
+    `bin/aictrl.map`, `LICENSE` and a `package.json` whose `os`, `cpu` and
+    `libc` match the table. publish.yml's manifest step, run on a copy, writes
+    exactly those 7 names at `0.5.3` into `optionalDependencies`; the wrapper
+    tarball has 4 files, 18.3 kB unpacked;
+  - the 8 tarballs published to a local verdaccio: publish.yml's visibility
+    step passes on attempt 1. `npm install -g @aictrl/cli@0.5.3` in fresh
+    `node:20-slim` and `node:20-alpine` containers (Node 20.20.2, npm 10.8.2)
+    installs one platform package, `cli-linux-x64-baseline` (116,272 KiB in
+    `@aictrl/`) or `cli-linux-x64-baseline-musl` (109,960 KiB). `aictrl
+    --version` prints `0.5.3`, and a one-turn `aictrl run --format json`
+    against a stub OpenAI-compatible endpoint exits 0 with 10 events,
+    `schemaVersion` `"1"` and both terminal statuses `completed`. A local
+    (non-global) install gives the same single package on both images.
 
 Publication and executor promotion are separate gates. Preparing this candidate
 PR does not publish npm packages or deploy an executor image.
