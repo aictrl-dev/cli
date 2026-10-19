@@ -43,6 +43,12 @@ describe.each(generators)("%s buildClientParams", (_name, buildClientParams) => 
     expect(params.path).toBeUndefined()
     expect(params.body).toBeUndefined()
   })
+
+  test("an empty array body is kept, as in the 0.97.3 template", () => {
+    const params = buildClientParams([[]], [{ in: "body" } as never])
+
+    expect(params.body as unknown).toEqual([])
+  })
 })
 
 function* forInKeys(value: object) {
