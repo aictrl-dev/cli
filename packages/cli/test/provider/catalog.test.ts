@@ -72,6 +72,23 @@ describe("model catalog", () => {
     }
   })
 
+  // Values from models.dev and OpenAI's model pages.
+  test.each([
+    { id: "gpt-6.1-sol", family: "gpt-sol", input: 2, output: 10, release: "2026-09-29" },
+    { id: "gpt-6-astra", family: "gpt-astra", input: 10, output: 50, release: "2026-09-04" },
+    { id: "gpt-6-sol", family: "gpt-sol", input: 2, output: 10, release: "2026-09-22" },
+    { id: "gpt-6-luna", family: "gpt-luna", input: 0.1, output: 0.5, release: "2026-09-22" },
+  ])("carries OpenAI's $id", ({ id, family, input, output, release }) => {
+    const model = ModelCatalog.providers()["openai"].models[id]
+    expect(model.family).toBe(family)
+    expect(model.capabilities.reasoning).toBe(true)
+    expect(model.capabilities.input.image).toBe(true)
+    expect(model.limit).toEqual({ context: 1_050_000, input: 922_000, output: 128_000 })
+    expect(model.cost.input).toBe(input)
+    expect(model.cost.output).toBe(output)
+    expect(model.release_date).toBe(release)
+  })
+
   test("uses the bundled GitLab SDK", () => {
     const gitlab = ModelCatalog.providers()["gitlab"]
     for (const model of Object.values(gitlab.models)) expect(model.api.npm).toBe("@gitlab/gitlab-ai-provider")

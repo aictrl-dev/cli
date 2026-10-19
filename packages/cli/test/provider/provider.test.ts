@@ -1040,6 +1040,70 @@ test("provider.sort prioritizes preferred models", () => {
   expect(sorted[sorted.length - 1].id).not.toContain("sonnet-4")
 })
 
+test("provider.sort ranks gpt-6.1-sol after Gemini and Claude but ahead of GPT-5", () => {
+  const models = [
+    "gpt-6-luna",
+    "gpt-5.6-terra",
+    "gpt-6.1-sol",
+    "claude-sonnet-4-6",
+    "gemini-3-pro-preview",
+    "gpt-5.6-sol",
+    "other-model",
+  ].map((id) => ({ id, name: id })) as any[]
+
+  expect(Provider.sort(models).map((model) => model.id)).toEqual([
+    "gemini-3-pro-preview",
+    "claude-sonnet-4-6",
+    "gpt-6.1-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-sol",
+    "other-model",
+    "gpt-6-luna",
+  ])
+})
+
+/** Runs fn in a project whose config enables only providerID, with its API key set from envVar. */
+async function withOnlyProvider(providerID: string, envVar: string, fn: () => Promise<void>) {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "aictrl.json"),
+        JSON.stringify({ $schema: "https://aictrl.ai/config.json", provider: { [providerID]: {} } }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    init: async () => {
+      Env.set(envVar, "test-api-key")
+    },
+    fn,
+  })
+}
+
+test("defaultModel picks gpt-6.1-sol for OpenAI over the GPT-5 models", async () => {
+  await withOnlyProvider("openai", "OPENAI_API_KEY", async () => {
+    const providers = await Provider.list()
+    expect(providers["openai"].models["gpt-5.6-sol"]).toBeDefined()
+    expect(await Provider.defaultModel()).toEqual({ providerID: "openai", modelID: "gpt-6.1-sol" })
+  })
+})
+
+test("getSmallModel picks gpt-6-luna for OpenAI over gpt-5-nano", async () => {
+  await withOnlyProvider("openai", "OPENAI_API_KEY", async () => {
+    const providers = await Provider.list()
+    expect(providers["openai"].models["gpt-5-nano"]).toBeDefined()
+    const model = await Provider.getSmallModel("openai")
+    expect(model?.id).toBe("gpt-6-luna")
+  })
+})
+
+test("defaultModel keeps preferring Claude Sonnet 4 for Anthropic", async () => {
+  await withOnlyProvider("anthropic", "ANTHROPIC_API_KEY", async () => {
+    expect(await Provider.defaultModel()).toEqual({ providerID: "anthropic", modelID: "claude-sonnet-4-6" })
+  })
+})
+
 test("multiple providers can be configured simultaneously", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {

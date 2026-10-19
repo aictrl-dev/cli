@@ -358,7 +358,15 @@ export async function CodexAuthPlugin(input: PluginInput): Promise<Hooks> {
         if (auth.type !== "oauth") return {}
 
         // Filter models to only allowed Codex models for OAuth
-        const models = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
+        const models = [
+          "gpt-6.1-sol",
+          "gpt-6-astra",
+          "gpt-6-sol",
+          "gpt-6-luna",
+          "gpt-5.6-sol",
+          "gpt-5.6-terra",
+          "gpt-5.6-luna",
+        ]
         const allowedModels = new Set([
           "gpt-5.1-codex-max",
           "gpt-5.1-codex-mini",
