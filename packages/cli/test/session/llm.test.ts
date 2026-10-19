@@ -11,6 +11,7 @@ import type { Agent } from "../../src/agent/agent"
 import type { PermissionNext } from "../../src/permission/next"
 import type { MessageV2 } from "../../src/session/message-v2"
 import { alibabaProvider } from "../fixture/providers"
+import PROMPT_DEFAULT from "../../src/session/prompt/default.txt"
 
 describe("session.llm.hasToolCalls", () => {
   test("returns false for empty messages array", () => {
@@ -244,6 +245,11 @@ function createEventResponse(chunks: unknown[], includeDone = false) {
   })
 }
 
+/** Whether a request body carries the shared default system prompt, whatever the provider's payload shape. */
+function sendsBasePrompt(body: Record<string, unknown>) {
+  return JSON.stringify(body).includes(JSON.stringify(PROMPT_DEFAULT).slice(1, -1))
+}
+
 describe("session.llm.stream", () => {
   test("sends temperature, tokens, and reasoning options for openai-compatible models", async () => {
     const server = state.server
@@ -323,6 +329,7 @@ describe("session.llm.stream", () => {
 
         const capture = await request
         const body = capture.body
+        expect(sendsBasePrompt(body)).toBe(true)
         const headers = capture.headers
         const url = capture.url
 
@@ -419,6 +426,7 @@ describe("session.llm.stream", () => {
 
         const capture = await request
         const body = capture.body
+        expect(sendsBasePrompt(body)).toBe(true)
 
         expect(capture.url.pathname.endsWith("/chat/completions")).toBe(true)
         expect(capture.headers.get("Authorization")).toBe("Bearer test-zai-key")
@@ -436,13 +444,11 @@ describe("session.llm.stream", () => {
     })
   })
 
-  test("sends responses API payload for OpenAI models", async () => {
+  test.each(["gpt-5.2", "gpt-6.1-sol"])("sends responses API payload for OpenAI model %s", async (modelID) => {
     const server = state.server
     if (!server) {
       throw new Error("Server not initialized")
     }
-
-    const modelID = "gpt-5.2"
 
     const responseChunks = [
       {
@@ -539,6 +545,7 @@ describe("session.llm.stream", () => {
 
         const capture = await request
         const body = capture.body
+        expect(sendsBasePrompt(body)).toBe(true)
 
         expect(capture.url.pathname.endsWith("/responses")).toBe(true)
         expect(body.model).toBe(resolved.api.id)
@@ -659,6 +666,7 @@ describe("session.llm.stream", () => {
 
         const capture = await request
         const body = capture.body
+        expect(sendsBasePrompt(body)).toBe(true)
 
         expect(capture.url.pathname.endsWith("/messages")).toBe(true)
         expect(body.model).toBe(resolved.api.id)
@@ -779,6 +787,7 @@ describe("session.llm.stream", () => {
 
         const capture = await request
         const body = capture.body
+        expect(sendsBasePrompt(body)).toBe(true)
         const config = body.generationConfig as
           | { temperature?: number; topP?: number; maxOutputTokens?: number }
           | undefined

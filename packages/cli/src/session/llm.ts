@@ -71,9 +71,7 @@ export namespace LLM {
     const system = []
     system.push(
       [
-        // use agent prompt otherwise provider prompt
-        // For Codex sessions, skip SystemPrompt.provider() since it's sent via options.instructions
-        ...(input.agent.prompt ? [input.agent.prompt] : isCodex ? [] : SystemPrompt.provider(input.model)),
+        ...leadPrompt(input.agent, isCodex),
         // any custom prompt passed into this call
         ...input.system,
         // any custom prompt from last user message
@@ -265,6 +263,16 @@ export namespace LLM {
         },
       },
     })
+  }
+
+  /**
+   * The prompt that opens the system message: the agent's own prompt, else the shared base prompt.
+   * Codex sign-in sessions send no base prompt here, because they send the Codex header as `options.instructions`.
+   */
+  function leadPrompt(agent: Agent.Info, isCodex: boolean) {
+    if (agent.prompt) return [agent.prompt]
+    if (isCodex) return []
+    return [SystemPrompt.base()]
   }
 
   async function resolveTools(input: Pick<StreamInput, "tools" | "agent" | "permission" | "user">) {
