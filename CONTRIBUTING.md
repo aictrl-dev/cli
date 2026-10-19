@@ -32,7 +32,7 @@ Any other OpenAI-compatible provider does not need a code change: users define i
 
 ## Developing Aictrl
 
-- Requirements: Bun 1.4.3, the version pinned in the root `package.json` `packageManager` field
+- Requirements: Bun ^1.4.3 (1.4.3 or a later 1.x), from the root `package.json` `packageManager` field
 - Install dependencies and start the dev server from the repo root:
 
   ```bash
