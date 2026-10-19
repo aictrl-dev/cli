@@ -232,13 +232,12 @@ describe("run --format json user_message (#223)", () => {
     const sequence = result.events.filter((event) => event.sequenceNum !== undefined).map((event) => event.sequenceNum)
     expect(sequence).toEqual(sequence.map((_, index) => index + 1))
   }, 25_000)
-})
 
-const source = (file: string) => JSON.stringify(path.resolve(import.meta.dir, "../../src", file))
+  const source = (file: string) => JSON.stringify(path.resolve(import.meta.dir, "../../src", file))
 
-// The prompt stores a user message, then a child-session permission request makes the
-// event handler throw before any later primary-session event could complete the message.
-const throwingHandler = `import { SessionPrompt } from ${source("session/prompt.ts")}
+  // The prompt stores a user message, then a child-session permission request makes the
+  // event handler throw before any later primary-session event could complete the message.
+  const throwingHandler = `import { SessionPrompt } from ${source("session/prompt.ts")}
 import { PermissionNext } from ${source("permission/next.ts")}
 import { GlobalBus } from ${source("bus/global.ts")}
 const publish = (type, properties) => GlobalBus.emit("event", { payload: { type, properties } })
@@ -258,16 +257,17 @@ SessionPrompt.prompt = async ({ sessionID }) => {
 }
 `
 
-test("a pending user message is emitted when an event handler throws", async () => {
-  const result = await run({ args: ["Hello"], preload: throwingHandler })
-  expect(result.exit).toBe(1)
-  expect(result.stderr).toContain("Fixture handler failure")
-  expect(userMessageEvents(result.events)).toMatchObject([
-    { messageID: "msg_user", parts: [{ id: "prt_user", text: "Hello" }], sequenceNum: 1 },
-  ])
-  const types = result.events.map((event) => event.type)
-  expect(types.indexOf("user_message")).toBeLessThan(types.indexOf("session_error"))
-}, 25_000)
+  test("a pending user message is emitted when an event handler throws", async () => {
+    const result = await run({ args: ["Hello"], preload: throwingHandler })
+    expect(result.exit).toBe(1)
+    expect(result.stderr).toContain("Fixture handler failure")
+    expect(userMessageEvents(result.events)).toMatchObject([
+      { messageID: "msg_user", parts: [{ id: "prt_user", text: "Hello" }], sequenceNum: 1 },
+    ])
+    const types = result.events.map((event) => event.type)
+    expect(types.indexOf("user_message")).toBeLessThan(types.indexOf("session_error"))
+  }, 25_000)
+})
 
 describe("userMessages", () => {
   const sessionID = "ses_primary"
