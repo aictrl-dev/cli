@@ -81,7 +81,7 @@ async function run(
       if (options.denied && requests.length === 1) {
         const read = {
           name: "read",
-          arguments: JSON.stringify({ filePath: options.denied ? "/outside-fixture.txt" : "aictrl.json" }),
+          arguments: JSON.stringify({ filePath: "/outside-fixture.txt" }),
         }
         // `beside` keeps the first StructuredOutput call and adds the read next to it.
         if (options.beside)

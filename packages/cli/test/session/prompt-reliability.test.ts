@@ -55,6 +55,9 @@ describe("prompt.ts reliability guards", () => {
           const second = SessionPrompt.prompt({ ...input, parts: [{ type: "text", text: "Second" }] })
           await expect(second).rejects.toBeInstanceOf(Session.BusyError)
           await expect(second).rejects.toThrow(`Session ${session.id} is busy`)
+          // loop() reports a busy session as a rejection, like prompt(), not a synchronous throw.
+          const loop = SessionPrompt.loop({ sessionID: session.id })
+          await expect(loop).rejects.toBeInstanceOf(Session.BusyError)
 
           finish()
           const answer = await first

@@ -8,7 +8,7 @@
 
 ### Internal
 
-- **A session runs one prompt at a time** — The prompt loop no longer queues a second prompt for a session that is already running one. The second prompt now fails with `Session <id> is busy` before it writes a user message. A headless run has one user turn, so the only reachable case is two parallel `task` calls that resume the same `task_id`: the second call now returns that error to the model instead of waiting. The unused `!` shell command path (`SessionPrompt.shell`) and `Session.initialize` are removed. (Part of #223)
+- **A session runs one prompt at a time** — The prompt loop no longer queues a second prompt for a session that is already running one. The second prompt now fails with `Session <id> is busy: it already has a running prompt` before it writes a user message. A headless run has one user turn, so the only reachable case is two parallel `task` calls that resume the same `task_id`: the second call now returns that error to the model instead of waiting. The unused `!` shell command path (`SessionPrompt.shell`) and `Session.initialize` are removed. (Part of #223)
 
 ### Security
 

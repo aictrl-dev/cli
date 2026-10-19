@@ -302,7 +302,7 @@ export namespace SessionPrompt {
   export const LoopInput = z.object({
     sessionID: Identifier.schema("session"),
   })
-  export const loop = fn(LoopInput, (input) => run(input.sessionID, start(input.sessionID)))
+  export const loop = fn(LoopInput, async (input) => run(input.sessionID, start(input.sessionID)))
 
   async function run(sessionID: string, abort: AbortSignal) {
     using _ = defer(() => {
