@@ -4,7 +4,9 @@ FROM ${REGISTRY}/build/base:24.04
 SHELL ["/bin/bash", "-lc"]
 
 ARG NODE_VERSION=24.4.0
-ARG BUN_VERSION=1.4.3
+# No default: packages/containers/script/build.ts passes the root package.json
+# packageManager version, the single source of the Bun version.
+ARG BUN_VERSION
 
 ENV BUN_INSTALL=/opt/bun
 ENV PATH=/opt/bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -18,6 +20,7 @@ RUN set -euo pipefail; \
   corepack enable
 
 RUN set -euo pipefail; \
+  : "${BUN_VERSION:?pass --build-arg BUN_VERSION (packages/containers/script/build.ts reads it from package.json packageManager)}"; \
   curl -fsSL https://bun.sh/install | bash -s -- "bun-v${BUN_VERSION}"; \
   bun --version; \
   node --version; \

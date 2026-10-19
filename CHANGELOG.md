@@ -12,7 +12,7 @@
 
 ### Internal
 
-- **One Bun version for CI, releases and local builds** — The root `package.json` pins `packageManager` to `bun@1.4.3`, and the CI and publish workflows read it with `bun-version-file: package.json` instead of installing `latest`. 0.5.1 shipped Bun 1.4.3 while CI and local builds could use other versions; a local 1.3.10 build of the same commit was about 85 ms slower to first response and used about 85 MB more RSS. The pre-push hook and build scripts now require Bun 1.4.3 or a later 1.x.
+- **One Bun version for CI, releases and local builds** — The root `package.json` pins `packageManager` to `bun@1.4.3`, and the CI and publish workflows read it with `bun-version-file: package.json` instead of installing `latest`. 0.5.1 shipped Bun 1.4.3 while CI and local builds could use other versions; a local 1.3.10 build of the same commit was about 85 ms slower to first response and used about 85 MB more RSS. The pre-push hook and `@aictrl/script` (used by the build) check the local Bun against `packageManager`, so they now require Bun 1.4.3 or a later 1.x. The `bun-node` container image no longer has its own default `BUN_VERSION` and takes the `packageManager` version from its build script.
 
 ## 0.5.1 (2026-10-18)
 
