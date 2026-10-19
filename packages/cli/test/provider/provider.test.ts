@@ -1062,26 +1062,27 @@ test("provider.sort ranks gpt-6.1-sol after Gemini and Claude but ahead of GPT-5
   ])
 })
 
-async function withOpenAIKey(fn: () => Promise<void>) {
+/** Runs fn in a project whose config enables only providerID, with its API key set from envVar. */
+async function withOnlyProvider(providerID: string, envVar: string, fn: () => Promise<void>) {
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Bun.write(
         path.join(dir, "aictrl.json"),
-        JSON.stringify({ $schema: "https://aictrl.ai/config.json", provider: { openai: {} } }),
+        JSON.stringify({ $schema: "https://aictrl.ai/config.json", provider: { [providerID]: {} } }),
       )
     },
   })
   await Instance.provide({
     directory: tmp.path,
     init: async () => {
-      Env.set("OPENAI_API_KEY", "test-openai-key")
+      Env.set(envVar, "test-api-key")
     },
     fn,
   })
 }
 
 test("defaultModel picks gpt-6.1-sol for OpenAI over the GPT-5 models", async () => {
-  await withOpenAIKey(async () => {
+  await withOnlyProvider("openai", "OPENAI_API_KEY", async () => {
     const providers = await Provider.list()
     expect(providers["openai"].models["gpt-5.6-sol"]).toBeDefined()
     expect(await Provider.defaultModel()).toEqual({ providerID: "openai", modelID: "gpt-6.1-sol" })
@@ -1089,7 +1090,7 @@ test("defaultModel picks gpt-6.1-sol for OpenAI over the GPT-5 models", async ()
 })
 
 test("getSmallModel picks gpt-6-luna for OpenAI over gpt-5-nano", async () => {
-  await withOpenAIKey(async () => {
+  await withOnlyProvider("openai", "OPENAI_API_KEY", async () => {
     const providers = await Provider.list()
     expect(providers["openai"].models["gpt-5-nano"]).toBeDefined()
     const model = await Provider.getSmallModel("openai")
@@ -1098,22 +1099,8 @@ test("getSmallModel picks gpt-6-luna for OpenAI over gpt-5-nano", async () => {
 })
 
 test("defaultModel keeps preferring Claude Sonnet 4 for Anthropic", async () => {
-  await using tmp = await tmpdir({
-    init: async (dir) => {
-      await Bun.write(
-        path.join(dir, "aictrl.json"),
-        JSON.stringify({ $schema: "https://aictrl.ai/config.json", provider: { anthropic: {} } }),
-      )
-    },
-  })
-  await Instance.provide({
-    directory: tmp.path,
-    init: async () => {
-      Env.set("ANTHROPIC_API_KEY", "test-api-key")
-    },
-    fn: async () => {
-      expect(await Provider.defaultModel()).toEqual({ providerID: "anthropic", modelID: "claude-sonnet-4-6" })
-    },
+  await withOnlyProvider("anthropic", "ANTHROPIC_API_KEY", async () => {
+    expect(await Provider.defaultModel()).toEqual({ providerID: "anthropic", modelID: "claude-sonnet-4-6" })
   })
 })
 
