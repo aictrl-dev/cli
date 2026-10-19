@@ -97,21 +97,16 @@ export const BashTool = Tool.define("bash", async () => {
     // Replacer functions insert values literally, without `$` pattern expansion
     description: DESCRIPTION.replaceAll("${directory}", () => Instance.directory)
       .replaceAll("${maxLines}", () => String(Truncate.MAX_LINES))
-      .replaceAll("${maxBytes}", () => String(Truncate.MAX_BYTES)),
+      .replaceAll("${maxBytes}", () => String(Truncate.MAX_BYTES))
+      .replaceAll("${timeout}", () => String(DEFAULT_TIMEOUT)),
     parameters: z.object({
       command: z.string().describe("The command to execute"),
       timeout: z.number().describe("Optional timeout in milliseconds").optional(),
       workdir: z
         .string()
-        .describe(
-          `The working directory to run the command in. Defaults to ${Instance.directory}. Use this instead of 'cd' commands.`,
-        )
+        .describe(`The working directory to run the command in. Defaults to ${Instance.directory}.`)
         .optional(),
-      description: z
-        .string()
-        .describe(
-          "Clear, concise description of what this command does in 5-10 words. Examples:\nInput: ls\nOutput: Lists files in current directory\n\nInput: git status\nOutput: Shows working tree status\n\nInput: npm install\nOutput: Installs package dependencies\n\nInput: mkdir foo\nOutput: Creates directory 'foo'",
-        ),
+      description: z.string().describe("Short summary of what this command does, in 5-10 words"),
     }),
     async execute(params, ctx) {
       const cwd = params.workdir || Instance.directory
@@ -380,7 +375,9 @@ export const BashTool = Tool.define("bash", async () => {
       })
 
       if (truncatedBytes > 0) {
-        output = `\n[...${truncatedBytes} bytes truncated from beginning — buffer capped at ${MAX_OUTPUT_BUFFER} bytes...]\n\n` + output
+        output =
+          `\n[...${truncatedBytes} bytes truncated from beginning — buffer capped at ${MAX_OUTPUT_BUFFER} bytes...]\n\n` +
+          output
       }
 
       const resultMetadata: string[] = []

@@ -135,6 +135,33 @@ describe("task tool child result", () => {
   })
 })
 
+describe("task tool description", () => {
+  test("lists the available subagents in place of the template", async () => {
+    await using tmp = await tmpdir()
+    const text = await Instance.provide({
+      directory: tmp.path,
+      fn: async () => (await TaskTool.init()).description,
+    })
+    expect(text).not.toContain("${")
+    expect(text).not.toContain("{agents}")
+    // a partial match of the placeholder would leave a stray `$` before the first agent
+    expect(text).toContain("Available agent types (`subagent_type`):\n- ")
+    expect(text).toContain("- explore: ")
+    expect(text).toContain("`task_id`")
+  })
+
+  test("inserts agent descriptions literally", async () => {
+    await using tmp = await tmpdir({
+      config: { agent: { pricey: { mode: "subagent", description: "Costs $& or $$ per run" } } },
+    })
+    const text = await Instance.provide({
+      directory: tmp.path,
+      fn: async () => (await TaskTool.init()).description,
+    })
+    expect(text).toContain("- pricey: Costs $& or $$ per run")
+  })
+})
+
 describe("task tool subagent session", () => {
   test("applies the caller session's denies to the subagent without widening its agent", async () => {
     await using tmp = await tmpdir({

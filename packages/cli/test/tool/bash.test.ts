@@ -76,6 +76,46 @@ describe("tool.bash description", () => {
     const text = await description(tmp.extra)
     expect(text).toContain(`All commands run in ${tmp.extra} by default`)
   })
+
+  // The A/B on the trimmed text (#214) showed these lines change tool choice and batching.
+  test("states the truncation limits, the file-tool mapping and the parallel-call note", async () => {
+    await using tmp = await tmpdir()
+    const text = await description(tmp.path)
+    expect(text).toContain(`Output over ${Truncate.MAX_LINES} lines or ${Truncate.MAX_BYTES} bytes is truncated`)
+    expect(text).toContain("Do not use it for file operations; use the dedicated tools instead")
+    expect(text).toContain("separate parallel tool calls")
+  })
+
+  test("states the configured default timeout", async () => {
+    // The default is read from the environment at module load, so render the description in a child process
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        const src = path.resolve(import.meta.dir, "../../src")
+        const script = [
+          `import { BashTool } from ${JSON.stringify(path.join(src, "tool/bash"))}`,
+          `import { Instance } from ${JSON.stringify(path.join(src, "project/instance"))}`,
+          `const text = await Instance.provide({ directory: ${JSON.stringify(dir)}, fn: async () => (await BashTool.init()).description })`,
+          `process.stdout.write(text)`,
+          `process.exit(0)`,
+        ].join("\n")
+        await Bun.write(path.join(dir, "render.ts"), script)
+      },
+    })
+    const proc = Bun.spawn(["bun", "--conditions=browser", path.join(tmp.path, "render.ts")], {
+      cwd: path.resolve(import.meta.dir, "../.."),
+      env: { ...process.env, AICTRL_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS: "4321" },
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const [text, stderr, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ])
+    expect(stderr).toBe("")
+    expect(code).toBe(0)
+    expect(text).toContain("Commands time out after 4321ms")
+  })
 })
 
 describe("tool.bash dangerous git commands", () => {
