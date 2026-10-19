@@ -31,7 +31,6 @@ async function run(
     compact?: boolean
     parallel?: string[]
     retry?: boolean
-    queued?: boolean
     followup?: boolean
     denied?: boolean
     beside?: boolean
@@ -40,7 +39,6 @@ async function run(
 ) {
   const requests: Record<string, unknown>[] = []
   let directory = ""
-  let sessionID = ""
   let notify: () => void = () => {}
   const delivered = new Promise<void>((resolve) => {
     notify = resolve
@@ -71,19 +69,6 @@ async function run(
           }),
           { headers: { "Content-Type": "text/event-stream" } },
         )
-      if (options.queued && requests.length === 1) {
-        // Persist a genuine new user message while the current model turn runs.
-        await Instance.provide({
-          directory,
-          fn: () =>
-            SessionPrompt.prompt({
-              sessionID,
-              noReply: true,
-              model: { providerID: "alibaba", modelID: "qwen-plus" },
-              parts: [{ type: "text", text: "A plain follow-up." }],
-            }),
-        })
-      }
       const args = inputs[Math.min(requests.length - 1, inputs.length - 1)]
       const calls = (options.parallel ?? [args]).map((args, index) => ({
         index,
@@ -93,7 +78,7 @@ async function run(
           ? { name: "invalid", arguments: args }
           : { name: "StructuredOutput", arguments: pathArgs(directory, args, `so_${requests.length}_${index}.json`) },
       }))
-      if ((options.queued || options.denied) && requests.length === 1) {
+      if (options.denied && requests.length === 1) {
         const read = {
           name: "read",
           arguments: JSON.stringify({ filePath: options.denied ? "/outside-fixture.txt" : "aictrl.json" }),
@@ -110,7 +95,7 @@ async function run(
             {
               index: 0,
               delta:
-                args === "prose" && !((options.queued || options.denied) && requests.length === 1)
+                args === "prose" && !(options.denied && requests.length === 1)
                   ? { content: "No final tool call" }
                   : {
                       tool_calls: options.other
@@ -134,8 +119,7 @@ async function run(
             {
               index: 0,
               delta: {},
-              finish_reason:
-                (options.queued || options.denied) && requests.length === 1 ? "tool-calls" : (options.finish ?? "stop"),
+              finish_reason: options.denied && requests.length === 1 ? "tool-calls" : (options.finish ?? "stop"),
             },
           ],
           usage: {
@@ -229,7 +213,6 @@ async function run(
       fn: async () => {
         directory = tmp.path
         const session = await Session.create({ title: "Schema boundary fixture" })
-        sessionID = session.id
         const rejected: {
           sessionID: string
           attempt: number
@@ -568,21 +551,19 @@ test("compaction precedes missing reminders and preserves the schema contract", 
   expect(result.outcomes).toEqual([{ status: "accepted", attempts: 1, value: { result: "accepted" } }])
 }, 15000)
 
-for (const queued of [false, true]) {
-  test(`plain follow-up clears the schema contract ${queued ? "during" : "after"} a run`, async () => {
-    const result = await run([queued ? "prose" : '{"result":"accepted"}', "prose"], 0, { queued, followup: !queued })
-    expect(result.requests, JSON.stringify(result.info)).toHaveLength(2)
-    expect(result.requests[0].tool_choice).toBe("required")
-    expect(result.requests[1].tool_choice).toBe("auto")
-    expect(JSON.stringify(result.requests[1].tools)).not.toContain("StructuredOutput")
-    // The old schema instruction can remain in history only as ordinary conversation.
-    const messages = result.requests[1].messages as { role: string; content: unknown }[]
-    expect(JSON.stringify(messages.filter((message) => message.role === "system"))).not.toContain(
-      "The user has requested structured output",
-    )
-    expect(result.rejected).toEqual([])
-  }, 15000)
-}
+test("plain follow-up clears the schema contract after a run", async () => {
+  const result = await run(['{"result":"accepted"}', "prose"], 0, { followup: true })
+  expect(result.requests, JSON.stringify(result.info)).toHaveLength(2)
+  expect(result.requests[0].tool_choice).toBe("required")
+  expect(result.requests[1].tool_choice).toBe("auto")
+  expect(JSON.stringify(result.requests[1].tools)).not.toContain("StructuredOutput")
+  // The old schema instruction can remain in history only as ordinary conversation.
+  const messages = result.requests[1].messages as { role: string; content: unknown }[]
+  expect(JSON.stringify(messages.filter((message) => message.role === "system"))).not.toContain(
+    "The user has requested structured output",
+  )
+  expect(result.rejected).toEqual([])
+}, 15000)
 
 for (const input of ["{}", '{"result":"discarded"}']) {
   test(`provider stream retry restores ${input === "{}" ? "rejected budget" : "captured result"}`, async () => {

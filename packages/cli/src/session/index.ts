@@ -16,9 +16,7 @@ import { ProjectTable } from "../project/project.sql"
 import { Log } from "../util/log"
 import { MessageV2 } from "./message-v2"
 import { Instance } from "../project/instance"
-import { SessionPrompt } from "./prompt"
 import { fn } from "@/util/fn"
-import { Command } from "../command"
 
 import type { Provider } from "@/provider/provider"
 import { PermissionNext } from "@/permission/next"
@@ -741,25 +739,7 @@ export namespace Session {
 
   export class BusyError extends Error {
     constructor(public readonly sessionID: string) {
-      super(`Session ${sessionID} is busy`)
+      super(`Session ${sessionID} is busy: it already has a running prompt`)
     }
   }
-
-  export const initialize = fn(
-    z.object({
-      sessionID: Identifier.schema("session"),
-      modelID: z.string(),
-      providerID: z.string(),
-      messageID: Identifier.schema("message"),
-    }),
-    async (input) => {
-      await SessionPrompt.command({
-        sessionID: input.sessionID,
-        messageID: input.messageID,
-        model: input.providerID + "/" + input.modelID,
-        command: Command.Default.INIT,
-        arguments: "",
-      })
-    },
-  )
 }
