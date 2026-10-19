@@ -37,6 +37,18 @@
    `sandbox` before `main`; verify a sandbox review persists MCP findings and
    a stalled stream reports a timeout rather than waiting for the job limit.
 
+## Bun version
+
+The compiled binary embeds the Bun runtime that built it, so the Bun version is
+part of the release. The root `package.json` `packageManager` field is the only
+place it is set: CI and the publish workflow read it through
+`bun-version-file: package.json`, and the pre-push hook and build scripts check
+the local Bun against it.
+
+Bump it deliberately, in its own PR, never as a side effect of another change.
+Before merging the bump, re-measure time to first response and RSS against the
+previous Bun. Bun 1.3.10 to 1.4.3 alone moved them by about 85 ms and 85 MB.
+
 ## 0.5.1 candidate
 
 - **Why a patch bump (0.5.1):** model-only support change. It restores the

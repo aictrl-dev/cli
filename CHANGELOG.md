@@ -10,6 +10,10 @@
 
 - **drizzle-orm 1.0.0-beta.20** — `drizzle-orm` and `drizzle-kit` move from `1.0.0-beta.12-a5629fb` to `1.0.0-beta.20`, the first release patched for GHSA-gpj5-g38j-94v9 (SQL injection through improperly escaped SQL identifiers; the CLI never passed untrusted identifiers to drizzle). Existing databases open as before: on first start drizzle adds `name` and `applied_at` columns to `__drizzle_migrations` and fills in the names of the migrations already applied, without running them again. The upgraded database still opens with 0.5.1. (closes #61)
 
+### Internal
+
+- **One Bun version for CI, releases and local builds** — The root `package.json` pins `packageManager` to `bun@1.4.3`, and the CI and publish workflows read it with `bun-version-file: package.json` instead of installing `latest`. 0.5.1 shipped Bun 1.4.3 while CI and local builds could use other versions; a local 1.3.10 build of the same commit was about 85 ms slower to first response and used about 85 MB more RSS. The pre-push hook and build scripts now require Bun 1.4.3 or a later 1.x.
+
 ## 0.5.1 (2026-10-18)
 
 ### Fixes
