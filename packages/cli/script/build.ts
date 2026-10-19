@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 
 import { $ } from "bun"
-import fs from "fs"
 import path from "path"
 import { fileURLToPath } from "url"
 
@@ -13,39 +12,13 @@ process.chdir(dir)
 
 import { Script } from "@aictrl/script"
 import pkg from "../package.json"
+import { readMigrationJournal } from "../src/storage/migration-journal"
 
 const singleFlag = process.argv.includes("--single") || process.env.AICTRL_BUILD_SINGLE === "true"
 const baselineFlag = process.argv.includes("--baseline")
 const liteFlag = process.argv.includes("--lite")
 
-// Load migrations from migration directories
-const migrationDirs = (
-  await fs.promises.readdir(path.join(dir, "migration"), {
-    withFileTypes: true,
-  })
-)
-  .filter((entry) => entry.isDirectory() && /^\d{4}\d{2}\d{2}\d{2}\d{2}\d{2}/.test(entry.name))
-  .map((entry) => entry.name)
-  .sort()
-
-const migrations = await Promise.all(
-  migrationDirs.map(async (name) => {
-    const file = path.join(dir, "migration", name, "migration.sql")
-    const sql = await Bun.file(file).text()
-    const match = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/.exec(name)
-    const timestamp = match
-      ? Date.UTC(
-          Number(match[1]),
-          Number(match[2]) - 1,
-          Number(match[3]),
-          Number(match[4]),
-          Number(match[5]),
-          Number(match[6]),
-        )
-      : 0
-    return { sql, timestamp }
-  }),
-)
+const migrations = readMigrationJournal(path.join(dir, "migration"))
 console.log(`Loaded ${migrations.length} migrations`)
 
 const allTargets: {

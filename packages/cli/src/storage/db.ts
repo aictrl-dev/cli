@@ -1,6 +1,7 @@
 import { Database as BunDatabase } from "bun:sqlite"
 import { drizzle, type SQLiteBunDatabase } from "drizzle-orm/bun-sqlite"
 import { migrate } from "drizzle-orm/bun-sqlite/migrator"
+import { type MigrationsJournal } from "drizzle-orm/migrator"
 import { type SQLiteTransaction } from "drizzle-orm/sqlite-core"
 export * from "drizzle-orm"
 import { Context } from "../util/context"
@@ -10,10 +11,10 @@ import { Log } from "../util/log"
 import { NamedError } from "@aictrl/util/error"
 import z from "zod"
 import path from "path"
-import { readFileSync, readdirSync, existsSync } from "fs"
 import * as schema from "./schema"
+import { readMigrationJournal } from "./migration-journal"
 
-declare const AICTRL_MIGRATIONS: { sql: string; timestamp: number }[] | undefined
+declare const AICTRL_MIGRATIONS: MigrationsJournal | undefined
 
 export const NotFoundError = NamedError.create(
   "NotFoundError",
@@ -31,42 +32,8 @@ export namespace Database {
 
   type Client = SQLiteBunDatabase<Schema>
 
-  type Journal = { sql: string; timestamp: number }[]
-
   const state = {
     sqlite: undefined as BunDatabase | undefined,
-  }
-
-  function time(tag: string) {
-    const match = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/.exec(tag)
-    if (!match) return 0
-    return Date.UTC(
-      Number(match[1]),
-      Number(match[2]) - 1,
-      Number(match[3]),
-      Number(match[4]),
-      Number(match[5]),
-      Number(match[6]),
-    )
-  }
-
-  function migrations(dir: string): Journal {
-    const dirs = readdirSync(dir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-
-    const sql = dirs
-      .map((name) => {
-        const file = path.join(dir, name, "migration.sql")
-        if (!existsSync(file)) return
-        return {
-          sql: readFileSync(file, "utf-8"),
-          timestamp: time(name),
-        }
-      })
-      .filter(Boolean) as Journal
-
-    return sql.sort((a, b) => a.timestamp - b.timestamp)
   }
 
   export const Client = lazy(() => {
@@ -88,7 +55,7 @@ export namespace Database {
     const entries =
       typeof AICTRL_MIGRATIONS !== "undefined"
         ? AICTRL_MIGRATIONS
-        : migrations(path.join(import.meta.dirname, "../../migration"))
+        : readMigrationJournal(path.join(import.meta.dirname, "../../migration"))
     if (entries.length > 0) {
       log.info("applying migrations", {
         count: entries.length,
@@ -137,14 +104,21 @@ export namespace Database {
     }
   }
 
-  export function transaction<T>(callback: (tx: TxOrDb) => T): T {
+  // bun-sqlite transactions are synchronous: an async callback would commit
+  // before its awaits run, so the type rejects callbacks that can return a
+  // Promise or any other thenable.
+  type SyncResult<T> = [Extract<T, PromiseLike<unknown>>] extends [never] ? T : never
+
+  export function transaction<T>(callback: (tx: TxOrDb) => SyncResult<T>): T {
     try {
       return callback(ctx.use().tx)
     } catch (err) {
       if (err instanceof Context.NotFound) {
         const effects: (() => void | Promise<void>)[] = []
-        const result = Client().transaction((tx) => {
-          return ctx.provide({ tx, effects }, () => callback(tx))
+        // drizzle's own sync guard cannot evaluate a generic T, so the result
+        // travels in a box; SyncResult has already rejected async callbacks.
+        const { result } = Client().transaction((tx) => {
+          return { result: ctx.provide({ tx, effects }, () => callback(tx)) }
         })
         for (const effect of effects) effect()
         return result
