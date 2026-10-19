@@ -115,6 +115,12 @@ describe("session.prompt special characters", () => {
   test("handles filenames with # character", async () => {
     await using tmp = await tmpdir({
       git: true,
+      // The prompt names no model, so it falls back to the default model. Declare the only
+      // provider here instead of relying on credentials that earlier test files left behind.
+      config: {
+        enabled_providers: ["alibaba"],
+        provider: { alibaba: { ...alibabaProvider, options: { apiKey: "test-key" } } },
+      },
       init: async (dir) => {
         await Bun.write(path.join(dir, "file#name.txt"), "special content\n")
       },
