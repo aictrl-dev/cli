@@ -142,7 +142,10 @@ describe("task tool description", () => {
       directory: tmp.path,
       fn: async () => (await TaskTool.init()).description,
     })
+    expect(text).not.toContain("${")
     expect(text).not.toContain("{agents}")
+    // a partial match of the placeholder would leave a stray `$` before the first agent
+    expect(text).toContain("Available agent types (`subagent_type`):\n- ")
     expect(text).toContain("- explore: ")
     expect(text).toContain("`task_id`")
   })

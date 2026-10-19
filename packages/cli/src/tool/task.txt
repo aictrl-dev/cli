@@ -1,6 +1,6 @@
 Launches a subagent to work on a task autonomously. The subagent runs in its own session with its own context and tools. A new subagent sees only the `prompt` you give it, so include the context it needs and say what it should return.
 
 Available agent types (`subagent_type`):
-{agents}
+${agents}
 
 The result holds the subagent's final message and its task_id. It is returned to you, not shown to the user. Pass that task_id as `task_id` to resume the same subagent session with its previous messages. Several subagents can run concurrently as separate tool calls in one message.
