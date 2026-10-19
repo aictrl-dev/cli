@@ -642,7 +642,16 @@ export const RunCommand = cmd({
         output.error({ reason, code, message, resetAt })
       }
 
+      // Emit a user message still pending when the stream ends, even if a handler throws.
       async function loop() {
+        try {
+          await consumeEvents()
+        } finally {
+          users.flush()
+        }
+      }
+
+      async function consumeEvents() {
         const toggles = new Map<string, boolean>()
 
         eventsLoop: for await (const event of events.stream) {
@@ -930,7 +939,6 @@ export const RunCommand = cmd({
             })
           }
         }
-        users.flush()
       }
 
       // Validate agent if specified

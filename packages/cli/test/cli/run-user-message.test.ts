@@ -37,7 +37,14 @@ function chunks(turn: Turn, call: string, directory: string) {
   ]
 }
 
-async function run(input: { args: string[]; turns?: Turn[]; files?: Record<string, string>; compaction?: boolean }) {
+async function run(input: {
+  args: string[]
+  turns?: Turn[]
+  files?: Record<string, string>
+  compaction?: boolean
+  /** Source of a module preloaded into the CLI process, to fake bus traffic. */
+  preload?: string
+}) {
   await using tmp = await tmpdir()
   const turns = input.turns ?? [{ text: "Plain response" }]
   let requests = 0
@@ -77,11 +84,13 @@ async function run(input: { args: string[]; turns?: Turn[]; files?: Record<strin
   for (const [name, content] of Object.entries(input.files ?? {})) await Bun.write(path.join(tmp.path, name), content)
   const home = path.join(tmp.path, "home")
   await fs.mkdir(home)
+  if (input.preload) await Bun.write(path.join(tmp.path, "preload.ts"), input.preload)
   const proc = Bun.spawn(
     [
       "bun",
       "run",
       "--conditions=browser",
+      ...(input.preload ? ["--preload", path.join(tmp.path, "preload.ts")] : []),
       entry,
       "run",
       "--format",
@@ -224,6 +233,41 @@ describe("run --format json user_message (#223)", () => {
     expect(sequence).toEqual(sequence.map((_, index) => index + 1))
   }, 25_000)
 })
+
+const source = (file: string) => JSON.stringify(path.resolve(import.meta.dir, "../../src", file))
+
+// The prompt stores a user message, then a child-session permission request makes the
+// event handler throw before any later primary-session event could complete the message.
+const throwingHandler = `import { SessionPrompt } from ${source("session/prompt.ts")}
+import { PermissionNext } from ${source("permission/next.ts")}
+import { GlobalBus } from ${source("bus/global.ts")}
+const publish = (type, properties) => GlobalBus.emit("event", { payload: { type, properties } })
+PermissionNext.reply = async () => {
+  throw new Error("Fixture handler failure")
+}
+SessionPrompt.prompt = async ({ sessionID }) => {
+  publish("session.created", { info: { id: "ses_child", parentID: sessionID, title: "child" } })
+  publish("message.updated", {
+    info: { id: "msg_user", sessionID, role: "user", time: { created: 1 }, agent: "build",
+      model: { providerID: "alibaba", modelID: "qwen-plus" } },
+  })
+  publish("message.part.updated", {
+    part: { id: "prt_user", messageID: "msg_user", sessionID, type: "text", text: "Hello" },
+  })
+  publish("permission.asked", { id: "per_child", sessionID: "ses_child", permission: "bash", patterns: ["ls"], metadata: {} })
+}
+`
+
+test("a pending user message is emitted when an event handler throws", async () => {
+  const result = await run({ args: ["Hello"], preload: throwingHandler })
+  expect(result.exit).toBe(1)
+  expect(result.stderr).toContain("Fixture handler failure")
+  expect(userMessageEvents(result.events)).toMatchObject([
+    { messageID: "msg_user", parts: [{ id: "prt_user", text: "Hello" }], sequenceNum: 1 },
+  ])
+  const types = result.events.map((event) => event.type)
+  expect(types.indexOf("user_message")).toBeLessThan(types.indexOf("session_error"))
+}, 25_000)
 
 describe("userMessages", () => {
   const sessionID = "ses_primary"
