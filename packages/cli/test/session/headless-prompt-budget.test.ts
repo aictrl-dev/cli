@@ -26,7 +26,7 @@ type Piece = { name: string; chars: number }
 async function systemPieces(model: Provider.Model): Promise<Piece[]> {
   const instructions = await InstructionPrompt.system()
   return [
-    { name: "system: provider prompt", chars: SystemPrompt.provider(model).join("\n").length },
+    { name: "system: base prompt", chars: SystemPrompt.base().length },
     { name: "system: environment", chars: (await SystemPrompt.environment(model)).join("\n").length },
     { name: "system: instructions", chars: instructions.join("\n").length },
   ]

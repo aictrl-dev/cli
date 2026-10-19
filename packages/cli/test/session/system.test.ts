@@ -2,19 +2,21 @@ import { describe, expect, test } from "bun:test"
 import { tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { SystemPrompt } from "../../src/session/system"
+import PROMPT_DEFAULT from "../../src/session/prompt/default.txt"
 import type { Provider } from "../../src/provider/provider"
 
 function model(id: string) {
   return { providerID: "zai-coding-plan", api: { id } } as Provider.Model
 }
 
-describe("SystemPrompt.provider default prompt", () => {
-  const prompt = SystemPrompt.provider(model("glm-5.3")).join("\n")
+describe("SystemPrompt.base", () => {
+  const prompt = SystemPrompt.base()
 
-  test("is used for models without a dedicated prompt", () => {
-    for (const id of ["qwen-plus", "deepseek-chat", "kimi-k2"]) {
-      expect(SystemPrompt.provider(model(id)).join("\n")).toBe(prompt)
-    }
+  // One prompt for every provider family; llm.test.ts checks that it reaches the OpenAI (GPT-5 and GPT-6 with an
+  // API key), Anthropic, Google and OpenAI-compatible payloads.
+  // Trimmed like SystemPrompt.instructions(), so the file's trailing newline is not sent before the next system part.
+  test("is the shared default prompt, trimmed", () => {
+    expect(prompt).toBe(PROMPT_DEFAULT.trim())
   })
 
   // #214: losing the parallel-call nudge reduced batching on GLM.
@@ -22,8 +24,16 @@ describe("SystemPrompt.provider default prompt", () => {
     expect(prompt).toContain("send them together in a single message so they run in parallel")
   })
 
-  test("keeps the Task tool file-search line", () => {
-    expect(prompt).toContain("When doing file search, prefer to use the Task tool in order to reduce context usage.")
+  // GPT-6 followed the old "prefer the Task tool for file search" line literally and spawned subagents for small searches.
+  test("limits the Task tool to broad searches and delegation", () => {
+    expect(prompt).toContain("Use the Task tool when a search is broad and open-ended, or when asked to delegate.")
+  })
+
+  // Headless runs reject unapproved calls; without this, Gemini investigated or explored around a denied call.
+  test("says not to retry or work around rejected tool calls", () => {
+    expect(prompt).toContain(
+      "If a tool call is rejected by permissions, don't retry it or work around it; continue without it, or report that it is blocked.",
+    )
   })
 
   // read.ts and prompt.ts inject <system-reminder> tags into tool results and user messages.
