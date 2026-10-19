@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Features
+
+- **`user_message` NDJSON event** — `aictrl run --format json` now emits each primary-session user message once, with its `messageID`, `agent`, `model`, full `parts` as stored (including `synthetic` flags and `-f` file parts) and a `sequenceNum` on the per-session counter shared with `text`, `reasoning` and `tool_use`. It covers the prompt, the `--command` expansion and the user messages the loop creates (the compaction request, the compaction "continue" message and the subtask summary request), and always comes before the assistant events it triggers. Parts are not truncated, so consumers must accept large lines. The StructuredOutput corrective reminder is not stored, so it has no `user_message`. Subagent user messages are not emitted. The event is additive; `schemaVersion` stays `"1"`. (part of #223)
+
 ### Fixes
 
 - **Messages written in the same millisecond keep their order** — Reading a session's messages now breaks `time_created` ties by message ID. Before, messages written in the same millisecond came back oldest first. A compaction writes its request, its summary and the continue message in quick succession, so the prompt loop could miss the finished summary and compact again, sending an extra model request. (#200)
