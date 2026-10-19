@@ -138,7 +138,6 @@ for (const item of targets) {
       AICTRL_VERSION: `'${Script.version}'`,
       AICTRL_MIGRATIONS: JSON.stringify(migrations),
       AICTRL_CHANNEL: `'${Script.channel}'`,
-      AICTRL_HEADLESS: liteFlag ? "'true'" : "'false'",
     },
   })
 

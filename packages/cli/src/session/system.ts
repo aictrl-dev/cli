@@ -1,5 +1,3 @@
-import { Ripgrep } from "../file/ripgrep"
-
 import { Instance } from "../project/instance"
 
 import PROMPT_ANTHROPIC from "./prompt/anthropic.txt"
@@ -27,11 +25,6 @@ export namespace SystemPrompt {
   }
 
   export async function environment(model: Provider.Model) {
-    if (process.env.AICTRL_HEADLESS === "true") {
-      return [
-        `You are powered by ${model.providerID}/${model.api.id}. Today's date is ${new Date().toDateString()}.`,
-      ]
-    }
     const project = Instance.project
     return [
       [
@@ -44,14 +37,7 @@ export namespace SystemPrompt {
         `  Today's date: ${new Date().toDateString()}`,
         `</env>`,
         `<directories>`,
-        `  ${
-          project.vcs === "git" && false
-            ? await Ripgrep.tree({
-                cwd: Instance.directory,
-                limit: 50,
-              })
-            : ""
-        }`,
+        `  `,
         `</directories>`,
       ].join("\n"),
     ]
