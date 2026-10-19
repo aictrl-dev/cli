@@ -24,6 +24,7 @@ import { PermissionNext } from "../../permission/next"
 import { Session } from "../../session"
 import type { MessageV2 } from "../../session/message-v2"
 import { SessionPrompt } from "../../session/prompt"
+import { Command } from "../../command"
 import { GlobalBus } from "../../bus/global"
 import { Instance } from "../../project/instance"
 import { Tool } from "../../tool/tool"
@@ -323,6 +324,41 @@ export function sessionTitle(input: {
   const readable = input.prompt.trim() || input.message.trim()
   if (input.command) return truncatedTitle(`/${input.command} ${readable}`.trimEnd())
   return truncatedTitle(readable)
+}
+
+/**
+ * The agent the primary session's turn runs under, or undefined when it cannot
+ * be resolved. SessionPrompt.command runs a command under its own agent unless
+ * the command runs as a subtask, and fails the run when that agent is unknown.
+ */
+async function promptAgent(agent: string | undefined, command: string | undefined) {
+  const commandInfo = command ? await Command.get(command) : undefined
+  if (commandInfo?.agent) {
+    const commandAgent = await Agent.get(commandInfo.agent)
+    if (!commandAgent) return undefined
+    if (!SessionPrompt.runsAsSubtask(commandInfo, commandAgent)) return commandAgent
+  }
+  return Agent.get(agent ?? (await Agent.defaultAgent()))
+}
+
+/**
+ * The ruleset this session's tool calls are evaluated against, in evaluation
+ * order (the last matching rule wins): the agent's rules, which already include
+ * the config `permission` rules, followed by the session's own rules — the same
+ * merge SessionPrompt and LLM.resolveTools apply. An unknown session, default
+ * agent or command agent yields no rules: the prompt then fails with a
+ * session_error before any tool call runs.
+ */
+async function sessionPermissions(sessionID: string, agent: string | undefined, command: string | undefined) {
+  try {
+    const info = await promptAgent(agent, command)
+    if (!info) return []
+    const session = await Session.get(sessionID)
+    return PermissionNext.merge(info.permission, session.permission ?? [])
+  } catch (error) {
+    Log.Default.warn("session_start permissions unresolved", { error })
+    return []
+  }
 }
 
 export const RunCommand = cmd({
@@ -942,8 +978,8 @@ export const RunCommand = cmd({
       }
 
       // Validate agent if specified
-      const agentInfo = await (async () => {
-        if (!args.agent) return { name: undefined, permission: [] as PermissionNext.Ruleset }
+      const agent = await (async () => {
+        if (!args.agent) return undefined
         const entry = await Agent.get(args.agent)
         if (!entry) {
           UI.println(
@@ -951,7 +987,7 @@ export const RunCommand = cmd({
             UI.Style.TEXT_NORMAL,
             `agent "${args.agent}" not found. Falling back to default agent`,
           )
-          return { name: undefined, permission: [] as PermissionNext.Ruleset }
+          return undefined
         }
         if (entry.mode === "subagent") {
           UI.println(
@@ -959,11 +995,10 @@ export const RunCommand = cmd({
             UI.Style.TEXT_NORMAL,
             `agent "${args.agent}" is a subagent, not a primary agent. Falling back to default agent`,
           )
-          return { name: undefined, permission: [] as PermissionNext.Ruleset }
+          return undefined
         }
-        return { name: args.agent, permission: (entry.permission ?? []) as PermissionNext.Ruleset }
+        return args.agent
       })()
-      const agent = agentInfo.name
 
       invocation.phase("session")
       const sessionID = await session(sdk)
@@ -977,7 +1012,7 @@ export const RunCommand = cmd({
         schemaVersion: SCHEMA_VERSION,
         model: args.model,
         agent: agent,
-        permissions: agentInfo.permission,
+        permissions: args.attach ? [] : await sessionPermissions(sessionID, agent, args.command),
       })
 
       let aborted = false
