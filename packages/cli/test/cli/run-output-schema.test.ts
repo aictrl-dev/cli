@@ -495,6 +495,7 @@ test("plain run pins unchanged event types and ordering", async () => {
     "invocation_start",
     "session_start",
     "tool_catalog",
+    "user_message",
     "step_start",
     "text",
     "step_finish",

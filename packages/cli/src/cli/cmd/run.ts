@@ -7,6 +7,7 @@ import { UI } from "../ui"
 import { cmd } from "./cmd"
 import { classifySessionError, SCHEMA_VERSION } from "./run.errors"
 import { terminal } from "./run.terminal"
+import { userMessages } from "./run.user-message"
 import { buildToolCatalogItems } from "./tool-catalog"
 import { withTimeout } from "../../util/timeout"
 import { Flag } from "../../flag/flag"
@@ -645,6 +646,7 @@ export const RunCommand = cmd({
         const toggles = new Map<string, boolean>()
 
         eventsLoop: for await (const event of events.stream) {
+          users.observe(event)
           if (
             schema &&
             event.type === "session.structured_output_rejected" &&
@@ -928,6 +930,7 @@ export const RunCommand = cmd({
             })
           }
         }
+        users.flush()
       }
 
       // Validate agent if specified
@@ -960,6 +963,7 @@ export const RunCommand = cmd({
         await fail("Session not found", "INVOCATION_SESSION_CREATE_FAILED")
       }
       invocation.link(sessionID)
+      const users = userMessages({ sessionID, emit, nextSeq: () => nextSeq(sessionID) })
 
       emit("session_start", {
         schemaVersion: SCHEMA_VERSION,

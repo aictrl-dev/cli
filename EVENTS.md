@@ -220,6 +220,37 @@ Emitted when a primary-session model attempt fails with a retryable error and th
 
 **Retry delays.** No single wait between attempts exceeds 5 minutes, whatever the status code or headers. Each retry waits for the provider's `Retry-After` / `retry-after-ms` when it asks for a positive wait, or else for exponential backoff of 2 s, 4 s, 8 s and 16 s, then 30 s for each later attempt. A retryable error whose provider asks for a wait longer than 5 minutes is not retried: a 429 fails as a provider usage limit (see `session_error`), and any other status (for example a 503 or 529 "overloaded" with `retry-after: 18000`) fails with that provider error, so `session_error.reason` is classified from its status as usual (`provider` for a 5xx). Neither emits a `retry` event. With at most 10 retries, the waits total at most 50 minutes when every response asks for 5 minutes, and 3.5 minutes (210 s) when no response gives a retry hint.
 
+### `user_message`
+
+Emitted once for each primary-session user message, after all of its parts are stored. This covers the prompt (with its `-f` file parts and any agent or subtask parts), the `--command` expansion, and the user messages the session loop creates itself: the compaction request, the compaction "continue" message and the message that asks the model to summarize a subtask's output.
+
+```json
+{
+  "type": "user_message",
+  "messageID": "msg_01abc...",
+  "agent": "build",
+  "model": { "providerID": "anthropic", "modelID": "claude-sonnet-4-20250514" },
+  "parts": [
+    {
+      "id": "prt_01abc...",
+      "messageID": "msg_01abc...",
+      "sessionID": "session_01abc...",
+      "type": "text",
+      "text": "Fix the failing test"
+    }
+  ],
+  "sequenceNum": 1
+}
+```
+
+- `messageID` (string, **required**) — stable user-message identity. Assistant messages it triggers carry it as their `parentID`.
+- `agent` (string, **required**) — the agent the message was sent to.
+- `model` (object, **required**) — `{ providerID, modelID }` the message was sent with.
+- `parts` (array, **required**) — the message's parts exactly as stored, in the order they were written. Parts the CLI derived from the input have `synthetic: true`; for example, the text a `-f` file or MCP resource expands to, or the compaction "continue" text. A compaction request has a single `compaction` part. Parts are not truncated: a `file` part can carry a `data:` URL, so consumers must accept arbitrarily large lines, as for `reasoning`.
+- `sequenceNum` (number, **required**) — the same per-session counter as `text`, `reasoning` and `tool_use`. A `user_message` is emitted before any event of the assistant turn it triggers, so its `sequenceNum` is lower than theirs.
+
+The StructuredOutput corrective reminder is not a stored user message. It is added to the next model request only, so it emits no `user_message`; `structured_output_rejected` reports each corrective turn instead. Child-session (subagent) user messages are not emitted, matching `text`.
+
 ### `message_complete`
 
 Emitted when a primary-session assistant message finishes (one per LLM turn). Child-session assistant messages are
@@ -314,7 +345,7 @@ Emitted when a text block from the assistant is complete.
 }
 ```
 
-- `sequenceNum` (number, **required**) — monotonic per-session counter shared across `text`, `reasoning`, and `tool_use` events. Use it to render a correctly-ordered trace without relying on timestamp ties. Subagent sessions have their own independent counters keyed on `part.sessionID`. Note: in JSON mode only `tool_use` events are emitted for subagent sessions, so subagent counters increment only on tool_use.
+- `sequenceNum` (number, **required**) — monotonic per-session counter shared across `user_message`, `text`, `reasoning`, and `tool_use` events. Use it to render a correctly-ordered trace without relying on timestamp ties. Subagent sessions have their own independent counters keyed on `part.sessionID`. Note: in JSON mode only `tool_use` events are emitted for subagent sessions, so subagent counters increment only on tool_use.
 
 ### `reasoning`
 
@@ -331,7 +362,7 @@ Emitted when extended thinking content is complete (requires `--thinking` flag).
 }
 ```
 
-- `sequenceNum` (number, **required**) — monotonic per-session counter shared across `text`, `reasoning`, and `tool_use` events. Use it to render a correctly-ordered trace without relying on timestamp ties. Subagent sessions have their own independent counters keyed on `part.sessionID`. Note: in JSON mode only `tool_use` events are emitted for subagent sessions, so subagent counters increment only on tool_use.
+- `sequenceNum` (number, **required**) — monotonic per-session counter shared across `user_message`, `text`, `reasoning`, and `tool_use` events. Use it to render a correctly-ordered trace without relying on timestamp ties. Subagent sessions have their own independent counters keyed on `part.sessionID`. Note: in JSON mode only `tool_use` events are emitted for subagent sessions, so subagent counters increment only on tool_use.
 - One event is emitted per complete reasoning block. `part.text` has no size cap; consumers must accept arbitrarily large strings.
 
 ## Tool Events
@@ -356,7 +387,7 @@ Emitted when a tool call completes (success or error). This includes tools execu
 }
 ```
 
-- `sequenceNum` (number, **required**) — monotonic per-session counter shared across `text`, `reasoning`, and `tool_use` events. Use it to render a correctly-ordered trace without relying on timestamp ties. Subagent sessions have their own independent counters keyed on `part.sessionID`. Note: in JSON mode only `tool_use` events are emitted for subagent sessions, so subagent counters increment only on tool_use.
+- `sequenceNum` (number, **required**) — monotonic per-session counter shared across `user_message`, `text`, `reasoning`, and `tool_use` events. Use it to render a correctly-ordered trace without relying on timestamp ties. Subagent sessions have their own independent counters keyed on `part.sessionID`. Note: in JSON mode only `tool_use` events are emitted for subagent sessions, so subagent counters increment only on tool_use.
 
 `state.status` is `"completed"` or `"error"`. On error, `state.error` contains the error message.
 
