@@ -25,7 +25,6 @@ import { MCP } from "../mcp"
 import { ReadTool } from "../tool/read"
 import { FileTime } from "../file/time"
 import { ulid } from "ulid"
-import { spawn } from "child_process"
 import { Command } from "../command"
 import { $, fileURLToPath, pathToFileURL } from "bun"
 import { ConfigMarkdown } from "../config/markdown"
@@ -38,7 +37,6 @@ import { PermissionNext } from "@/permission/next"
 import { SessionStatus } from "./status"
 import { LLM } from "./llm"
 import { iife } from "@/util/iife"
-import { Shell } from "@/shell/shell"
 import { Truncate } from "@/tool/truncation"
 
 // @ts-ignore
@@ -100,36 +98,16 @@ export namespace SessionPrompt {
       }
   }
 
+  // The abort controller of each session whose prompt is running.
   const state = Instance.state(
     () => {
-      const data: Record<
-        string,
-        {
-          abort: AbortController
-          loop: boolean
-          callbacks: {
-            resolve(input: MessageV2.WithParts): void
-            reject(reason?: any): void
-          }[]
-        }
-      > = {}
+      const data: Record<string, AbortController> = {}
       return data
     },
     async (current) => {
-      for (const item of Object.values(current)) {
-        item.abort.abort()
-        const reason = new Error("Session disposed")
-        for (const cb of item.callbacks) {
-          cb.reject(reason)
-        }
-      }
+      for (const abort of Object.values(current)) abort.abort()
     },
   )
-
-  export function assertNotBusy(sessionID: string) {
-    const match = state()[sessionID]
-    if (match) throw new Session.BusyError(sessionID)
-  }
 
   export const PromptInput = z.object({
     sessionID: Identifier.schema("session"),
@@ -199,6 +177,23 @@ export namespace SessionPrompt {
   export type PromptInput = z.infer<typeof PromptInput>
 
   export const prompt = fn(PromptInput, async (input) => {
+    // Claim the session before writing the user message, so a second prompt
+    // fails before it leaves a message for the running loop to pick up.
+    const abort = start(input.sessionID)
+    const message = await recordPrompt(input).catch((error) => {
+      endBeforeLoop(input.sessionID, abort)
+      throw error
+    })
+
+    if (input.noReply === true) {
+      endBeforeLoop(input.sessionID, abort)
+      return message
+    }
+
+    return run(input.sessionID, abort)
+  })
+
+  async function recordPrompt(input: PromptInput) {
     if (input.format?.type === "json_schema") OutputSchema.compile(input.format.schema)
     const session = await Session.get(input.sessionID)
 
@@ -220,12 +215,8 @@ export namespace SessionPrompt {
       await Session.setPermission({ sessionID: session.id, permission: permissions })
     }
 
-    if (input.noReply === true) {
-      return message
-    }
-
-    return loop({ sessionID: input.sessionID })
-  })
+    return message
+  }
 
   export async function resolvePromptParts(template: string): Promise<PromptInput["parts"]> {
     const parts: PromptInput["parts"] = [
@@ -278,62 +269,52 @@ export namespace SessionPrompt {
     return parts
   }
 
-  function start(sessionID: string, loop = false) {
+  // A session runs one prompt at a time. Messages are never queued for a
+  // running loop, so a second prompt for a busy session is a caller bug.
+  function start(sessionID: string) {
     const s = state()
-    if (s[sessionID]) return
+    if (s[sessionID]) throw new Session.BusyError(sessionID)
     const controller = new AbortController()
-    s[sessionID] = {
-      abort: controller,
-      loop,
-      callbacks: [],
-    }
+    s[sessionID] = controller
     return controller.signal
   }
 
-  function resume(sessionID: string) {
+  // Only the prompt that claimed a session frees it, so a cancelled prompt that
+  // is still unwinding can never free a newer prompt's claim.
+  function release(sessionID: string, abort: AbortSignal) {
     const s = state()
-    if (!s[sessionID]) return
-
-    s[sessionID].loop = true
-    return s[sessionID].abort.signal
+    if (s[sessionID]?.signal === abort) delete s[sessionID]
   }
 
+  // Ends a prompt that stops before its loop: a failed message write, or noReply.
+  // A cancelled prompt publishes idle, because cancel() leaves that to the owner.
+  // Otherwise no idle is published: run.ts sees the rejection instead.
+  function endBeforeLoop(sessionID: string, abort: AbortSignal) {
+    release(sessionID, abort)
+    if (abort.aborted) SessionStatus.set(sessionID, { type: "idle" })
+  }
+
+  // Asks the running prompt to stop and returns false: the prompt that owns the
+  // claim frees it and publishes idle. With no prompt running, publishes idle.
   export function cancel(sessionID: string) {
     log.info("cancel", { sessionID })
-    const s = state()
-    const match = s[sessionID]
+    const match = state()[sessionID]
     if (!match) {
       SessionStatus.set(sessionID, { type: "idle" })
       return true
     }
-    match.abort.abort()
-    const reason = new Error("Session cancelled")
-    for (const cb of match.callbacks) {
-      cb.reject(reason)
-    }
-    delete s[sessionID]
-    if (match.loop) return false
-    SessionStatus.set(sessionID, { type: "idle" })
-    return true
+    match.abort()
+    return false
   }
 
   export const LoopInput = z.object({
     sessionID: Identifier.schema("session"),
-    resume_existing: z.boolean().optional(),
   })
-  export const loop = fn(LoopInput, async (input) => {
-    const { sessionID, resume_existing } = input
+  export const loop = fn(LoopInput, async (input) => run(input.sessionID, start(input.sessionID)))
 
-    const abort = resume_existing ? resume(sessionID) : start(sessionID, true)
-    if (!abort) {
-      return new Promise<MessageV2.WithParts>((resolve, reject) => {
-        const callbacks = state()[sessionID].callbacks
-        callbacks.push({ resolve, reject })
-      })
-    }
-
+  async function run(sessionID: string, abort: AbortSignal) {
     using _ = defer(() => {
-      if (cancel(sessionID)) return
+      release(sessionID, abort)
       // Keep idle after processor persistence. Headless consumers use this as
       // the boundary after which all terminal message events have been queued.
       SessionStatus.set(sessionID, { type: "idle" })
@@ -769,25 +750,6 @@ export namespace SessionPrompt {
         })
       }
 
-      // Ephemerally wrap queued user messages with a reminder to stay on track
-      if (step > 1 && lastFinished) {
-        for (const msg of msgs) {
-          if (msg.info.role !== "user" || msg.info.id <= lastFinished.id) continue
-          for (const part of msg.parts) {
-            if (part.type !== "text" || part.ignored || part.synthetic) continue
-            if (!part.text.trim()) continue
-            part.text = [
-              "<system-reminder>",
-              "The user sent the following message:",
-              part.text,
-              "",
-              "Please address this message and continue with your tasks.",
-              "</system-reminder>",
-            ].join("\n")
-          }
-        }
-      }
-
       await Plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
 
       // Build system prompt, adding structured output instruction if needed
@@ -908,14 +870,10 @@ export namespace SessionPrompt {
     }
     for await (const item of MessageV2.stream(sessionID)) {
       if (item.info.role === "user") continue
-      const queued = state()[sessionID]?.callbacks ?? []
-      for (const q of queued) {
-        q.resolve(item)
-      }
       return item
     }
     throw new Error("Impossible")
-  })
+  }
 
   async function lastModel(sessionID: string) {
     for await (const item of MessageV2.stream(sessionID)) {
@@ -1532,255 +1490,6 @@ export namespace SessionPrompt {
       info,
       parts,
     }
-  }
-
-  export const ShellInput = z.object({
-    sessionID: Identifier.schema("session"),
-    agent: z.string(),
-    model: z
-      .object({
-        providerID: z.string(),
-        modelID: z.string(),
-      })
-      .optional(),
-    command: z.string(),
-  })
-  export type ShellInput = z.infer<typeof ShellInput>
-  export async function shell(input: ShellInput) {
-    const abort = start(input.sessionID)
-    if (!abort) {
-      throw new Session.BusyError(input.sessionID)
-    }
-
-    using _ = defer(() => {
-      // If no queued callbacks, cancel (the default)
-      const callbacks = state()[input.sessionID]?.callbacks ?? []
-      if (callbacks.length === 0) {
-        cancel(input.sessionID)
-      } else {
-        // Otherwise, trigger the session loop to process queued items
-        loop({ sessionID: input.sessionID, resume_existing: true }).catch((error) => {
-          log.error("session loop failed to resume after shell command", { sessionID: input.sessionID, error })
-        })
-      }
-    })
-
-    const agent = await Agent.get(input.agent)
-    const model = input.model ?? agent.model ?? (await lastModel(input.sessionID))
-    const userMsg: MessageV2.User = {
-      id: Identifier.ascending("message"),
-      sessionID: input.sessionID,
-      time: {
-        created: Date.now(),
-      },
-      role: "user",
-      agent: input.agent,
-      model: {
-        providerID: model.providerID,
-        modelID: model.modelID,
-      },
-    }
-    await Session.updateMessage(userMsg)
-    const userPart: MessageV2.Part = {
-      type: "text",
-      id: Identifier.ascending("part"),
-      messageID: userMsg.id,
-      sessionID: input.sessionID,
-      text: "The following tool was executed by the user",
-      synthetic: true,
-    }
-    await Session.updatePart(userPart)
-
-    const msg: MessageV2.Assistant = {
-      id: Identifier.ascending("message"),
-      sessionID: input.sessionID,
-      parentID: userMsg.id,
-      mode: input.agent,
-      agent: input.agent,
-      cost: 0,
-      path: {
-        cwd: Instance.directory,
-        root: Instance.worktree,
-      },
-      time: {
-        created: Date.now(),
-      },
-      role: "assistant",
-      usageStatus: "missing",
-      tokens: {
-        input: 0,
-        output: 0,
-        reasoning: 0,
-        cache: { read: 0, write: 0 },
-      },
-      modelID: model.modelID,
-      providerID: model.providerID,
-    }
-    await Session.updateMessage(msg)
-    const part: MessageV2.Part = {
-      type: "tool",
-      id: Identifier.ascending("part"),
-      messageID: msg.id,
-      sessionID: input.sessionID,
-      tool: "bash",
-      callID: ulid(),
-      state: {
-        status: "running",
-        time: {
-          start: Date.now(),
-        },
-        input: {
-          command: input.command,
-        },
-      },
-    }
-    await Session.updatePart(part)
-    const shell = Shell.preferred()
-    const shellName = (
-      process.platform === "win32" ? path.win32.basename(shell, ".exe") : path.basename(shell)
-    ).toLowerCase()
-
-    const invocations: Record<string, { args: string[] }> = {
-      nu: {
-        args: ["-c", input.command],
-      },
-      fish: {
-        args: ["-c", input.command],
-      },
-      zsh: {
-        args: [
-          "-c",
-          "-l",
-          `
-            [[ -f ~/.zshenv ]] && source ~/.zshenv >/dev/null 2>&1 || true
-            [[ -f "\${ZDOTDIR:-$HOME}/.zshrc" ]] && source "\${ZDOTDIR:-$HOME}/.zshrc" >/dev/null 2>&1 || true
-            eval ${JSON.stringify(input.command)}
-          `,
-        ],
-      },
-      bash: {
-        args: [
-          "-c",
-          "-l",
-          `
-            shopt -s expand_aliases
-            [[ -f ~/.bashrc ]] && source ~/.bashrc >/dev/null 2>&1 || true
-            eval ${JSON.stringify(input.command)}
-          `,
-        ],
-      },
-      // Windows cmd
-      cmd: {
-        args: ["/c", input.command],
-      },
-      // Windows PowerShell
-      powershell: {
-        args: ["-NoProfile", "-Command", input.command],
-      },
-      pwsh: {
-        args: ["-NoProfile", "-Command", input.command],
-      },
-      // Fallback: any shell that doesn't match those above
-      //  - No -l, for max compatibility
-      "": {
-        args: ["-c", `${input.command}`],
-      },
-    }
-
-    const matchingInvocation = invocations[shellName] ?? invocations[""]
-    const args = matchingInvocation?.args
-
-    const cwd = Instance.directory
-    const shellEnv = await Plugin.trigger(
-      "shell.env",
-      { cwd, sessionID: input.sessionID, callID: part.callID },
-      { env: {} },
-    )
-    const proc = spawn(shell, args, {
-      cwd,
-      detached: process.platform !== "win32",
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        ...shellEnv.env,
-        TERM: "dumb",
-      },
-    })
-
-    let output = ""
-    let pending = Promise.resolve()
-
-    proc.stdout?.on("data", (chunk) => {
-      output += chunk.toString()
-      if (part.state.status === "running") {
-        part.state.metadata = {
-          output: output,
-          description: "",
-        }
-        pending = pending.then(() => Session.updatePart(part)).then(() => {})
-      }
-    })
-
-    proc.stderr?.on("data", (chunk) => {
-      output += chunk.toString()
-      if (part.state.status === "running") {
-        part.state.metadata = {
-          output: output,
-          description: "",
-        }
-        pending = pending.then(() => Session.updatePart(part)).then(() => {})
-      }
-    })
-
-    let aborted = false
-    let exited = false
-
-    const kill = () => Shell.killTree(proc, { exited: () => exited })
-
-    if (abort.aborted) {
-      aborted = true
-      await kill()
-    }
-
-    const abortHandler = () => {
-      aborted = true
-      void kill()
-    }
-
-    abort.addEventListener("abort", abortHandler, { once: true })
-
-    await new Promise<void>((resolve) => {
-      proc.on("close", () => {
-        exited = true
-        abort.removeEventListener("abort", abortHandler)
-        resolve()
-      })
-    })
-
-    if (aborted) {
-      output += "\n\n" + ["<metadata>", "User aborted the command", "</metadata>"].join("\n")
-    }
-    await pending
-    msg.time.completed = Date.now()
-    await Session.updateMessage(msg)
-    if (part.state.status === "running") {
-      part.state = {
-        status: "completed",
-        time: {
-          ...part.state.time,
-          end: Date.now(),
-        },
-        input: part.state.input,
-        title: "",
-        metadata: {
-          output,
-          description: "",
-        },
-        output,
-      }
-      await Session.updatePart(part)
-    }
-    return { info: msg, parts: [part] }
   }
 
   export const CommandInput = z.object({
