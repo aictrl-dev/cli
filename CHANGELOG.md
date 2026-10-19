@@ -11,6 +11,10 @@
 
 - **drizzle-orm 1.0.0-beta.20** — `drizzle-orm` and `drizzle-kit` move from `1.0.0-beta.12-a5629fb` to `1.0.0-beta.20`, the first release patched for GHSA-gpj5-g38j-94v9 (SQL injection through improperly escaped SQL identifiers; the CLI never passed untrusted identifiers to drizzle). Existing databases open as before: on first start drizzle adds `name` and `applied_at` columns to `__drizzle_migrations` and fills in the names of the migrations already applied, without running them again. The upgraded database still opens with 0.5.1. (closes #61)
 
+### Internal
+
+- **Shorter `bash` and `task` tool descriptions** — The two tool descriptions now state only what the tool does and how it behaves: for `bash`, its scope (terminal operations, with a one-line map from shell file commands to the dedicated tools), the default directory and `workdir`, the timeout, output truncation to a file, the `description` summary and parallel calls; for `task`, what a subagent is, the agent list, what comes back and resuming with `task_id`. The inherited directory-verification steps, quoting and `cd` examples, repeated guidance, and the Task tool's usage notes and examples are removed, and the `bash` `description` and `task` `task_id` parameter texts are shortened. The two tool definitions shrink from about 9.7k to 3.4k characters, so the first model request is about 1.5k tokens (22%) smaller. Tools, parameters and behaviour are unchanged. (refs #214)
+
 ## 0.5.1 (2026-10-18)
 
 ### Fixes

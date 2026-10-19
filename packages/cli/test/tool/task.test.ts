@@ -135,6 +135,19 @@ describe("task tool child result", () => {
   })
 })
 
+describe("task tool description", () => {
+  test("lists the available subagents in place of the template", async () => {
+    await using tmp = await tmpdir()
+    const text = await Instance.provide({
+      directory: tmp.path,
+      fn: async () => (await TaskTool.init()).description,
+    })
+    expect(text).not.toContain("{agents}")
+    expect(text).toContain("- explore: ")
+    expect(text).toContain("`task_id`")
+  })
+})
+
 describe("task tool subagent session", () => {
   test("applies the caller session's denies to the subagent without widening its agent", async () => {
     await using tmp = await tmpdir({

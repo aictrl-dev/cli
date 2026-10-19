@@ -18,9 +18,7 @@ const parameters = z.object({
   subagent_type: z.string().describe("The type of specialized agent to use for this task"),
   task_id: z
     .string()
-    .describe(
-      "This should only be set if you mean to resume a previous task (you can pass a prior task_id and the task will continue the same subagent session as before instead of creating a fresh one)",
-    )
+    .describe("A task_id from an earlier result, to resume that subagent session instead of starting a new one")
     .optional(),
   command: z.string().describe("The command that triggered this task").optional(),
 })
