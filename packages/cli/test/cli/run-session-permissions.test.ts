@@ -9,8 +9,10 @@ const command = process.env.AICTRL_TEST_BINARY
 
 type Rule = { permission: string; pattern: string; action: string }
 
-/** Runs `aictrl run --format json` against a fixture provider that answers with text, and returns `session_start`. */
-async function sessionStart(input: { config: Record<string, unknown>; args?: string[] }) {
+type RunInput = { config: Record<string, unknown>; args?: string[] }
+
+/** Runs `aictrl run --format json` against a fixture provider that answers with text, and returns its NDJSON events. */
+async function runEvents(input: RunInput) {
   await using tmp = await tmpdir({ git: true })
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -64,18 +66,28 @@ async function sessionStart(input: { config: Record<string, unknown>; args?: str
   const timeout = setTimeout(() => proc.kill("SIGKILL"), 15000)
   try {
     const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
-    const event = stdout
+    const events: { type: string }[] = stdout
       .split("\n")
       .filter((line) => line.startsWith("{"))
       .map((line) => JSON.parse(line))
-      .find((event) => event.type === "session_start")
-    if (!event) throw new Error(`no session_start event\n${stderr}\n${stdout}`)
-    return event as { agent?: string; permissions: Rule[] }
+    if (!events.some((event) => event.type === "session_start"))
+      throw new Error(`no session_start event\n${stderr}\n${stdout}`)
+    return events
   } finally {
     clearTimeout(timeout)
     proc.kill("SIGKILL")
     server.stop(true)
   }
+}
+
+type SessionStart = { type: "session_start"; agent?: string; permissions: Rule[] }
+
+function findSessionStart(events: { type: string }[]) {
+  return events.find((event): event is SessionStart => event.type === "session_start")!
+}
+
+async function sessionStart(input: RunInput) {
+  return findSessionStart(await runEvents(input))
 }
 
 /** The rule a tool call is decided by: the last rule whose permission and pattern match (exact match is enough here). */
@@ -134,5 +146,21 @@ describe("session_start.permissions (#212)", () => {
     const event = await sessionStart({ config: { default_agent: "missing", agent: { title: { disable: true } } } })
 
     expect(event.permissions).toEqual([])
+  })
+
+  test("is empty when a --command's agent cannot be resolved, and the run fails", async () => {
+    // SessionPrompt.command runs the command under its own agent, so an unknown one fails the run
+    // instead of falling back to the default agent, whose rules would then never be evaluated.
+    const events = await runEvents({
+      args: ["--command", "review"],
+      config: {
+        agent: { title: { disable: true } },
+        permission: { "*": "allow" },
+        command: { review: { template: "Review $ARGUMENTS", agent: "missing" } },
+      },
+    })
+
+    expect(findSessionStart(events).permissions).toEqual([])
+    expect(events.map((event) => event.type)).toContain("session_error")
   })
 })

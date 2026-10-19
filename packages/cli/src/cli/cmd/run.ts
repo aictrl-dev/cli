@@ -327,27 +327,32 @@ export function sessionTitle(input: {
 }
 
 /**
- * The agent the primary session's turn runs under: SessionPrompt.command runs a
- * command under its own agent unless the command runs as a subtask.
+ * The agent the primary session's turn runs under, or undefined when it cannot
+ * be resolved. SessionPrompt.command runs a command under its own agent unless
+ * the command runs as a subtask, and fails the run when that agent is unknown.
  */
 async function promptAgent(agent: string | undefined, command: string | undefined) {
-  const info = command ? await Command.get(command) : undefined
-  const commandAgent = info?.agent ? await Agent.get(info.agent) : undefined
-  if (info?.agent && commandAgent && !SessionPrompt.runsAsSubtask(info, commandAgent)) return info.agent
-  return agent ?? (await Agent.defaultAgent())
+  const commandInfo = command ? await Command.get(command) : undefined
+  if (commandInfo?.agent) {
+    const commandAgent = await Agent.get(commandInfo.agent)
+    if (!commandAgent) return undefined
+    if (!SessionPrompt.runsAsSubtask(commandInfo, commandAgent)) return commandAgent
+  }
+  return Agent.get(agent ?? (await Agent.defaultAgent()))
 }
 
 /**
  * The ruleset this session's tool calls are evaluated against, in evaluation
  * order (the last matching rule wins): the agent's rules, which already include
  * the config `permission` rules, followed by the session's own rules — the same
- * merge SessionPrompt and LLM.resolveTools apply. An unknown session or
- * default agent yields no rules: the prompt then fails with a session_error
- * before any tool call runs.
+ * merge SessionPrompt and LLM.resolveTools apply. An unknown session, default
+ * agent or command agent yields no rules: the prompt then fails with a
+ * session_error before any tool call runs.
  */
 async function sessionPermissions(sessionID: string, agent: string | undefined, command: string | undefined) {
   try {
-    const info = await Agent.get(await promptAgent(agent, command))
+    const info = await promptAgent(agent, command)
+    if (!info) return []
     const session = await Session.get(sessionID)
     return PermissionNext.merge(info.permission, session.permission ?? [])
   } catch (error) {
