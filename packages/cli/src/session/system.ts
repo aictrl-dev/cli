@@ -11,7 +11,7 @@ export namespace SystemPrompt {
 
   /** The base system prompt, shared by every provider and model family. */
   export function base() {
-    return PROMPT_DEFAULT
+    return PROMPT_DEFAULT.trim()
   }
 
   export async function environment(model: Provider.Model) {

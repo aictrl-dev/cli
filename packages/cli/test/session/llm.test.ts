@@ -247,7 +247,7 @@ function createEventResponse(chunks: unknown[], includeDone = false) {
 
 /** Whether a request body carries the shared default system prompt, whatever the provider's payload shape. */
 function sendsBasePrompt(body: Record<string, unknown>) {
-  return JSON.stringify(body).includes(JSON.stringify(PROMPT_DEFAULT).slice(1, -1))
+  return JSON.stringify(body).includes(JSON.stringify(PROMPT_DEFAULT.trim()).slice(1, -1))
 }
 
 describe("session.llm.stream", () => {

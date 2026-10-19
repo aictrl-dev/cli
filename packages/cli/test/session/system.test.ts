@@ -14,8 +14,9 @@ describe("SystemPrompt.base", () => {
 
   // One prompt for every provider family; llm.test.ts checks that it reaches the OpenAI (GPT-5 and GPT-6 with an
   // API key), Anthropic, Google and OpenAI-compatible payloads.
-  test("is the shared default prompt", () => {
-    expect(prompt).toBe(PROMPT_DEFAULT)
+  // Trimmed like SystemPrompt.instructions(), so the file's trailing newline is not sent before the next system part.
+  test("is the shared default prompt, trimmed", () => {
+    expect(prompt).toBe(PROMPT_DEFAULT.trim())
   })
 
   // #214: losing the parallel-call nudge reduced batching on GLM.
