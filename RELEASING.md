@@ -79,53 +79,63 @@ compare time to first response and RSS: run a one-turn `aictrl run` against a
 stub model in a fresh, CPU- and memory-limited container, several times each.
 Moving from Bun 1.3.10 to 1.4.3 alone changed them by about 85 ms and 85 MB.
 
-## 0.5.3 candidate
+## 0.5.4 candidate
 
-- **Why a patch bump (0.5.3):** the range `v0.5.2..b95059eb3e` is one PR,
-  #231, and it changes which npm packages are published, not what the CLI
-  does. No CLI flag, command, config key or NDJSON event changes, and
-  `schemaVersion` stays `"1"`. Wrappers up to 0.5.2 pin their own platform
-  package versions, which stay on npm, so they keep working.
-- **Published package set:** 7 platform packages instead of 11 (the table
-  above). `@aictrl/cli-linux-x64`, `-linux-x64-musl`, `-darwin-x64` and
-  `-windows-x64` get no 0.5.3. The linux packages declare `libc`. Every
-  remaining name already exists on npm with 0.5.2, so no new package needs
-  trusted publishing set up.
-- **Wrapper:** a `files` allowlist ships `bin/aictrl`, `README.md`, `LICENSE`
-  and `package.json` only. `bin/aictrl` drops AVX2 detection and the
-  `bun run src/index.ts` fallback, and reads the libc from `/usr/bin/ldd`.
-- **Publish workflow:** the manifest step copies `LICENSE` and exports the
-  platform package list; the smoke job waits until every listed package is
-  visible at the release version before the install check.
+- **Why a patch bump (0.5.4):** the range `v0.5.3..97cc5be868` is four PRs,
+  #233, #234, #235 and the test-only #237. They change the system prompt and
+  add the GPT-6 family, which CLAUDE.md treats as patch-level model support,
+  and fix a flaky test. No CLI flag,
+  command, config key or NDJSON event field is removed, and `schemaVersion`
+  stays `"1"`. One model option is removed: with an API key, `gpt-6-astra`
+  and `gpt-6.1-sol` no longer offer the `none` effort variant, which OpenAI
+  rejects for them, so no working configuration loses it (#234).
+- **System prompt:** every model except Codex sign-in sessions now gets one
+  shared base prompt, `default.txt` (#233 trims it and renames it from
+  `qwen.txt`; #235 removes `anthropic.txt`, `beast.txt`, `gemini.txt` and
+  `trinity.txt`). Codex sign-in still sends `codex_header.txt` as
+  `instructions`. Gemini, Claude and GPT were not re-validated on the final
+  wording; only `zai-coding-plan/glm-5.3` was (see the CHANGELOG).
+- **Defaults:** with nothing configured or recently used, an OpenAI-only setup
+  defaults to `gpt-6.1-sol` (was `gpt-5.6-terra`), and the small model is
+  `gpt-6-luna` (#234).
+- **Published package set:** unchanged from 0.5.3 (the 7 packages above).
 - **Bun:** the binary must embed `Bun v1.4.3`.
-- Evidence, on the release commit with Bun 1.4.3:
+- Evidence, on the release commit with Bun 1.4.3 (on `e88ed7f432`; after the
+  rebase onto #237 the full suite and step-2 list were run again):
   - step-2 regressions: 95 pass, 0 fail (8 files);
-  - `bun test --timeout 30000` (packages/cli): 1784 pass, 6 skip, 0 fail
-    (1790 tests, 147 files);
+  - `bun test --timeout 30000` (packages/cli): 1809 pass, 6 skip, 0 fail
+    (1815 tests, 148 files), the same after the rebase onto #237; the
+    formerly flaky `handles filenames with # character` test (fixed by #237)
+    also passes alone in a clean `env -i CI=true` environment;
   - `bun turbo typecheck --force`: 6/6;
-  - `AICTRL_VERSION=0.5.3 AICTRL_BUILD_SINGLE=true bun turbo build --force`
+  - `AICTRL_VERSION=0.5.4 AICTRL_BUILD_SINGLE=true bun turbo build --force`
     (CI's build): 3/3 tasks, builds only `cli-linux-x64-baseline`;
-    `aictrl --version` prints `0.5.3` and the binary embeds `Bun v1.4.3`;
+    `aictrl --version` prints `0.5.4` and the binary embeds `Bun v1.4.3`;
   - the five binary-capable `aictrl run` suites with `AICTRL_TEST_BINARY` set
     to that binary: 21 pass, 0 fail;
   - `wrapper-binary-resolution`, the NDJSON schema tests (`run-schema-v1`,
-    `events-command`, `run-user-message`, `run-event-race`) and
-    `bun-version-pin`: 54 pass, 0 fail;
-  - `AICTRL_VERSION=0.5.3 bun run build` builds the 7 targets. `npm pack` of
+    `events-command`, `run-user-message`, `run-event-race`), `bun-version-pin`
+    and the prompt tests (`system`, `llm`, `headless-prompt-budget`): 76 pass,
+    0 fail;
+  - a one-turn `aictrl run --format json` of that binary against a stub
+    OpenAI-compatible endpoint, with isolated `HOME`/XDG dirs: exit 0, one
+    model request, 10 events, `schemaVersion` `"1"`, both terminal statuses
+    `completed`; the request's single system message starts with the trimmed
+    `default.txt` (2,602 chars), including the new Task-tool and
+    rejected-call lines, followed by the environment block;
+  - `AICTRL_VERSION=0.5.4 bun run build` builds the 7 targets. `npm pack` of
     each platform package gives `bin/aictrl` (`aictrl.exe` on windows),
     `bin/aictrl.map`, `LICENSE` and a `package.json` whose `os`, `cpu` and
     `libc` match the table. publish.yml's manifest step, run on a copy, writes
-    exactly those 7 names at `0.5.3` into `optionalDependencies`; the wrapper
-    tarball has 4 files, 18.3 kB unpacked;
-  - the 8 tarballs published to a local verdaccio: publish.yml's visibility
-    step passes on attempt 1. `npm install -g @aictrl/cli@0.5.3` in fresh
-    `node:20-slim` and `node:20-alpine` containers (Node 20.20.2, npm 10.8.2)
-    installs one platform package, `cli-linux-x64-baseline` (116,272 KiB in
-    `@aictrl/`) or `cli-linux-x64-baseline-musl` (109,960 KiB). `aictrl
-    --version` prints `0.5.3`, and a one-turn `aictrl run --format json`
-    against a stub OpenAI-compatible endpoint exits 0 with 10 events,
-    `schemaVersion` `"1"` and both terminal statuses `completed`. A local
-    (non-global) install gives the same single package on both images.
+    exactly those 7 names at `0.5.4` into `optionalDependencies`; the wrapper
+    tarball has 4 files, 18.3 kB unpacked.
+  - not repeated from 0.5.3: the local-registry (verdaccio) publish, the
+    visibility step and the fresh-container installs. `bin/aictrl`,
+    `script/build.ts` and `publish.yml` are unchanged in `v0.5.3..97cc5be868`,
+    and the tarballs above match 0.5.3's except for the version, so those
+    checks would exercise the same code. The publish workflow's visibility
+    gate and install smoke, and the clean `npm install` in step 5, still check
+    0.5.4 itself after merge.
 
 Publication and executor promotion are separate gates. Preparing this candidate
 PR does not publish npm packages or deploy an executor image.
