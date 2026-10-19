@@ -81,9 +81,10 @@ Moving from Bun 1.3.10 to 1.4.3 alone changed them by about 85 ms and 85 MB.
 
 ## 0.5.4 candidate
 
-- **Why a patch bump (0.5.4):** the range `v0.5.3..e88ed7f432` is three PRs,
-  #233, #234 and #235. They change the system prompt and add the GPT-6
-  family, which CLAUDE.md treats as patch-level model support. No CLI flag,
+- **Why a patch bump (0.5.4):** the range `v0.5.3..97cc5be868` is four PRs,
+  #233, #234, #235 and the test-only #237. They change the system prompt and
+  add the GPT-6 family, which CLAUDE.md treats as patch-level model support,
+  and fix a flaky test. No CLI flag,
   command, config key or NDJSON event field is removed, and `schemaVersion`
   stays `"1"`. One model option is removed: with an API key, `gpt-6-astra`
   and `gpt-6.1-sol` no longer offer the `none` effort variant, which OpenAI
@@ -99,11 +100,13 @@ Moving from Bun 1.3.10 to 1.4.3 alone changed them by about 85 ms and 85 MB.
   `gpt-6-luna` (#234).
 - **Published package set:** unchanged from 0.5.3 (the 7 packages above).
 - **Bun:** the binary must embed `Bun v1.4.3`.
-- Evidence, on the release commit with Bun 1.4.3:
+- Evidence, on the release commit with Bun 1.4.3 (on `e88ed7f432`; after the
+  rebase onto #237 the full suite and step-2 list were run again):
   - step-2 regressions: 95 pass, 0 fail (8 files);
   - `bun test --timeout 30000` (packages/cli): 1809 pass, 6 skip, 0 fail
-    (1815 tests, 148 files); the known flaky `handles filenames with #
-    character` test passed;
+    (1815 tests, 148 files), the same after the rebase onto #237; the
+    formerly flaky `handles filenames with # character` test (fixed by #237)
+    also passes alone in a clean `env -i CI=true` environment;
   - `bun turbo typecheck --force`: 6/6;
   - `AICTRL_VERSION=0.5.4 AICTRL_BUILD_SINGLE=true bun turbo build --force`
     (CI's build): 3/3 tasks, builds only `cli-linux-x64-baseline`;
@@ -128,7 +131,7 @@ Moving from Bun 1.3.10 to 1.4.3 alone changed them by about 85 ms and 85 MB.
     tarball has 4 files, 18.3 kB unpacked.
   - not repeated from 0.5.3: the local-registry (verdaccio) publish, the
     visibility step and the fresh-container installs. `bin/aictrl`,
-    `script/build.ts` and `publish.yml` are unchanged in `v0.5.3..e88ed7f432`,
+    `script/build.ts` and `publish.yml` are unchanged in `v0.5.3..97cc5be868`,
     and the tarballs above match 0.5.3's except for the version, so those
     checks would exercise the same code. The publish workflow's visibility
     gate and install smoke, and the clean `npm install` in step 5, still check
