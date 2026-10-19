@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
+import { buildClientParams as v2BuildClientParams } from "@aictrl/sdk/v2/gen/client"
+// The legacy client has no export that exposes buildClientParams (`@aictrl/sdk/client`
+// only re-exports createAictrlClient and the types), so it is imported from source.
 import { buildClientParams as legacyBuildClientParams } from "../../../sdk/src/gen/core/params.gen"
-import { buildClientParams as v2BuildClientParams } from "../../../sdk/src/v2/gen/core/params.gen"
 
 // GHSA-hhx9-57xq-r5rw: an unknown `$<slot>___proto__` key must not replace the
 // prototype of the returned slot object, and must not reach Object.prototype.
@@ -33,10 +35,7 @@ describe.each(generators)("%s buildClientParams", (_name, buildClientParams) => 
   })
 
   test("regular and prefixed keys still land in their slots", () => {
-    const params = buildClientParams(
-      [{ q: "hello", $headers_trace: "abc" }],
-      [{ args: [{ in: "query", key: "q" }] }],
-    )
+    const params = buildClientParams([{ q: "hello", $headers_trace: "abc" }], [{ args: [{ in: "query", key: "q" }] }])
 
     expect({ ...params.query }).toEqual({ q: "hello" })
     expect({ ...params.headers }).toEqual({ trace: "abc" })
