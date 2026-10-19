@@ -622,6 +622,51 @@ export const RunCommand = cmd({
         return false
       }
 
+      /**
+       * The payload for a finished assistant message, emitted as `message_complete` for the
+       * primary session and `subagent_message_complete` for a child session: status, usage and context window.
+       */
+      async function completedMessage(info: MessageV2.Assistant) {
+        const usage = terminalUsage(info)
+
+        // Context-window utilization: used = input + cache.read + cache.write
+        // (all prompt tokens that occupy the model's context window this turn).
+        // cache.write tokens are written to the cache ON this turn — they are
+        // part of the prompt sent to the model and count against the context
+        // window, just billed at the cache-write rate. Excluding them
+        // undercounts utilization on the first turn of a conversation.
+        // limit comes from the provider registry (the built-in catalog plus config, or the attached server's).
+        // On lookup failure (or limit===0 for custom models) buildContextWindow returns null.
+        const contextLimit = await (args.attach
+          ? attachedContextLimit(info.providerID, info.modelID, attachedProviders())
+          : Provider.getModel(info.providerID, info.modelID)
+              .then((m) => m.limit.context)
+              .catch((e) => {
+                if (e instanceof Provider.ModelNotFoundError) return null
+                throw e
+              }))
+        const contextUsed = usage.tokens
+          ? usage.tokens.input + usage.tokens.cache.read + usage.tokens.cache.write
+          : null
+        const context = contextUsed === null ? null : buildContextWindow(contextLimit, contextUsed)
+
+        return {
+          messageID: info.id,
+          modelID: info.modelID,
+          providerID: info.providerID,
+          agent: info.agent,
+          context,
+          // cost is sourced from info.cost which accumulates real per-step costs
+          // from StepFinishPart. Do NOT use the new step.ended event cost field
+          // which emits cost:0 and is reconciled later (the cost:0 trap).
+          cost: info.cost,
+          tokens: usage.tokens,
+          usageStatus: usage.usageStatus,
+          status: info.error?.name === "MessageAbortedError" ? "aborted" : info.error ? "error" : "completed",
+          finish: info.finish,
+        }
+      }
+
       const subscriptionAbort = new AbortController()
       const events = await sdk.event.subscribe({ signal: subscriptionAbort.signal })
       let error: string | undefined
@@ -742,46 +787,14 @@ export const RunCommand = cmd({
           if (event.type === "message.updated" && event.properties.info.role === "assistant") {
             const info = event.properties.info
             if (args.format === "json") {
-              if (info.sessionID === sessionID && info.time.completed !== undefined && !emitted.has(info.id)) {
+              const own = info.sessionID === sessionID
+              const finished = info.time.completed !== undefined && !emitted.has(info.id)
+              if (finished && (own || childSessions.has(info.sessionID))) {
                 emitted.add(info.id)
-                const usage = terminalUsage(info)
-
-                // Context-window utilization: used = input + cache.read + cache.write
-                // (all prompt tokens that occupy the model's context window this turn).
-                // cache.write tokens are written to the cache ON this turn — they are
-                // part of the prompt sent to the model and count against the context
-                // window, just billed at the cache-write rate. Excluding them
-                // undercounts utilization on the first turn of a conversation.
-                // limit comes from the provider registry (the built-in catalog plus config, or the attached server's).
-                // On lookup failure (or limit===0 for custom models) buildContextWindow returns null.
-                const contextLimit = await (args.attach
-                  ? attachedContextLimit(info.providerID, info.modelID, attachedProviders())
-                  : Provider.getModel(info.providerID, info.modelID)
-                      .then((m) => m.limit.context)
-                      .catch((e) => {
-                        if (e instanceof Provider.ModelNotFoundError) return null
-                        throw e
-                      }))
-                const contextUsed = usage.tokens
-                  ? usage.tokens.input + usage.tokens.cache.read + usage.tokens.cache.write
-                  : null
-                const context = contextUsed === null ? null : buildContextWindow(contextLimit, contextUsed)
-
-                emit("message_complete", {
-                  messageID: info.id,
-                  modelID: info.modelID,
-                  providerID: info.providerID,
-                  agent: info.agent,
-                  context,
-                  // cost is sourced from info.cost which accumulates real per-step costs
-                  // from StepFinishPart. Do NOT use the new step.ended event cost field
-                  // which emits cost:0 and is reconciled later (the cost:0 trap).
-                  cost: info.cost,
-                  tokens: usage.tokens,
-                  usageStatus: usage.usageStatus,
-                  status: info.error?.name === "MessageAbortedError" ? "aborted" : info.error ? "error" : "completed",
-                  finish: info.finish,
-                })
+                const message = await completedMessage(info)
+                // message_complete stays primary-session only; child turns get their own event (#213)
+                if (own) emit("message_complete", message)
+                else emit("subagent_message_complete", { subagentSessionID: info.sessionID, parentSessionID: sessionID, ...message })
               }
             } else if (toggles.get("start") !== true) {
               UI.empty()
