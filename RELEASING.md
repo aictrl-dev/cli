@@ -37,6 +37,24 @@
    `sandbox` before `main`; verify a sandbox review persists MCP findings and
    a stalled stream reports a timeout rather than waiting for the job limit.
 
+## Bun version
+
+The compiled binary embeds the Bun runtime that built it, so the Bun version is
+part of the release. The root `package.json` `packageManager` field is the only
+place it is set:
+
+- CI and the publish workflow read it through `bun-version-file: package.json`.
+- `.husky/pre-push` and `@aictrl/script` (imported by
+  `packages/cli/script/build.ts`) reject a local Bun outside `^<version>`.
+- `packages/containers/script/build.ts` passes it to the `bun-node` image as
+  `BUN_VERSION`; the Dockerfile has no default.
+
+Bump it deliberately, in its own PR, never as a side effect of another change.
+Before merging the bump, build the binary with the old and the new Bun and
+compare time to first response and RSS: run a one-turn `aictrl run` against a
+stub model in a fresh, CPU- and memory-limited container, several times each.
+Moving from Bun 1.3.10 to 1.4.3 alone changed them by about 85 ms and 85 MB.
+
 ## 0.5.1 candidate
 
 - **Why a patch bump (0.5.1):** model-only support change. It restores the
