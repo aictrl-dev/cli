@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/package.json",
   "version": "0.5.4",
   "name": "@aictrl/cli",
-  "description": "Headless execution engine for AI agent skills",
+  "description": "The headless agent harness for CI, cron jobs, and container workflows",
   "type": "module",
   "license": "MIT",
   "publishConfig": {
