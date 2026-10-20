@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- **GPT-6 models default to `low` text verbosity** — `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-sol` and `gpt-6-luna` now send `text.verbosity: "low"` on the Responses API, as GPT-5.x models already did, with an API key and with Codex sign-in. The rule is ported from opencode v2 (`plugin/verbosity.ts`): every GPT-6 id gets it, on `@ai-sdk/openai`, `@ai-sdk/azure` (Azure included) and `openai/*` models on the Vercel AI Gateway. OpenRouter, OpenAI-compatible gateways, Bedrock and GitLab stay unset. A `textVerbosity` in the model's `options` or a variant in `aictrl.json` still overrides the default. GPT-5.x is unchanged, except that `-image` ids are now left unset like `-chat` and codex ids.
+
 ## 0.5.4 (2026-10-19)
 
 ### Features

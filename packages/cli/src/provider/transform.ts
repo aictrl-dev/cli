@@ -786,6 +786,30 @@ export namespace ProviderTransform {
     return {}
   }
 
+  // Default `textVerbosity` to "low"; model, agent and variant options are merged over it.
+  // GPT-6 follows opencode v2 `plugin/verbosity.ts`: every GPT-6 id accepts it, on endpoints
+  // that take OpenAI's verbosity option.
+  function defaultTextVerbosity(model: Provider.Model): "low" | undefined {
+    if (model.api.id.includes("gpt-6")) return acceptsOpenAITextVerbosity(model) ? "low" : undefined
+    if (gpt5AcceptsLowTextVerbosity(model)) return "low"
+    return undefined
+  }
+
+  // Direct OpenAI and Azure, plus `openai/*` models on the AI Gateway. OpenRouter is left out:
+  // upstream found its GPT endpoints report no verbosity support.
+  function acceptsOpenAITextVerbosity(model: Provider.Model): boolean {
+    if (model.api.npm === "@ai-sdk/openai" || model.api.npm === "@ai-sdk/azure") return true
+    return model.api.npm === "@ai-sdk/gateway" && model.api.id.startsWith("openai/")
+  }
+
+  // Chat models (e.g. gpt-5.2-chat-latest) only support "medium". Codex models and Azure stay unset.
+  function gpt5AcceptsLowTextVerbosity(model: Provider.Model): boolean {
+    const id = model.api.id
+    if (!id.includes("gpt-5.")) return false
+    if (id.includes("codex") || id.includes("-chat") || id.includes("-image")) return false
+    return model.providerID !== "azure"
+  }
+
   export function options(input: {
     model: Provider.Model
     sessionID: string
@@ -865,17 +889,11 @@ export namespace ProviderTransform {
         result["reasoningEffort"] = "medium"
         result["reasoningSummary"] = "auto"
       }
+    }
 
-      // Only set textVerbosity for non-chat gpt-5.x models
-      // Chat models (e.g. gpt-5.2-chat-latest) only support "medium" verbosity
-      if (
-        input.model.api.id.includes("gpt-5.") &&
-        !input.model.api.id.includes("codex") &&
-        !input.model.api.id.includes("-chat") &&
-        input.model.providerID !== "azure"
-      ) {
-        result["textVerbosity"] = "low"
-      }
+    const textVerbosity = defaultTextVerbosity(input.model)
+    if (textVerbosity) {
+      result["textVerbosity"] = textVerbosity
     }
 
     if (input.model.providerID === "venice") {

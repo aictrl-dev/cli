@@ -242,6 +242,57 @@ describe("ProviderTransform.options - gpt-5 textVerbosity", () => {
     const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
     expect(result.textVerbosity).toBeUndefined()
   })
+
+  test("gpt-5.2-image should NOT have textVerbosity set", () => {
+    const model = createGpt5Model("gpt-5.2-image")
+    const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
+    expect(result.textVerbosity).toBeUndefined()
+  })
+
+  test("gpt-5.2 on azure should NOT have textVerbosity set", () => {
+    const model = { ...createGpt5Model("gpt-5.2"), providerID: "azure", api: { id: "gpt-5.2", npm: "@ai-sdk/azure" } }
+    const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
+    expect(result.textVerbosity).toBeUndefined()
+  })
+})
+
+describe("ProviderTransform.options - gpt-6 textVerbosity", () => {
+  const sessionID = "test-session-123"
+
+  const createModel = (providerID: string, npm: string, apiId: string) =>
+    ({
+      id: `${providerID}/${apiId}`,
+      providerID,
+      api: { id: apiId, url: "https://example.test", npm },
+      name: apiId,
+      capabilities: { temperature: true, reasoning: true, toolcall: true, interleaved: false },
+      limit: { context: 400_000, output: 128_000 },
+      options: {},
+      headers: {},
+    }) as any
+
+  test.each([
+    ["openai", "@ai-sdk/openai", "gpt-6.1-sol"],
+    ["openai", "@ai-sdk/openai", "gpt-6-luna"],
+    ["azure", "@ai-sdk/azure", "gpt-6.1-sol"],
+    ["azure-cognitive-services", "@ai-sdk/azure", "gpt-6-luna"],
+    ["vercel", "@ai-sdk/gateway", "openai/gpt-6.1-sol"],
+  ])("%s %s %s defaults textVerbosity to low", (providerID, npm, apiId) => {
+    const model = createModel(providerID, npm, apiId)
+    const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
+    expect(result.textVerbosity).toBe("low")
+  })
+
+  test.each([
+    ["openrouter", "@openrouter/ai-sdk-provider", "openai/gpt-6.1-sol"],
+    ["kilo", "@ai-sdk/openai-compatible", "openai/gpt-6-luna"],
+    ["amazon-bedrock", "@ai-sdk/amazon-bedrock", "openai.gpt-6.1-sol"],
+    ["gitlab", "@gitlab/gitlab-ai-provider", "duo-chat-gpt-6-1-sol"],
+  ])("%s %s %s leaves textVerbosity unset", (providerID, npm, apiId) => {
+    const model = createModel(providerID, npm, apiId)
+    const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
+    expect(result.textVerbosity).toBeUndefined()
+  })
 })
 
 describe("ProviderTransform.options - gateway", () => {

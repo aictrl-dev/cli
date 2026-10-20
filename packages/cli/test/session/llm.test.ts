@@ -444,7 +444,15 @@ describe("session.llm.stream", () => {
     })
   })
 
-  test.each(["gpt-5.2", "gpt-6.1-sol"])("sends responses API payload for OpenAI model %s", async (modelID) => {
+  // The last case checks that a user's model options in aictrl.json override the default verbosity.
+  const responsesCases = [
+    { modelID: "gpt-5.2", modelOptions: undefined, verbosity: "low" },
+    { modelID: "gpt-6.1-sol", modelOptions: undefined, verbosity: "low" },
+    { modelID: "gpt-6.1-sol", modelOptions: { textVerbosity: "high" }, verbosity: "high" },
+  ]
+
+  test.each(responsesCases)("sends responses API payload for OpenAI model $modelID ($verbosity)", async (testCase) => {
+    const { modelID, modelOptions, verbosity } = testCase
     const server = state.server
     if (!server) {
       throw new Error("Server not initialized")
@@ -499,6 +507,7 @@ describe("session.llm.stream", () => {
                   apiKey: "test-openai-key",
                   baseURL: `${server.url.origin}/v1`,
                 },
+                ...(modelOptions ? { models: { [modelID]: { options: modelOptions } } } : {}),
               },
             },
           }),
@@ -551,6 +560,7 @@ describe("session.llm.stream", () => {
         expect(body.model).toBe(resolved.api.id)
         expect(body.stream).toBe(true)
         expect((body.reasoning as { effort?: string } | undefined)?.effort).toBe("high")
+        expect((body.text as { verbosity?: string } | undefined)?.verbosity).toBe(verbosity)
 
         const maxTokens = body.max_output_tokens as number | undefined
         const expectedMaxTokens = ProviderTransform.maxOutputTokens(resolved)
