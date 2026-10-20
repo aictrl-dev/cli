@@ -61,14 +61,14 @@ git diff origin/main...HEAD | aictrl run --model openai/gpt-5 "Summarize breakin
 
 ### 2. Drop-in GitHub Actions PR review (split-secret pattern)
 
-Save as `.github/workflows/aictrl-review.yml`. No step holds both the model API key and the GitHub token, and the agent runs with read-only tools (`read`, `glob`, `grep` only—no `bash`, no `write`, no repo config):
+Save as `.github/workflows/aictrl-review.yml`. No step holds both the model API key and the GitHub token, and the agent runs with read-only tools (`read`, `glob`, `grep` only—no `bash`, no `write`, no repo config or `AGENTS.md` instructions from the pull request):
 
 ```yaml
 name: aictrl review
 
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review]
+    types: [opened, reopened, synchronize, ready_for_review]
 
 permissions:
   contents: read
@@ -96,14 +96,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+      # Pin a version for reproducible runs; update it when you upgrade.
       - run: npm install -g @aictrl/cli@0.5.4
 
+      # The harness loads AGENTS.md files as instructions, and the pull request can add them.
+      # Remove them so the review follows only the prompt below.
+      - run: find . -name AGENTS.md -not -path './.git/*' -delete
+
       # 2. Review with the model key only: no GitHub token, no shell, read-only tools,
-      #    and no config or plugins from the pull request's .aictrl directory.
+      #    and no project config or plugins from the pull request.
       - name: Review
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          MODEL: ${{ vars.AICTRL_MODEL }} # e.g. anthropic/claude-sonnet-4-5
+          MODEL: ${{ vars.AICTRL_MODEL || 'anthropic/claude-sonnet-4-5' }}
           AICTRL_DISABLE_PROJECT_CONFIG: "true"
           AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS: "300000"
           AICTRL_CONFIG_CONTENT: >-
@@ -112,8 +117,9 @@ jobs:
           aictrl run --format json --model "$MODEL" \
             "Review the change in pr.diff. Read files in this repository for context.
           Report bugs, security and reliability problems with file and line; skip style.
-          Reply with the review only, in Markdown." > aictrl-events.jsonl
-          jq -rs '[.[] | select(.type == "text") | .part.text] | last // empty' aictrl-events.jsonl > review.md
+          Do not narrate your steps. Reply with the review only, in Markdown." > aictrl-events.jsonl
+          # Join every text block: the review can come before a final tool call.
+          jq -rs '[.[] | select(.type == "text") | .part.text | select(length > 0)] | if length == 0 then empty else join("\n\n") end' aictrl-events.jsonl > review.md
           test -s review.md
 
       # 3. Post with the GitHub token. The model key is not in this step.
