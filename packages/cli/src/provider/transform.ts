@@ -786,6 +786,26 @@ export namespace ProviderTransform {
     return {}
   }
 
+  // Chat models (e.g. gpt-5.2-chat-latest) only support "medium"; codex and image models are not known to accept "low".
+  const LOW_VERBOSITY_EXCLUDED_IDS = ["-chat", "-image", "codex"]
+
+  // Default `textVerbosity` to "low" for GPT-5.x and GPT-6 (after opencode v2 `plugin/verbosity.ts`).
+  // Model, agent and variant options are merged over it.
+  function defaultTextVerbosity(model: Provider.Model): "low" | undefined {
+    if (!sendsOpenAITextVerbosity(model)) return undefined
+    const id = model.api.id
+    if (!id.includes("gpt-5.") && !id.includes("gpt-6")) return undefined
+    if (LOW_VERBOSITY_EXCLUDED_IDS.some((excluded) => id.includes(excluded))) return undefined
+    return "low"
+  }
+
+  // OpenAI and Azure, plus `openai/*` models on the Vercel AI Gateway. Other providers (OpenRouter,
+  // Bedrock, OpenAI-compatible gateways) are left out: upstream found OpenRouter reports no support.
+  function sendsOpenAITextVerbosity(model: Provider.Model): boolean {
+    if (model.api.npm === "@ai-sdk/openai" || model.api.npm === "@ai-sdk/azure") return true
+    return model.api.npm === "@ai-sdk/gateway" && model.api.id.startsWith("openai/")
+  }
+
   export function options(input: {
     model: Provider.Model
     sessionID: string
@@ -865,17 +885,11 @@ export namespace ProviderTransform {
         result["reasoningEffort"] = "medium"
         result["reasoningSummary"] = "auto"
       }
+    }
 
-      // Only set textVerbosity for non-chat gpt-5.x models
-      // Chat models (e.g. gpt-5.2-chat-latest) only support "medium" verbosity
-      if (
-        input.model.api.id.includes("gpt-5.") &&
-        !input.model.api.id.includes("codex") &&
-        !input.model.api.id.includes("-chat") &&
-        input.model.providerID !== "azure"
-      ) {
-        result["textVerbosity"] = "low"
-      }
+    const textVerbosity = defaultTextVerbosity(input.model)
+    if (textVerbosity) {
+      result["textVerbosity"] = textVerbosity
     }
 
     if (input.model.providerID === "venice") {
