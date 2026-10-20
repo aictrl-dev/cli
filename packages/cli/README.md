@@ -1,12 +1,18 @@
 # @aictrl/cli
 
-Headless execution engine for AI agent skills.
+The headless agent harness for CI, cron jobs, and container workflows.
+
+- **[Overview & CI Quickstart (`aictrl.dev/agent`)](https://aictrl.dev/agent?utm_source=npmjs&utm_medium=readme&utm_campaign=headless-readme)**
+- **[Headless CLI Benchmark (6 CLIs compared)](https://aictrl.dev/blog/headless-coding-agent-cli-benchmark?utm_source=npmjs&utm_medium=readme&utm_campaign=headless-readme)**
+- **[NDJSON Event Reference (`EVENTS.md`)](https://github.com/aictrl-dev/cli/blob/main/EVENTS.md)**
 
 ## Features
 
-- **Headless First:** Designed for automation, CI/CD, and server-side runtimes.
-- **MCP Protocol:** First-class support for [Model Context Protocol](https://modelcontextprotocol.io).
-- **Custom Tools:** Easy extensibility via TypeScript files.
+- **Headless Only:** Built for non-interactive runs in CI/CD, scheduled jobs, and containers—no terminal UI, no hanging permission prompts, and distinct exit codes (`0` accepted, `1` provider/runtime/timeout error, `2` config error, `3` missing/invalid schema result).
+- **Schema-Validated Results:** Pass `--output-schema` and `--output-result` to enforce a JSON Schema with corrective turns and atomic file output.
+- **Versioned NDJSON Event Stream:** `--format json` streams every lifecycle step, tool call, permission decision, and per-call token/cost count to stdout.
+- **Declarative Permissions:** Per-tool allow/deny rules (`permission` config); tools denied everywhere are stripped from the model request to save tokens.
+- **Skills & MCP:** Progressive skill loading (`--skill`) and first-class [Model Context Protocol](https://modelcontextprotocol.io) support.
 
 ## Automation Usage
 

@@ -1,17 +1,39 @@
 <p align="center">
-  <img src=".github/logo.svg" alt="aictrl.dev" width="240" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/logo-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset=".github/logo.svg" />
+    <img src=".github/logo.svg" alt="aictrl.dev" width="240" />
+  </picture>
 </p>
 
-<h3 align="center">Headless execution engine for AI agent skills</h3>
+<h3 align="center">The headless agent harness for CI, cron jobs, and container workflows</h3>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@aictrl/cli"><img src="https://img.shields.io/npm/v/@aictrl/cli" alt="npm" /></a>
-  <a href="https://github.com/aictrl-dev/cli/blob/main/LICENSE"><img src="https://img.shields.io/github/license/aictrl-dev/cli" alt="license" /></a>
+  <a href="https://www.npmjs.com/package/@aictrl/cli"><img src="https://img.shields.io/npm/v/@aictrl/cli" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/@aictrl/cli"><img src="https://img.shields.io/npm/dm/@aictrl/cli" alt="npm downloads" /></a>
+  <a href="https://github.com/aictrl-dev/cli/blob/main/LICENSE"><img src="https://img.shields.io/github/license/aictrl-dev/cli" alt="MIT license" /></a>
+  <a href="https://aictrl.dev/agent?utm_source=github&utm_medium=readme&utm_campaign=headless-readme"><img src="https://img.shields.io/badge/docs-aictrl.dev%2Fagent-4c6ef5" alt="aictrl.dev/agent" /></a>
+  <a href="https://aictrl.dev/blog/headless-coding-agent-cli-benchmark?utm_source=github&utm_medium=readme&utm_campaign=headless-readme"><img src="https://img.shields.io/badge/benchmark-6%20CLIs%20compared-15803d" alt="Headless CLI Benchmark" /></a>
 </p>
 
 ---
 
-Aictrl is a headless, server-side runtime for autonomous AI agent workflows. It is designed for engineers who want to automate complex tasks using agentic models in CI/CD pipelines, cron jobs, or embedded within other applications.
+**aictrl CLI** (`@aictrl/cli`) runs an AI coding agent as one non-interactive command in CI/CD pipelines, scheduled jobs, and isolated containers.
+
+Interactive coding agents are built for a person at a terminal: in automation they can hang on permission prompts nobody is watching, exit `0` after a provider error, or bury structured answers in prose. **aictrl CLI has no interactive mode.** Permission prompts are rejected immediately, every run streams a versioned NDJSON event log (`EVENTS.md`), final results are validated against your JSON Schema with corrective turns, and exit codes tell your pipeline whether to proceed, retry, or fail.
+
+## Why a dedicated headless harness?
+
+Engineers running terminal-first coding agents in CI and batch workflows repeatedly hit the same failure modes:
+
+| What breaks in automation | How `aictrl run` handles it |
+| :--- | :--- |
+| **Silent hangs** (`claude-code-action#865`, `goose#11164`) | **No terminal UI or interactive prompts.** Any unpermitted tool request is rejected immediately; optional stream idle timeouts stop stalled model calls. |
+| **False `exit 0` on failure** (`claude-code#79500`, `goose#11909`, `gemini-cli#1088`) | **Distinct exit codes:** `0` accepted result, `1` provider/runtime/timeout error, `2` configuration error, `3` missing or schema-invalid result, `130`/`143` on `SIGINT`/`SIGTERM`. |
+| **Unparseable prose or broken JSON** (`codex#19816`, `claude-code#18536`, `gemini-cli#4665`) | **Enforced JSON Schema (`--output-schema`)** with bounded corrective turns and atomic file output (`--output-result`). No prose fallback. |
+| **`--dangerously-skip-permissions` in CI** | **Declarative per-tool allow/deny rules.** Tools denied for all patterns are stripped from the model request entirely, saving tokens and shrinking the attack surface. Subagents inherit caller denials. |
+| **Cost & token blind spots** (`claude-code#8245`, `codex#13733`) | **608-token system prompt** and a [versioned NDJSON event stream](EVENTS.md) on stdout reporting per-call token usage, cost, tool timing, and permission decisions. |
+| **Background auto-updates & telemetry** (`claude-code-action#1290`) | **Zero telemetry, no auto-update, built-in model catalog.** Outbound traffic goes only to the model provider, MCP servers, and web tools you configure. |
 
 ## Install
 
@@ -21,35 +43,113 @@ npm i -g @aictrl/cli
 
 ## Quick Start
 
-```bash
-# Run a one-off task
-aictrl run "analyze the security of this repository"
-
-# Use a specific model
-aictrl run --model anthropic/claude-3-5-sonnet-latest "refactor the auth module"
-```
-
-## Automation & Headless Usage
-
-Aictrl is "headless first". When run in a non-TTY environment, it automatically switches to a mode optimized for automation.
-
-### Stdin Piping
-
-You can pipe content directly into `aictrl`. This is useful for processing logs, code, or command output.
+### 1. Validated JSON output in a terminal or container
 
 ```bash
-cat logs.txt | aictrl run "summarize these errors"
+export ANTHROPIC_API_KEY=<your-key> # or OPENAI_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, etc.
+
+# Stream NDJSON events and write a schema-validated result atomically
+aictrl run --format json \
+  --model anthropic/claude-sonnet-4-5 \
+  --output-schema findings.schema.json \
+  --output-result findings.json \
+  "Review the changes on this branch and report security or reliability bugs"
+
+# Pipe input from stdin
+git diff origin/main...HEAD | aictrl run --model openai/gpt-5 "Summarize breaking API changes"
 ```
 
-### JSON Output
+### 2. Drop-in GitHub Actions PR review (split-secret pattern)
 
-For programmatic consumption, use `--format json` to get raw events.
+Save as `.github/workflows/aictrl-review.yml`. No step holds both the model API key and the GitHub token, and the agent runs with read-only tools (`read`, `glob`, `grep` only—no `bash`, no `write`, no repo config):
 
-```bash
-aictrl run --format json "review this PR" | jq '.type'
+```yaml
+name: aictrl review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: aictrl-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Fork pull requests get no secrets; never switch this to pull_request_target.
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      # 1. Fetch the diff with the GitHub token. The model key is not in this step.
+      - run: gh pr diff "$PR" > pr.diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - run: npm install -g @aictrl/cli@0.5.4
+
+      # 2. Review with the model key only: no GitHub token, no shell, read-only tools,
+      #    and no config or plugins from the pull request's .aictrl directory.
+      - name: Review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          MODEL: ${{ vars.AICTRL_MODEL }} # e.g. anthropic/claude-sonnet-4-5
+          AICTRL_DISABLE_PROJECT_CONFIG: "true"
+          AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS: "300000"
+          AICTRL_CONFIG_CONTENT: >-
+            {"permission": {"*": "deny", "read": "allow", "glob": "allow", "grep": "allow"}}
+        run: |
+          aictrl run --format json --model "$MODEL" \
+            "Review the change in pr.diff. Read files in this repository for context.
+          Report bugs, security and reliability problems with file and line; skip style.
+          Reply with the review only, in Markdown." > aictrl-events.jsonl
+          jq -rs '[.[] | select(.type == "text") | .part.text] | last // empty' aictrl-events.jsonl > review.md
+          test -s review.md
+
+      # 3. Post with the GitHub token. The model key is not in this step.
+      - run: gh pr comment "$PR" --body-file review.md --edit-last --create-if-none
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aictrl-events
+          path: aictrl-events.jsonl
+          retention-days: 7
 ```
 
-### Validated Final Results
+## Headless CLI Benchmark (6 Harnesses Compared)
+
+We benchmarked six coding-agent CLIs (`aictrl 0.5.4`, `pi 1.3.0`, `Goose 1.55.0`, `Codex 0.163.0`, `OpenCode 2.1.0`, and `Hermes v0.22.2`) in fresh 2-CPU Docker containers against a deterministic 50 ms local stub model to isolate harness overhead from remote LLM latency. Full runner, raw JSON captures, and methodology are open in [`aictrl-dev/skill-md-research`](https://github.com/aictrl-dev/skill-md-research/tree/main/experiments/headless-cli-benchmark) and analyzed in the [benchmark post](https://aictrl.dev/blog/headless-coding-agent-cli-benchmark?utm_source=github&utm_medium=readme&utm_campaign=headless-readme).
+
+| Metric (lower is better, except coverage) | **aictrl 0.5.4** | pi 1.3.0 | Goose 1.55.0 | Codex 0.163.0 | OpenCode 2.1.0 | Hermes 0.22.2 |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **First response, median** (ms) | 579 | 522 | **392** (1st) | 471 (2nd) | 926 | 5,521 |
+| **50-read session time, median** (s) | **4.27** (2nd) | **3.98** (1st) | 7.22 | 5.57 | 6.03 | 12.76 |
+| **Harness time per turn, median** (ms) | **12** (2nd) | **9** (1st) | 72 | 45 | 32 | 64 |
+| **Peak cgroup memory, median** (MiB) | **207** (2nd) | **154** (1st) | 247 | 132\* | 424 | 344 |
+| **Container image increment** (MiB) | **113** (2nd) | **108** (1st) | 292 | 410 | 818 | 388 |
+| **System prompt** (`o200k_base` tokens) | 608 | 601 (2nd) | **563** (1st) | 4,047 | 1,857 | 1,053 |
+| **First request total** (tokens, default tools) | 3,442 (9 tools) | **1,276** (4 tools) | 1,577 (6 tools) | 8,178 (9 tools) | 4,903 (12 tools) | 3,391 (8 tools) |
+| **Short task, 4 calls** (tokens, default tools) | 15,209 (9,805 w/ 4 tools) | **6,074** (1st) | 7,281 (2nd) | 34,078 | 21,489 | 15,562 |
+| **NDJSON event stream coverage** (25 facts) | **100%** | **100%** | 68% | 40% | 80% | 72% |
+
+*\*Codex's shell reader truncates each 800-line file to its first and last ~80 lines, holding ~1/5th of the file in context. `pi`, `Goose`, and `Hermes` ran without a subagent tool in the tested profile; restricting `aictrl` to `pi`'s 4 tools via permission config drops its first request from 3,442 to 2,091 tokens.*
+
+## Core Contracts for Automation
+
+### Validated Final Results (`--output-schema`)
 
 `aictrl run --output-schema <file>` validates the final JSON result.
 Use `--output-schema-retries <n>` for additional corrective turns (0–10, default 2)
@@ -66,11 +166,33 @@ provider failures and stream timeouts use **1**, signals use **130**/**143**.
 See the [full contract](packages/cli/README.md#validated-final-results)
 and [JSON event reference](EVENTS.md).
 
-### Non-Interactive Execution
+### Versioned NDJSON Event Stream (`--format json`)
 
-In headless mode, Aictrl automatically rejects all interactive permission requests, ensuring your pipelines never hang.
+Passing `--format json` writes one JSON event per line to stdout (`schemaVersion: "1"`), covering:
 
-### Skill Scope
+- **Lifecycle:** `invocation_start`, `session_start`, `retry`, `session_error`, `invocation_error`, `invocation_complete`
+- **Model & cost accounting:** `message_complete` and `subagent_message_complete` with input/output/reasoning/cache tokens, cost, and context-window utilization
+- **Tools & permissions:** `tool_catalog`, `permission_granted`, `permission_rejected`, `tool_use` (with start/end timestamps), `skill_discovered`, `skill_loaded`
+- **Subagents & results:** `subagent_start`, `subagent_complete`, `structured_output`, `structured_output_rejected`
+
+```bash
+aictrl run --format json "review this PR" | jq -c '{type, timestamp, tool: .part.tool}'
+```
+
+See [EVENTS.md](EVENTS.md) for the complete schema specification.
+
+### Per-Tool Permissions & Restricting Dangerous Commands
+
+In headless mode, `aictrl` automatically rejects any action that would prompt a human. You can scope permissions per tool or command pattern in `aictrl.json` or inline via `AICTRL_CONFIG_CONTENT`. Any tool denied for all patterns (e.g. `"webfetch": "deny"`, `"task": "deny"`) is omitted from the model request, saving tool-definition tokens on every turn.
+
+Tool descriptions describe tools; they are not a security boundary. Block
+dangerous commands with `permission.bash` rules, for example denying force
+pushes, hook skipping, git config changes and `git -c` overrides (`"git -c *": "deny"`,
+which also blocks harmless `-c` uses). The CLI ships no such rules by default. See the
+[configuration reference](packages/cli/README.md#restricting-dangerous-commands)
+for an example.
+
+### Skill Scope (`--skill`)
 
 `aictrl run` does not list skills from `~/.claude`, `~/.agents` or `~/.opencode`;
 list them explicitly in config `skills.paths` (e.g. `["~/.claude/skills"]`) to use
@@ -79,15 +201,6 @@ config directories (`~/.config/aictrl`, `~/.aictrl`) and config
 `skills.paths`/`skills.urls` are still listed. Pass `--skill <name>` (repeatable)
 or set config `skills.allow` to list and load only the named skills.
 See the [full contract](packages/cli/README.md#skill-scope).
-
-### Restricting Dangerous Commands
-
-Tool descriptions describe tools; they are not a security boundary. Block
-dangerous commands with `permission.bash` rules, for example denying force
-pushes, hook skipping, git config changes and `git -c` overrides (`"git -c *": "deny"`,
-which also blocks harmless `-c` uses). The CLI ships no such rules by default. See the
-[configuration reference](packages/cli/README.md#restricting-dangerous-commands)
-for an example.
 
 ### Model Stream Idle Timeout
 
@@ -100,21 +213,20 @@ resets after every stream event, so responses that keep making progress are unaf
 Tool execution (local or provider-executed) uses a ceiling twelve times the
 configured model timeout, capped at 2147483647 ms (one hour for a five-minute timeout).
 
-## MCP & Custom Tools
+### Models, MCP & Custom Tools
 
-Aictrl supports the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
+`aictrl` ships a built-in provider catalog supporting **Anthropic**, **OpenAI**, **Google**, **Amazon Bedrock**, **Google Vertex**, **Azure**, **OpenRouter**, and any OpenAI-compatible local or proxy endpoint (`--model provider/model`).
+
+It also supports the [Model Context Protocol (MCP)](https://modelcontextprotocol.io) and custom TypeScript tools in `.aictrl/tool/`:
 
 ```bash
-# Add an MCP server
+# Register an MCP server
 aictrl mcp add my-tool --url http://localhost:8080
-
-# Add custom TypeScript tools
-# Just drop them in .aictrl/tool/
 ```
 
 ## Programmatic SDK
 
-Embed Aictrl directly into your TypeScript applications.
+Embed `aictrl` into TypeScript services via [`@aictrl/sdk`](packages/sdk):
 
 ```typescript
 import { createAictrlClient } from "@aictrl/sdk"
@@ -124,14 +236,17 @@ const client = createAictrlClient({
 })
 
 const session = await client.session.create({
-  title: "My Automation Task",
+  title: "Automated PR Triage",
 })
 ```
 
-## Attribution
+## Documentation & Links
 
-Aictrl is a fork of the [OpenCode](https://opencode.ai) project and is licensed under the MIT License.
+- **[Headless Agent Harness Overview (`aictrl.dev/agent`)](https://aictrl.dev/agent?utm_source=github&utm_medium=readme&utm_campaign=headless-readme)** — architecture principles, interactive telemetry explorer, and CI patterns
+- **[Headless Coding-Agent CLI Benchmark](https://aictrl.dev/blog/headless-coding-agent-cli-benchmark?utm_source=github&utm_medium=readme&utm_campaign=headless-readme)** — 6 CLIs measured on startup, turn overhead, memory, image footprint, and tokens
+- **[NDJSON Event Stream Reference (`EVENTS.md`)](EVENTS.md)** — full specification of all versioned stdout events
+- **[CLI Package & Configuration Reference (`packages/cli/README.md`)](packages/cli/README.md)** — detailed `--output-schema`, `--skill`, and permission contracts
 
----
+## License
 
-[aictrl.dev](https://aictrl.dev/?utm_medium=referral&utm_source=github&utm_campaign=cli&utm_content=readme)
+MIT License — see [LICENSE](LICENSE).
