@@ -86,7 +86,7 @@ The retries and result flags require `--output-schema`. Without a result file,
 formatted mode prints validated JSON at the end; `--format json` emits it in a
 terminal `structured_output` event, exactly one per prompt run. A headless
 `aictrl run` has one prompt run. Rejections emit `structured_output_rejected`
-with bounded JSON-pointer diagnostics. See [EVENTS.md](../../EVENTS.md) for the contract.
+with bounded JSON-pointer diagnostics. See [EVENTS.md](https://github.com/aictrl-dev/cli/blob/main/EVENTS.md) for the contract.
 No valid result means failure, including missing output and the agent step limit;
 there is no prose fallback. A prose-only finish consumes one attempt and receives
 a reminder to call StructuredOutput while retries remain. Earlier tools are not
