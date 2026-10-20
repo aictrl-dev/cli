@@ -19,7 +19,9 @@ function globalFiles() {
     files.push(path.join(Flag.AICTRL_CONFIG_DIR, "AGENTS.md"))
   }
   files.push(path.join(Global.Path.config, "AGENTS.md"))
-  files.push(path.join(Instance.directory, ".opencode", "AGENTS.md"))
+  if (!Flag.AICTRL_DISABLE_PROJECT_CONFIG) {
+    files.push(path.join(Instance.directory, ".opencode", "AGENTS.md"))
+  }
   return files
 }
 
@@ -181,6 +183,7 @@ export namespace InstructionPrompt {
   }
 
   export async function resolve(messages: MessageV2.WithParts[], filepath: string, messageID: string) {
+    if (Flag.AICTRL_DISABLE_PROJECT_CONFIG) return []
     const system = await systemPaths()
     const already = loaded(messages)
     const results: { filepath: string; content: string }[] = []
