@@ -135,9 +135,15 @@ jobs:
           retention-days: 7
 ```
 
+Notes on this example:
+
+- The review is model output shaped by the pull request's contents, and the workflow posts it as written. Treat it as untrusted text, not as an approval.
+- It posts Markdown rather than using `--output-schema`, because a schema result is a file the agent writes and this job denies `write`.
+- `aictrl-events.jsonl` includes the output of every tool call, so the artifact holds the contents of the files the agent read. Reads are limited to the checkout, and the artifact has the repository's visibility; remove the upload step if you don't need the record.
+
 ## Headless CLI Benchmark (6 Harnesses Compared)
 
-We benchmarked six coding-agent CLIs (`aictrl 0.5.4`, `pi 1.3.0`, `Goose 1.55.0`, `Codex 0.163.0`, `OpenCode 2.1.0`, and `Hermes v0.22.2`) in fresh 2-CPU Docker containers against a deterministic 50 ms local stub model to isolate harness overhead from remote LLM latency. Full runner, raw JSON captures, and methodology are open in [`aictrl-dev/skill-md-research`](https://github.com/aictrl-dev/skill-md-research/tree/main/experiments/headless-cli-benchmark) and analyzed in the [benchmark post](https://aictrl.dev/blog/headless-coding-agent-cli-benchmark?utm_source=github&utm_medium=readme&utm_campaign=headless-readme).
+We benchmarked six coding-agent CLIs (`aictrl 0.5.4`, `pi 1.3.0`, `Goose 1.55.0`, `Codex 0.163.0`, `OpenCode 2.1.0`, and `Hermes 0.22.2`) in fresh 2-CPU Docker containers against a deterministic 50 ms local stub model to isolate harness overhead from remote LLM latency. Full runner, raw JSON captures, and methodology are open in [`aictrl-dev/skill-md-research`](https://github.com/aictrl-dev/skill-md-research/tree/main/experiments/headless-cli-benchmark) and analyzed in the [benchmark post](https://aictrl.dev/blog/headless-coding-agent-cli-benchmark?utm_source=github&utm_medium=readme&utm_campaign=headless-readme).
 
 | Metric (lower is better, except coverage) | **aictrl 0.5.4** | pi 1.3.0 | Goose 1.55.0 | Codex 0.163.0 | OpenCode 2.1.0 | Hermes 0.22.2 |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -174,11 +180,12 @@ and [JSON event reference](EVENTS.md).
 
 ### Versioned NDJSON Event Stream (`--format json`)
 
-Passing `--format json` writes one JSON event per line to stdout (`schemaVersion: "1"`), covering:
+Passing `--format json` writes one JSON event per line to stdout (`schemaVersion: "1"`). The event types are:
 
-- **Lifecycle:** `invocation_start`, `session_start`, `retry`, `session_error`, `invocation_error`, `invocation_complete`
+- **Lifecycle and errors:** `invocation_start`, `session_start`, `retry`, `session_complete`, `session_error`, `error`, `invocation_error`, `invocation_complete`
+- **Conversation:** `user_message`, `text`, `reasoning`, `step_start`, `step_finish`
 - **Model & cost accounting:** `message_complete` and `subagent_message_complete` with input/output/reasoning/cache tokens, cost, and context-window utilization
-- **Tools & permissions:** `tool_catalog`, `permission_granted`, `permission_rejected`, `tool_use` (with start/end timestamps), `skill_discovered`, `skill_loaded`
+- **Tools & permissions:** `tool_catalog`, `permission_granted`, `permission_rejected`, `tool_use` (with start/end timestamps), `skill_discovered`, `skill_loaded`, `skill_resource_loaded`
 - **Subagents & results:** `subagent_start`, `subagent_complete`, `structured_output`, `structured_output_rejected`
 
 ```bash
