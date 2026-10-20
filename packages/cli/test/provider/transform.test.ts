@@ -172,17 +172,17 @@ describe("ProviderTransform.options - setCacheKey", () => {
   })
 })
 
-describe("ProviderTransform.options - gpt-5 textVerbosity", () => {
+describe("ProviderTransform.options - gpt-5 and gpt-6 textVerbosity", () => {
   const sessionID = "test-session-123"
 
-  const createGpt5Model = (apiId: string) =>
+  const createVerbosityModel = (apiId: string, providerID = "openai", npm = "@ai-sdk/openai") =>
     ({
-      id: `openai/${apiId}`,
-      providerID: "openai",
+      id: `${providerID}/${apiId}`,
+      providerID,
       api: {
         id: apiId,
         url: "https://api.openai.com",
-        npm: "@ai-sdk/openai",
+        npm,
       },
       name: apiId,
       capabilities: {
@@ -202,94 +202,81 @@ describe("ProviderTransform.options - gpt-5 textVerbosity", () => {
     }) as any
 
   test("gpt-5.2 should have textVerbosity set to low", () => {
-    const model = createGpt5Model("gpt-5.2")
+    const model = createVerbosityModel("gpt-5.2")
     const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
     expect(result.textVerbosity).toBe("low")
   })
 
   test("gpt-5.1 should have textVerbosity set to low", () => {
-    const model = createGpt5Model("gpt-5.1")
+    const model = createVerbosityModel("gpt-5.1")
     const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
     expect(result.textVerbosity).toBe("low")
   })
 
   test("gpt-5.2-chat-latest should NOT have textVerbosity set (only supports medium)", () => {
-    const model = createGpt5Model("gpt-5.2-chat-latest")
+    const model = createVerbosityModel("gpt-5.2-chat-latest")
     const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
     expect(result.textVerbosity).toBeUndefined()
   })
 
   test("gpt-5.1-chat-latest should NOT have textVerbosity set (only supports medium)", () => {
-    const model = createGpt5Model("gpt-5.1-chat-latest")
+    const model = createVerbosityModel("gpt-5.1-chat-latest")
     const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
     expect(result.textVerbosity).toBeUndefined()
   })
 
   test("gpt-5.2-chat should NOT have textVerbosity set", () => {
-    const model = createGpt5Model("gpt-5.2-chat")
+    const model = createVerbosityModel("gpt-5.2-chat")
     const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
     expect(result.textVerbosity).toBeUndefined()
   })
 
   test("gpt-5-chat should NOT have textVerbosity set", () => {
-    const model = createGpt5Model("gpt-5-chat")
+    const model = createVerbosityModel("gpt-5-chat")
     const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
     expect(result.textVerbosity).toBeUndefined()
   })
 
   test("gpt-5.2-codex should NOT have textVerbosity set (codex models excluded)", () => {
-    const model = createGpt5Model("gpt-5.2-codex")
+    const model = createVerbosityModel("gpt-5.2-codex")
     const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
     expect(result.textVerbosity).toBeUndefined()
   })
 
   test("gpt-5.2-image should NOT have textVerbosity set", () => {
-    const model = createGpt5Model("gpt-5.2-image")
+    const model = createVerbosityModel("gpt-5.2-image")
     const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
     expect(result.textVerbosity).toBeUndefined()
   })
-
-  test("gpt-5.2 on azure should NOT have textVerbosity set", () => {
-    const model = { ...createGpt5Model("gpt-5.2"), providerID: "azure", api: { id: "gpt-5.2", npm: "@ai-sdk/azure" } }
-    const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
-    expect(result.textVerbosity).toBeUndefined()
-  })
-})
-
-describe("ProviderTransform.options - gpt-6 textVerbosity", () => {
-  const sessionID = "test-session-123"
-
-  const createModel = (providerID: string, npm: string, apiId: string) =>
-    ({
-      id: `${providerID}/${apiId}`,
-      providerID,
-      api: { id: apiId, url: "https://example.test", npm },
-      name: apiId,
-      capabilities: { temperature: true, reasoning: true, toolcall: true, interleaved: false },
-      limit: { context: 400_000, output: 128_000 },
-      options: {},
-      headers: {},
-    }) as any
 
   test.each([
     ["openai", "@ai-sdk/openai", "gpt-6.1-sol"],
     ["openai", "@ai-sdk/openai", "gpt-6-luna"],
+    ["azure", "@ai-sdk/azure", "gpt-5.2"],
     ["azure", "@ai-sdk/azure", "gpt-6.1-sol"],
+    ["azure-cognitive-services", "@ai-sdk/azure", "gpt-5.2"],
     ["azure-cognitive-services", "@ai-sdk/azure", "gpt-6-luna"],
+    ["vercel", "@ai-sdk/gateway", "openai/gpt-5.2"],
     ["vercel", "@ai-sdk/gateway", "openai/gpt-6.1-sol"],
   ])("%s %s %s defaults textVerbosity to low", (providerID, npm, apiId) => {
-    const model = createModel(providerID, npm, apiId)
+    const model = createVerbosityModel(apiId, providerID, npm)
     const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
     expect(result.textVerbosity).toBe("low")
   })
 
   test.each([
+    ["openai", "@ai-sdk/openai", "gpt-6.1-chat-latest"],
+    ["openai", "@ai-sdk/openai", "gpt-6-image"],
+    ["openai", "@ai-sdk/openai", "gpt-6-codex"],
+    ["openrouter", "@openrouter/ai-sdk-provider", "openai/gpt-5.2"],
     ["openrouter", "@openrouter/ai-sdk-provider", "openai/gpt-6.1-sol"],
+    ["kilo", "@ai-sdk/openai-compatible", "openai/gpt-5.2"],
     ["kilo", "@ai-sdk/openai-compatible", "openai/gpt-6-luna"],
+    ["amazon-bedrock", "@ai-sdk/amazon-bedrock", "openai.gpt-5.4"],
     ["amazon-bedrock", "@ai-sdk/amazon-bedrock", "openai.gpt-6.1-sol"],
     ["gitlab", "@gitlab/gitlab-ai-provider", "duo-chat-gpt-6-1-sol"],
   ])("%s %s %s leaves textVerbosity unset", (providerID, npm, apiId) => {
-    const model = createModel(providerID, npm, apiId)
+    const model = createVerbosityModel(apiId, providerID, npm)
     const result = ProviderTransform.options({ model, sessionID, providerOptions: {} })
     expect(result.textVerbosity).toBeUndefined()
   })
