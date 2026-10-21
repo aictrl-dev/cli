@@ -23,6 +23,7 @@ import { SystemPrompt } from "./system"
 import { PermissionNext } from "@/permission/next"
 import { Auth } from "@/auth"
 import { ProviderTermination } from "@/provider/termination"
+import { ToolSelection } from "@/tool/selection"
 import { ToolGuidance } from "@/tool/guidance"
 
 export namespace LLM {
@@ -164,12 +165,14 @@ export namespace LLM {
       input.model.api.id.toLowerCase().includes("litellm")
 
     if (isLiteLLMProxy && Object.keys(tools).length === 0 && hasToolCalls(input.messages)) {
-      tools["_noop"] = tool({
-        description:
-          "Placeholder for LiteLLM/Anthropic proxy compatibility - required when message history contains tool calls but no active tools are needed",
-        inputSchema: jsonSchema({ type: "object", properties: {} }),
-        execute: async () => ({ output: "", title: "", metadata: {} }),
-      })
+      tools["_noop"] = ToolGuidance.bindProtocol(
+        tool({
+          description:
+            "Placeholder for LiteLLM/Anthropic proxy compatibility - required when message history contains tool calls but no active tools are needed",
+          inputSchema: jsonSchema({ type: "object", properties: {} }),
+          execute: async () => ({ output: "", title: "", metadata: {} }),
+        }),
+      )
     }
 
     return streamText({
@@ -181,13 +184,12 @@ export namespace LLM {
       async experimental_repairToolCall(failed) {
         if (failed.toolCall.toolName === "StructuredOutput" && input.structured) {
           input.structured.repairs.add(failed.toolCall.toolCallId)
+          const error = await input.structured.reject(failed.toolCall.input)
+          if (!tools.invalid || !ToolGuidance.isProtocol(tools.invalid)) return null
           return {
             ...failed.toolCall,
             toolName: "invalid",
-            input: JSON.stringify({
-              tool: "StructuredOutput",
-              error: await input.structured.reject(failed.toolCall.input),
-            }),
+            input: JSON.stringify({ tool: "StructuredOutput", error }),
           }
         }
         const lower = failed.toolCall.toolName.toLowerCase()
@@ -201,6 +203,8 @@ export namespace LLM {
             toolName: lower,
           }
         }
+        // A user tool with this name is work, never a repair destination.
+        if (!tools.invalid || !ToolGuidance.isProtocol(tools.invalid)) return null
         return {
           ...failed.toolCall,
           input: JSON.stringify({
@@ -214,7 +218,7 @@ export namespace LLM {
       topP: params.topP,
       topK: params.topK,
       providerOptions: ProviderTransform.providerOptions(input.model, params.options),
-      activeTools: Object.keys(tools).filter((x) => x !== "invalid"),
+      activeTools: Object.keys(tools).filter((name) => name !== "invalid" || !ToolGuidance.isProtocol(tools[name])),
       tools,
       toolChoice: input.toolChoice,
       maxOutputTokens,
@@ -283,8 +287,13 @@ export namespace LLM {
     const ruleset = PermissionNext.merge(input.agent.permission, input.permission ?? [])
     const tools = { ...input.tools }
     const disabled = PermissionNext.disabled(Object.keys(tools), ruleset)
+    const selection = ToolSelection.restore(input.user.toolSelection)
     for (const tool of Object.keys(tools)) {
-      if (input.user.tools?.[tool] === false || disabled.has(tool)) {
+      if (
+        input.user.tools?.[tool] === false ||
+        disabled.has(tool) ||
+        (!ToolGuidance.isProtocol(tools[tool]) && selection.allowlist !== null && !selection.allowlist.includes(tool))
+      ) {
         delete tools[tool]
       }
     }

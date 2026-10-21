@@ -1,3 +1,4 @@
+import type { CommandInput } from "@aictrl/sdk/v2"
 import { z } from "zod"
 
 export type ToolContext = {
@@ -14,6 +15,23 @@ export type ToolContext = {
    * Useful for generating stable relative paths (e.g. path.relative(worktree, absPath)).
    */
   worktree: string
+  /** Checked request-local work-tool dispatch, available during a model run.
+   * This controls registered dispatch, not arbitrary plugin host code.
+   */
+  selection?: {
+    readonly names: readonly string[]
+    readonly restricted: boolean
+    assert(name: string): void
+    execute(
+      name: string,
+      args: unknown,
+    ): Promise<{
+      title: string
+      output: string
+      metadata: Record<string, unknown>
+      attachments?: Omit<Extract<NonNullable<CommandInput["parts"]>[number], { type: "file" }>, "id">[]
+    }>
+  }
   abort: AbortSignal
   metadata(input: { title?: string; metadata?: { [key: string]: any } }): void
   ask(input: AskInput): Promise<void>

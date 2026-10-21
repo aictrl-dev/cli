@@ -80,11 +80,20 @@ export namespace ToolRegistry {
         parameters: z.object(def.args),
         description: def.description,
         execute: async (args, ctx) => {
+          const selection = ctx.selection
           const pluginCtx = {
             ...ctx,
             directory: Instance.directory,
             worktree: Instance.worktree,
-          } as unknown as PluginToolContext
+            selection: selection
+              ? Object.freeze({
+                  names: Object.freeze([...selection.names]),
+                  restricted: selection.restricted,
+                  assert: (name: string) => selection.assert(name),
+                  execute: (name: string, args: unknown) => selection.execute(name, args, ctx),
+                })
+              : undefined,
+          } satisfies PluginToolContext
           const result = await def.execute(args as any, pluginCtx)
           const out = await Truncate.output(result, {}, initCtx?.agent)
           return {

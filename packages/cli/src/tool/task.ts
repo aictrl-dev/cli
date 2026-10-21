@@ -145,16 +145,19 @@ export const TaskTool = Tool.define("task", async (ctx) => {
       using _ = defer(() => ctx.abort.removeEventListener("abort", cancel))
       const promptParts = await SessionPrompt.resolvePromptParts(params.prompt)
 
-      const result = await SessionPrompt.prompt({
-        messageID,
-        sessionID: session.id,
-        model: {
-          modelID: model.modelID,
-          providerID: model.providerID,
+      const result = await SessionPrompt.child(
+        {
+          messageID,
+          sessionID: session.id,
+          model: {
+            modelID: model.modelID,
+            providerID: model.providerID,
+          },
+          agent: agent.name,
+          parts: promptParts,
         },
-        agent: agent.name,
-        parts: promptParts,
-      })
+        ctx.selection?.restricted ? ctx.selection.names : undefined,
+      )
 
       const text = await completeTask(result, session.id, ctx.sessionID)
 

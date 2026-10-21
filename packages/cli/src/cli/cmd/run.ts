@@ -1,4 +1,6 @@
 import { outputSchema, outputResult, OUTPUT_SCHEMA_CONFIG, OUTPUT_CONFIG_EXIT, OUTPUT_FAILED_EXIT } from "./run.output"
+import { ToolSelection } from "../../tool/selection"
+import { Config } from "../../config/config"
 import { OutputSchema } from "@/session/output-schema"
 import type { Argv } from "yargs"
 import path from "path"
@@ -375,6 +377,12 @@ export const RunCommand = cmd({
         .strictOptions()
         .strictCommands(false)
         .parserConfiguration({ "populate--": true, "parse-positional-numbers": false })
+        .option("tools", {
+          type: "string",
+          nargs: 1,
+          describe:
+            "exact comma-separated work-tool names; use an empty string for no work tools (permissions still apply)",
+        })
         .option("command", {
           describe: "the command to run, use message for args",
           type: "string",
@@ -486,6 +494,27 @@ export const RunCommand = cmd({
       UI.error(message)
       await invocation.abort(message, code)
       process.exit(exit)
+    }
+
+    const requested = args.tools
+    if (requested !== undefined && typeof requested !== "string") {
+      await fail(
+        "Use --tools once with one comma-separated argument (for example, --tools read,bash).",
+        "INVOCATION_INVALID_ARGUMENTS",
+      )
+    }
+    const toolAllowlist =
+      requested === undefined
+        ? undefined
+        : await Promise.resolve()
+            .then(() => ToolSelection.parse(requested))
+            .catch((error) => fail(error.message, "INVOCATION_INVALID_ARGUMENTS"))
+
+    if (args.attach && requested !== undefined) {
+      await fail(
+        "Work-tool selection is not supported with --attach: this client cannot verify server-side enforcement. Remove --tools or run locally.",
+        "INVOCATION_INVALID_ARGUMENTS",
+      )
     }
 
     if (args.share === true) {
@@ -1145,6 +1174,7 @@ export const RunCommand = cmd({
       if (args.command) {
         const opts = {
           agent,
+          toolAllowlist,
           model: args.model,
           command: args.command,
           arguments: { argv: normalized.argv, ...(stdin !== undefined ? { stdin } : {}) },
@@ -1157,6 +1187,7 @@ export const RunCommand = cmd({
         const model = args.model ? Provider.parseModel(args.model) : undefined
         const opts = {
           agent,
+          toolAllowlist,
           model,
           variant: args.variant,
           parts: [...files, { type: "text", text: message }],
@@ -1199,6 +1230,14 @@ export const RunCommand = cmd({
 
     invocation.phase("bootstrap")
     if (args.attach) {
+      // This checkout has no receiver/capability contract that can enforce selection.
+      const configured = await invocation.guard(() => Config.readToolSelection(process.cwd()))
+      if (configured !== undefined) {
+        await fail(
+          "Work-tool selection is not supported with --attach: this client cannot verify server-side enforcement. Remove --tools and local tool_allowlist or run locally.",
+          "INVOCATION_INVALID_ARGUMENTS",
+        )
+      }
       return await invocation.run(() => execute(createAictrlClient({ baseUrl: args.attach, directory })))
     }
 
@@ -1234,6 +1273,7 @@ export const RunCommand = cmd({
               sessionID: opts.sessionID,
               parts: opts.parts,
               agent: opts.agent,
+              toolAllowlist: opts.toolAllowlist,
               model: opts.model,
               variant: opts.variant,
               ...(opts.format ? { format: opts.format } : {}),
@@ -1245,6 +1285,7 @@ export const RunCommand = cmd({
               command: opts.command,
               arguments: opts.arguments ?? "",
               agent: opts.agent,
+              toolAllowlist: opts.toolAllowlist,
               model: opts.model,
               variant: opts.variant,
               ...(opts.format ? { format: opts.format } : {}),

@@ -45,6 +45,8 @@ let source = await legacy.text()
 for (const name of [
   "StepFinishPart",
   "AssistantMessage",
+  "UserMessage",
+  "Config",
   "OutputFormat",
   "EventSessionStructuredOutput",
   "EventSessionStructuredOutputRejected",

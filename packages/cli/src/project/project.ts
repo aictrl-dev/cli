@@ -87,10 +87,9 @@ export namespace Project {
     }
   }
 
-  export async function fromDirectory(directory: string) {
-    log.info("fromDirectory", { directory })
-
-    const data = await iife(async () => {
+  /** Discover actual roots without opening the database or persisting project state. */
+  export async function locate(directory: string, options: { cache: boolean } = { cache: false }) {
+    return iife(async () => {
       const matches = Filesystem.up({ targets: [".git"], start: directory })
       const dotgit = await matches.next().then((x) => x.value)
       await matches.return()
@@ -137,7 +136,7 @@ export namespace Project {
           }
 
           id = roots[0]
-          if (id) {
+          if (id && options.cache) {
             await Filesystem.write(path.join(dotgit, "aictrl"), id).catch(() => undefined)
           }
         }
@@ -202,6 +201,12 @@ export namespace Project {
         vcs: Info.shape.vcs.parse(Flag.AICTRL_FAKE_VCS),
       }
     })
+  }
+
+  export async function fromDirectory(directory: string) {
+    log.info("fromDirectory", { directory })
+
+    const data = await locate(directory, { cache: true })
 
     const row = Database.use((db) => db.select().from(ProjectTable).where(eq(ProjectTable.id, data.id)).get())
     const existing = await iife(async () => {

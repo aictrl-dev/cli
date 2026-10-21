@@ -1,5 +1,6 @@
 import type { CommandModule } from "yargs"
 import z from "zod"
+import { Config } from "@/config/config"
 import { MessageV2 } from "@/session/message-v2"
 import { Session } from "@/session"
 import { SessionPrompt } from "@/session/prompt"
@@ -16,6 +17,8 @@ export const GenerateCommand = {
     registry.add(ProviderTermination.Info, { id: "ProviderTermination" })
     registry.add(MessageV2.Format, { id: "OutputFormat" })
     registry.add(MessageV2.Assistant, { id: "AssistantMessage" })
+    registry.add(MessageV2.User, { id: "UserMessage" })
+    registry.add(Config.Info, { id: "Config" })
     registry.add(
       z.object({
         type: z.literal(Session.Event.StructuredOutput.type),

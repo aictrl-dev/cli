@@ -14,6 +14,89 @@ The headless agent harness for CI, cron jobs, and container workflows.
 - **Declarative Permissions:** Per-tool allow/deny rules (`permission` config); tools denied everywhere are stripped from the model request to save tokens.
 - **Skills & MCP:** Progressive skill loading (`--skill`) and first-class [Model Context Protocol](https://modelcontextprotocol.io) support.
 
+## Select work tools for one run
+
+Use exact registered names to choose an independent work-tool allowlist:
+
+```bash
+aictrl run --tools read,glob,grep "Find the configuration entry points"
+aictrl run --tools '' "Answer using only the supplied prompt"
+```
+
+Omitting `--tools` uses the final config's optional `tool_allowlist` preference;
+without either input, normal tools remain available. For example,
+`"tool_allowlist": ["read", "grep"]` sets a default, and `[]` selects no work
+tools. Later config sources replace the whole array, including an empty array.
+The CLI replaces that preference for the current invocation. It does not change
+the next invocation's default, including on reused or forked sessions.
+
+Names are case-sensitive and exact: `read`, `write`, and `edit` are independent;
+no aliases or automatic dependencies are added. Exact duplicates are removed in
+first-seen order. Whitespace-only names, surrounding whitespace, empty comma
+elements and unknown or model/flag-unavailable names fail before model inference.
+A selected tool that permissions deny remains denied. Existing permission
+aliases, path checks and last-match rules still apply.
+
+Start with a toolset that matches the task and the model's available catalog:
+
+| Task                                  | `--tools` value                   |
+| ------------------------------------- | --------------------------------- |
+| Review code                           | `read,glob,grep`                  |
+| Explain supplied code or a known file | `read`                            |
+| Fix code with an edit/write catalog   | `read,glob,grep,edit,write,bash`  |
+| Fix code with an apply_patch catalog  | `read,glob,grep,apply_patch,bash` |
+
+Use the fix variant supported by the selected model; unavailable names fail.
+Include `bash` only when the task needs shell commands such as tests. The review
+and explain examples select registered work tools; existing permission checks
+still apply.
+
+The saved user invocation retains its resolved selection for continuation and
+compaction. When selection is active, delegated tasks (including resumed task
+sessions) inherit a ceiling from the parent's effective tools; child config,
+model and permissions can narrow it. Batch validates its whole group against the
+same request catalog before executing any call. Recursive Batch and MCP tools
+remain unsupported inside Batch. Custom tools retain their actual identity when
+replacing a built-in name. Explicit caller-directed command subtasks keep their
+existing Task authorization exception; an active selection still requires the
+eligible native Task tool to be selected, without adding permission allow rules.
+
+`StructuredOutput`, invalid-call repair and LiteLLM's compatibility placeholder
+are protocol/control tools, outside the work allowlist. Schema mode still needs
+permission to call `StructuredOutput`; selecting work tools never grants that
+permission. An empty work allowlist can therefore coexist with an explicitly
+permitted StructuredOutput protocol tool. Custom tools with protocol-like names
+remain work tools, except that an active output schema reserves the
+`StructuredOutput` wire name for the harness-created protocol tool. A custom
+`StructuredOutput` is selectable as work only outside schema mode.
+
+Custom tools can use the optional typed `context.selection` facade to inspect
+`names`/`restricted`, assert availability, or call
+`await context.selection.execute("read", { filePath: "/path/to/file" })`.
+Dispatch is bound to the actual caller context, checks the same catalog and
+permissions before hooks, and validates captured registry parameters. Omitting a
+tool or denying it in permissions also prevents this supported nested dispatch.
+The facade and names are immutable; arbitrary plugin host code remains trusted.
+
+Selection applies to harness-dispatched model work. Caller `--file`/`@file`
+attachments and configured command-template shell expansion are input preparation
+and keep their existing behavior. This is not an operating-system sandbox for
+selected Bash commands or arbitrary plugin host code. Independent debug-tool
+commands do not inherit `run` selection.
+
+**Attach:** this headless checkout has no owned server or verified server-side
+selection capability. Any explicit or locally configured selection, including an
+empty list, fails with `--attach` before receiver API calls, remote session
+creation/fork/prompt/command or model inference. An explicit CLI selector fails
+before configuration discovery. With the CLI selector omitted, read-only
+configuration discovery preserves normal config precedence and can fetch
+well-known configuration; this configuration HTTP is distinct from attach
+receiver calls. It performs no plugin/dependency setup, config rewrites, legacy
+TOML migration or token refresh. Invalid local configuration can therefore fail
+before attach. Valid configuration without a selector retains the existing
+attach transport and contents. Successful remote selection requires a future
+supporting receiver and is not provided by this option.
+
 ## Automation Usage
 
 Aictrl is built to be used in non-interactive environments.
@@ -143,12 +226,12 @@ Aictrl reads config from `.aictrl/` (project) or `~/.config/aictrl/` (global).
 
 ### Models
 
-| Provider | Env Var |
-|----------|---------|
-| Anthropic | `ANTHROPIC_API_KEY` |
-| OpenAI | `OPENAI_API_KEY` |
+| Provider         | Env Var                                                              |
+| ---------------- | -------------------------------------------------------------------- |
+| Anthropic        | `ANTHROPIC_API_KEY`                                                  |
+| OpenAI           | `OPENAI_API_KEY`                                                     |
 | Google AI Studio | `GOOGLE_GENERATIVE_AI_API_KEY`, `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
-| OpenRouter | `OPENROUTER_API_KEY` |
+| OpenRouter       | `OPENROUTER_API_KEY`                                                 |
 
 Use `--variant` to select provider-specific reasoning effort. For OpenAI-compatible
 Ollama models, `--variant none` sends `reasoning_effort: "none"` to disable

@@ -19,10 +19,27 @@ export namespace ConfigPaths {
     return files
   }
 
-  export async function directories(directory: string, worktree: string) {
+  function home(environment?: Record<string, string>) {
+    return environment?.[process.platform === "win32" ? "USERPROFILE" : "HOME"] ?? os.homedir()
+  }
+
+  // Mirror only dynamic canonical environment reads. Module-load Flag constants
+  // must not acquire different precedence in read-only configuration discovery.
+  export function settings(environment?: Record<string, string>) {
+    const disabled = environment?.AICTRL_DISABLE_PROJECT_CONFIG
+    return {
+      disableProject:
+        disabled === undefined ? Flag.AICTRL_DISABLE_PROJECT_CONFIG : ["true", "1"].includes(disabled.toLowerCase()),
+      configDir: environment?.AICTRL_CONFIG_DIR ?? Flag.AICTRL_CONFIG_DIR,
+      home: (environment?.AICTRL_TEST_HOME ?? process.env.AICTRL_TEST_HOME) || home(environment),
+    }
+  }
+
+  export async function directories(directory: string, worktree: string, environment?: Record<string, string>) {
+    const config = settings(environment)
     return [
       Global.Path.config,
-      ...(!Flag.AICTRL_DISABLE_PROJECT_CONFIG
+      ...(!config.disableProject
         ? await Array.fromAsync(
             Filesystem.up({
               targets: [".aictrl", ".opencode"],
@@ -34,11 +51,11 @@ export namespace ConfigPaths {
       ...(await Array.fromAsync(
         Filesystem.up({
           targets: [".aictrl", ".opencode"],
-          start: Global.Path.home,
-          stop: Global.Path.home,
+          start: config.home,
+          stop: config.home,
         }),
       )),
-      ...(Flag.AICTRL_CONFIG_DIR ? [Flag.AICTRL_CONFIG_DIR] : []),
+      ...(config.configDir ? [config.configDir] : []),
     ]
   }
 
@@ -84,33 +101,62 @@ export namespace ConfigPaths {
   /** Allowed prefixes for {env:VAR} substitution. Fail-closed: unknown vars expand to empty. */
   const ENV_ALLOWED_PREFIXES = [
     // aictrl/opencode specific
-    "AICTRL_", "OPENCODE_",
+    "AICTRL_",
+    "OPENCODE_",
     // AI provider keys (users need these in config)
-    "ANTHROPIC_", "OPENAI_", "AZURE_", "AWS_", "GOOGLE_",
-    "GITHUB_", "MISTRAL_", "GROQ_", "TOGETHER_",
-    "DEEPSEEK_", "XAI_", "COHERE_", "FIREWORKS_",
-    "ZHIPU_", "AICORE_",
+    "ANTHROPIC_",
+    "OPENAI_",
+    "AZURE_",
+    "AWS_",
+    "GOOGLE_",
+    "GITHUB_",
+    "MISTRAL_",
+    "GROQ_",
+    "TOGETHER_",
+    "DEEPSEEK_",
+    "XAI_",
+    "COHERE_",
+    "FIREWORKS_",
+    "ZHIPU_",
+    "AICORE_",
     // Standard system vars
-    "HOME", "USER", "PATH", "SHELL", "TERM", "LANG",
-    "XDG_", "LC_", "NODE_", "BUN_",
+    "HOME",
+    "USER",
+    "PATH",
+    "SHELL",
+    "TERM",
+    "LANG",
+    "XDG_",
+    "LC_",
+    "NODE_",
+    "BUN_",
     // Proxy configuration
-    "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
-    "http_proxy", "https_proxy", "no_proxy",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
   ]
 
-  const ENV_EXACT_MATCHES = new Set(ENV_ALLOWED_PREFIXES.filter(p => !p.endsWith("_")))
-  const ENV_PREFIX_MATCHES = ENV_ALLOWED_PREFIXES.filter(p => p.endsWith("_"))
+  const ENV_EXACT_MATCHES = new Set(ENV_ALLOWED_PREFIXES.filter((p) => !p.endsWith("_")))
+  const ENV_PREFIX_MATCHES = ENV_ALLOWED_PREFIXES.filter((p) => p.endsWith("_"))
 
   function isAllowedEnvVar(name: string): boolean {
     if (ENV_EXACT_MATCHES.has(name)) return true
-    return ENV_PREFIX_MATCHES.some(prefix => name.startsWith(prefix))
+    return ENV_PREFIX_MATCHES.some((prefix) => name.startsWith(prefix))
   }
 
   /** Apply {env:VAR} and {file:path} substitutions to config text. */
-  async function substitute(text: string, input: ParseSource, missing: "error" | "empty" = "error") {
+  async function substitute(
+    text: string,
+    input: ParseSource,
+    missing: "error" | "empty" = "error",
+    environment?: Record<string, string>,
+  ) {
     text = text.replace(/\{env:([^}]+)\}/g, (_, varName) => {
       if (!isAllowedEnvVar(varName)) return ""
-      return process.env[varName] || ""
+      return environment?.[varName] ?? process.env[varName] ?? ""
     })
 
     const fileMatches = Array.from(text.matchAll(/\{file:[^}]+\}/g))
@@ -136,7 +182,7 @@ export namespace ConfigPaths {
 
       let filePath = token.replace(/^\{file:/, "").replace(/\}$/, "")
       if (filePath.startsWith("~/")) {
-        filePath = path.join(os.homedir(), filePath.slice(2))
+        filePath = path.join(home(environment), filePath.slice(2))
       }
 
       const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(configDir, filePath)
@@ -167,9 +213,14 @@ export namespace ConfigPaths {
   }
 
   /** Substitute and parse JSONC text, throwing JsonError on syntax errors. */
-  export async function parseText(text: string, input: ParseSource, missing: "error" | "empty" = "error") {
+  export async function parseText(
+    text: string,
+    input: ParseSource,
+    missing: "error" | "empty" = "error",
+    environment?: Record<string, string>,
+  ) {
     const configSource = source(input)
-    text = await substitute(text, input, missing)
+    text = await substitute(text, input, missing, environment)
 
     const errors: JsoncParseError[] = []
     const data = parseJsonc(text, errors, { allowTrailingComma: true })
