@@ -58,6 +58,12 @@ const guard = [
 ].join("\n")
 
 async function run(input: Input) {
+  const fixturePath = [path.dirname(process.execPath), "/usr/local/bin", "/usr/bin", "/bin"].join(path.delimiter)
+  const ripgrep = Bun.which("rg", { PATH: fixturePath })
+  if (!ripgrep)
+    throw new Error(
+      "Selector CLI fixtures require a real ripgrep executable on the child PATH. On Ubuntu install ripgrep, then verify rg --version; fixture network downloads are forbidden.",
+    )
   await using tmp = await tmpdir()
   const requests: Request[] = []
   const calls = [...(input.calls ?? [])]
@@ -222,7 +228,7 @@ async function run(input: Input) {
   const process_ = Bun.spawn(command, {
     cwd: tmp.path,
     env: {
-      PATH: [path.dirname(process.execPath), "/usr/local/bin", "/usr/bin", "/bin"].join(path.delimiter),
+      PATH: fixturePath,
       SHELL: "/bin/bash",
       HOME: home,
       AICTRL_TEST_HOME: home,
@@ -283,6 +289,7 @@ async function run(input: Input) {
       files[name] = (await file.exists()) ? await file.text() : null
     }
     const result = {
+      ripgrep,
       deadlineFired,
       deadlineMs,
       files,
