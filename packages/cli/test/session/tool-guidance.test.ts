@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test"
+import { afterAll, beforeAll, describe, expect, spyOn, test, type Mock } from "bun:test"
 import path from "node:path"
 
 // Install before runtime imports: every model request is local or an intercepted
@@ -149,66 +149,83 @@ async function fixture(
   } = {},
   fn: (context: Fixture) => Promise<void>,
 ) {
-  transport.captures = []
-  transport.codex = options.codex ?? false
   const providerID = options.gpt || options.codex ? "openai" : "fixture"
   const modelID = providerID === "openai" ? "gpt-5.2" : "fixture"
-  const server = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    async fetch(request) {
-      transport.captures.push((await request.json()) as Wire)
-      if (options.call && transport.captures.length === 1) {
-        const call = options.call()
-        return sse([
-          {
-            id: "fixture-call",
-            object: "chat.completion.chunk",
-            choices: [
-              {
-                index: 0,
-                delta: {
-                  role: "assistant",
-                  tool_calls: [
-                    {
-                      index: 0,
-                      id: "runtime-call",
-                      type: "function",
-                      function: { name: call.name, arguments: JSON.stringify(call.arguments) },
-                    },
-                  ],
-                },
-              },
-            ],
-          },
-          {
-            id: "fixture-call",
-            object: "chat.completion.chunk",
-            choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
-          },
-        ])
-      }
-      return providerID === "openai" ? responses() : chat()
-    },
-  })
-  transport.origin = server.url.origin
-  const previousAuth = options.codex ? await Auth.get("openai") : undefined
-  if (options.codex)
-    await Auth.set("openai", {
-      type: "oauth",
-      access: "fixture-access",
-      refresh: "fixture-refresh",
-      expires: Date.now() + 60_000,
-    })
+  let server: Bun.Server<undefined> | undefined
+  let previousAuth: { value: Awaited<ReturnType<typeof Auth.get>> } | undefined
+  let authSwapAttempted = false
   const original = LLM.stream
   let last: StreamInput | undefined
   let persisted: unknown
   const persistedCheckpoints: unknown[] = []
-  const spy = spyOn(LLM, "stream").mockImplementation(async (input) => {
-    last = input
-    return original(input)
-  })
+  let spy: Mock<typeof LLM.stream> | undefined
+  let primaryFailure: { error: unknown } | undefined
+  const cleanupErrors: Error[] = []
+  const diagnosticErrors: Error[] = []
+  async function attempt(errors: Error[], operation: string, fn: () => unknown | Promise<unknown>) {
+    try {
+      await fn()
+    } catch (cause) {
+      errors.push(new Error(operation, { cause }))
+    }
+  }
   try {
+    transport.captures = []
+    transport.codex = options.codex ?? false
+    server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        transport.captures.push((await request.json()) as Wire)
+        if (options.call && transport.captures.length === 1) {
+          const call = options.call()
+          return sse([
+            {
+              id: "fixture-call",
+              object: "chat.completion.chunk",
+              choices: [
+                {
+                  index: 0,
+                  delta: {
+                    role: "assistant",
+                    tool_calls: [
+                      {
+                        index: 0,
+                        id: "runtime-call",
+                        type: "function",
+                        function: { name: call.name, arguments: JSON.stringify(call.arguments) },
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+            {
+              id: "fixture-call",
+              object: "chat.completion.chunk",
+              choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+            },
+          ])
+        }
+        return providerID === "openai" ? responses() : chat()
+      },
+    })
+    transport.origin = server.url.origin
+    if (options.codex) {
+      previousAuth = { value: await Auth.get("openai") }
+      authSwapAttempted = true
+      await Auth.set("openai", {
+        type: "oauth",
+        access: "fixture-access",
+        refresh: "fixture-refresh",
+        expires: Date.now() + 60_000,
+      })
+    }
+    spy = spyOn(LLM, "stream")
+    spy.mockImplementation(async (input) => {
+      last = input
+      return original(input)
+    })
     await using tmp = await tmpdir({
       init: options.init,
       config: {
@@ -305,43 +322,135 @@ async function fixture(
         try {
           await fn(context)
         } finally {
-          persisted = await context.messages()
+          await attempt(diagnosticErrors, "Failed to capture persisted fixture messages", async () => {
+            persisted = await context.messages()
+          })
         }
       },
     })
+  } catch (error) {
+    primaryFailure = { error }
   } finally {
+    const acquiredSpy = spy
+    if (acquiredSpy) await attempt(cleanupErrors, "Failed to restore LLM.stream", () => acquiredSpy.mockRestore())
+    const acquiredServer = server
+    if (acquiredServer) await attempt(cleanupErrors, "Failed to stop fixture server", () => acquiredServer.stop(true))
+    await attempt(cleanupErrors, "Failed to reset fixture transport", () => {
+      transport.origin = ""
+      transport.codex = false
+    })
+    if (authSwapAttempted && previousAuth) {
+      const snapshot = previousAuth.value
+      await attempt(cleanupErrors, "Failed to restore fixture auth", async () => {
+        if (snapshot) await Auth.set("openai", snapshot)
+        else await Auth.remove("openai")
+      })
+    }
     const output = process.env.GUIDANCE_CAPTURE_DIR
     if (output)
-      await Bun.write(
-        path.join(output, `${label}.json`),
-        JSON.stringify(
-          {
-            label,
-            fixtureOptions: options,
-            codex: options.codex ?? false,
-            requests: transport.captures,
-            persisted,
-            persistedCheckpoints,
-          },
-          null,
-          2,
+      await attempt(diagnosticErrors, "Failed to write fixture capture", () =>
+        Bun.write(
+          path.join(output, `${label}.json`),
+          JSON.stringify(
+            {
+              label,
+              fixtureOptions: options,
+              codex: options.codex ?? false,
+              requests: transport.captures,
+              persisted,
+              persistedCheckpoints,
+            },
+            null,
+            2,
+          ),
         ),
       )
-    spy.mockRestore()
-    server.stop(true)
-    transport.origin = ""
-    transport.codex = false
-    if (options.codex) {
-      if (previousAuth) await Auth.set("openai", previousAuth)
-      else await Auth.remove("openai")
-    }
   }
+  if (cleanupErrors.length || diagnosticErrors.length) {
+    throw new AggregateError(
+      [
+        ...(primaryFailure ? [primaryFailure.error] : []),
+        ...(cleanupErrors.length ? [new AggregateError(cleanupErrors, "Fixture cleanup failed")] : []),
+        ...(diagnosticErrors.length ? [new AggregateError(diagnosticErrors, "Fixture diagnostics failed")] : []),
+      ],
+      `Tool guidance fixture ${label} failed`,
+      primaryFailure ? { cause: primaryFailure.error } : undefined,
+    )
+  }
+  if (primaryFailure) throw primaryFailure.error
 }
 
 beforeAll(() => HeadlessRun.enable())
 afterAll(() => {
   HeadlessRun.disable()
   globalThis.fetch = originalFetch
+})
+
+describe("guidance fixture teardown", () => {
+  for (const callbackFails of [false, true]) {
+    test(`capture failure restores fixture resources${callbackFails ? " and preserves the callback error" : ""}`, async () => {
+      await using tmp = await tmpdir()
+      const output = path.join(tmp.path, "capture-path-conflict")
+      await Bun.write(output, "owned regular file, not a capture directory")
+      const previousCapture = process.env.GUIDANCE_CAPTURE_DIR
+      const previousStream = LLM.stream
+      const previousAuth = await Auth.get("openai")
+      const primary = new Error("Owned callback failure")
+      let origin = ""
+      let failure: unknown
+      process.env.GUIDANCE_CAPTURE_DIR = output
+      try {
+        await fixture("teardown-capture-conflict", { codex: true }, async () => {
+          origin = transport.origin
+          if (callbackFails) throw primary
+        })
+      } catch (error) {
+        failure = error
+      } finally {
+        if (previousCapture === undefined) delete process.env.GUIDANCE_CAPTURE_DIR
+        else process.env.GUIDANCE_CAPTURE_DIR = previousCapture
+      }
+      expect(failure).toBeInstanceOf(AggregateError)
+      const aggregate = failure as AggregateError
+      if (callbackFails) {
+        expect(aggregate.cause).toBe(primary)
+        expect(aggregate.errors[0]).toBe(primary)
+      } else expect(aggregate.cause).toBeUndefined()
+      const diagnostic = aggregate.errors.find(
+        (error) => error instanceof AggregateError && error.message === "Fixture diagnostics failed",
+      ) as AggregateError
+      expect(diagnostic).toBeInstanceOf(AggregateError)
+      expect(diagnostic.errors.some((error) => error.message === "Failed to write fixture capture")).toBe(true)
+      expect(LLM.stream).toBe(previousStream)
+      expect(transport.origin).toBe("")
+      expect(transport.codex).toBe(false)
+      expect(await Auth.get("openai")).toEqual(previousAuth)
+      expect(origin).toStartWith("http://127.0.0.1:")
+      await expect(originalFetch(origin)).rejects.toThrow()
+    })
+  }
+
+  test("successful capture is written after fixture resources are restored", async () => {
+    await using tmp = await tmpdir()
+    const previousCapture = process.env.GUIDANCE_CAPTURE_DIR
+    const previousStream = LLM.stream
+    const previousAuth = await Auth.get("openai")
+    process.env.GUIDANCE_CAPTURE_DIR = tmp.path
+    try {
+      await fixture("teardown-capture-success", { codex: true }, async () => {})
+      const capture = await Bun.file(path.join(tmp.path, "teardown-capture-success.json")).json()
+      expect(capture.label).toBe("teardown-capture-success")
+      expect(capture.codex).toBe(true)
+      expect(capture.requests).toEqual([])
+      expect(LLM.stream).toBe(previousStream)
+      expect(transport.origin).toBe("")
+      expect(transport.codex).toBe(false)
+      expect(await Auth.get("openai")).toEqual(previousAuth)
+    } finally {
+      if (previousCapture === undefined) delete process.env.GUIDANCE_CAPTURE_DIR
+      else process.env.GUIDANCE_CAPTURE_DIR = previousCapture
+    }
+  })
 })
 
 describe("actual request tool guidance (#244)", () => {
