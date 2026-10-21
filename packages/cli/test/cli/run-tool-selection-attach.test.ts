@@ -340,7 +340,7 @@ describe("read-only attach canonical config resolution (#246)", () => {
       ["POST", "/session/ses_attachfixture/message"],
     ])
     expect(result.requests[0].body).toEqual({ title: "Fixture attach prompt." })
-    expect(result.requests[2].body).toEqual({ parts: [{ type: "text", text: '"Fixture attach prompt."\n' }] })
+    expect(result.requests[2].body).toEqual({ parts: [{ type: "text", text: "Fixture attach prompt." }] })
     expect(result.markers["plugin-marker"]).toBe(false)
     expect(result.markers[".aictrl/.gitignore"]).toBe(false)
     expect(result.markers[".aictrl/node_modules"]).toBe(false)
