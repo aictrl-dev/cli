@@ -1,0 +1,44 @@
+name: Released aictrl consumer-contract smoke
+
+# Inactive companion example: copy to .github/workflows on a trusted branch.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      RECIPE_DIR: examples/released-smoke
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20.20.2
+      - name: Install pinned public release without package scripts
+        shell: bash
+        run: |
+          npm install --prefix "$RUNNER_TEMP/aictrl-owned-cli" \
+            --ignore-scripts --no-audit --no-fund \
+            @aictrl/cli@0.5.4 @aictrl/cli-linux-x64-baseline@0.5.4
+          node -e 'const fs=require("node:fs"); const root=process.env.RUNNER_TEMP+"/aictrl-owned-cli/node_modules/@aictrl/"; for(const name of ["cli","cli-linux-x64-baseline"]){const p=JSON.parse(fs.readFileSync(root+name+"/package.json","utf8")); if(p.version!=="0.5.4") throw new Error("Unexpected package version"); console.log(p.name+"@"+p.version)}'
+      - name: Run owned fixture against released native artifact
+        shell: bash
+        run: |
+          node "$RECIPE_DIR/smoke.mjs" \
+            --binary "$RUNNER_TEMP/aictrl-owned-cli/node_modules/@aictrl/cli-linux-x64-baseline/bin/aictrl" \
+            --expected-sha256 f12a54259ae0d77d85fd6d0cfefe1dcc742b95a617ca71e48f4fdfb2575182ee \
+            --evidence-dir "$RUNNER_TEMP/aictrl-owned-evidence"
+      - name: Retain only inert fixture evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: aictrl-owned-fixture-evidence
+          path: ${{ runner.temp }}/aictrl-owned-evidence
+          if-no-files-found: error
+          retention-days: 7
