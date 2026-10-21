@@ -75,6 +75,17 @@ let proc: ReturnType<typeof Bun.spawn> | undefined
 const campaignId = `release248-${process.pid}-${Date.now()}`
 const failures: unknown[] = []
 const cleanupChecks: unknown[] = []
+const errors: unknown[] = []
+const cleanups: { name: typeof ownedContainer; child: typeof proc; promise: Promise<void> }[] = []
+let interruption: { signal: "SIGINT" | "SIGTERM"; error: Error } | undefined
+function recordFailure(error: unknown, field: "campaignError" | "cleanupError" = "campaignError") {
+  if (errors.includes(error)) return
+  errors.push(error)
+  failures.push({ [field]: error instanceof Error ? error.message : String(error) })
+}
+function checkInterrupted() {
+  if (interruption) throw interruption.error
+}
 const arms: string[] = ["current-default", "previous-default"]
 const support: Record<string, boolean> = {}
 const raw: Record<string, Record<string, unknown[]>> = { short: Object.fromEntries(arms.map((x) => [x, []])) }
@@ -128,7 +139,9 @@ function checkpoint() {
   )
 }
 async function docker(args: string[]) {
+  checkInterrupted()
   const child = Bun.spawn(["docker", ...args], { env: hostEnv, stdin: "ignore", stdout: "pipe", stderr: "pipe" })
+  proc = child
   let timeout = false
   const timer = setTimeout(() => {
     timeout = true
@@ -141,12 +154,16 @@ async function docker(args: string[]) {
       child.exited,
     ])
     if (code || timeout) {
+      const error = new Error(`Docker preflight failed (${code}, timeout=${timeout}): ${err}`)
+      recordFailure(error)
       await cleanup()
-      throw new Error(`Docker preflight failed (${code}, timeout=${timeout}): ${err}`)
+      throw error
     }
+    checkInterrupted()
     return out
   } finally {
     clearTimeout(timer)
+    if (proc === child) proc = undefined
   }
 }
 async function cleanupCommand(args: string[]) {
@@ -167,30 +184,70 @@ async function cleanupCommand(args: string[]) {
     clearTimeout(timer)
   }
 }
-async function cleanup() {
-  try {
-    if (ownedContainer) {
-      const name = ownedContainer
-      const removed = await cleanupCommand(["rm", "-f", name])
-      const remaining = await cleanupCommand(["ps", "-aq", "--filter", `name=^/${name}$`])
-      cleanupChecks.push({ name, removed, remaining })
+function cleanup() {
+  const name = ownedContainer
+  const child = proc
+  const running = cleanups.find((item) => item.name === name && item.child === child)
+  if (running) return running.promise
+  const promise = (async () => {
+    const failed: unknown[] = []
+    try {
+      if (child && child.exitCode === null) child.kill("SIGKILL")
+    } catch (error) {
+      failed.push(error)
+    }
+    if (name) {
+      let removed: Awaited<ReturnType<typeof cleanupCommand>> | undefined
+      let remaining: Awaited<ReturnType<typeof cleanupCommand>> | undefined
+      try {
+        removed = await cleanupCommand(["rm", "-f", name])
+      } catch (error) {
+        failed.push(error)
+      }
+      try {
+        remaining = await cleanupCommand(["ps", "-aq", "--filter", `name=^/${name}$`])
+      } catch (error) {
+        failed.push(error)
+      }
+      cleanupChecks.push({ name, removed, remaining, errors: failed.map(String) })
       if (
+        !removed ||
+        !remaining ||
         removed.timedOut ||
         remaining.timedOut ||
         remaining.exit !== 0 ||
         remaining.stdout.trim() ||
         (removed.exit !== 0 && !removed.stderr.includes("No such container"))
       )
-        throw new Error(`Unverified container cleanup: ${name}`)
+        failed.push(new Error(`Unverified container cleanup: ${name}`))
     }
-  } finally {
-    if (proc && proc.exitCode === null) proc.kill("SIGKILL")
-  }
-}
-for (const signal of ["SIGINT", "SIGTERM"] as const)
-  process.on(signal, () => {
-    void cleanup().finally(() => process.exit(128 + (signal === "SIGINT" ? 2 : 15)))
+    try {
+      if (child) await child.exited
+    } catch (error) {
+      failed.push(error)
+    }
+    if (failed.length) {
+      const error = new AggregateError(failed, failed.map(String).join("; "), { cause: failed[0] })
+      recordFailure(error, "cleanupError")
+      throw error
+    }
+  })().finally(() => {
+    const index = cleanups.findIndex((item) => item.promise === promise)
+    cleanups.splice(index, 1)
   })
+  cleanups.push({ name, child, promise })
+  return promise
+}
+const handlers = (["SIGINT", "SIGTERM"] as const).map((signal) => {
+  const handler = () => {
+    if (interruption) return
+    interruption = { signal, error: new Error(`Campaign interrupted by ${signal}`) }
+    recordFailure(interruption.error)
+    void cleanup().catch((error) => recordFailure(error, "cleanupError"))
+  }
+  process.on(signal, handler)
+  return { signal, handler }
+})
 try {
   const image = JSON.parse(await docker(["image", "inspect", input.fixtureImage]))[0]
   if (
@@ -201,6 +258,7 @@ try {
   )
     throw new Error("Fixture image identity/platform mismatch")
   for (const name of ["current", "previous"] as const) {
+    checkInterrupted()
     const binary = input[name]
     const script = `const fs=require('fs'),cp=require('child_process'),crypto=require('crypto'); const binary='/release/aictrl'; console.log(JSON.stringify({uid:process.getuid(),home:fs.readdirSync(process.env.HOME),binarySha256:crypto.createHash('sha256').update(fs.readFileSync(binary)).digest('hex'),version:cp.execFileSync(binary,['--version'],{encoding:'utf8'}).trim(),help:cp.execFileSync(binary,['run','--help'],{encoding:'utf8'}),fixtures:Object.fromEntries(['notes.txt','big.txt',...Array.from({length:3},(_,i)=>'notes-'+i+'.txt'),...Array.from({length:50},(_,i)=>'big-'+i+'.txt')].map(name=>{const b=fs.readFileSync('/workspace/'+name);return[name,{bytes:b.length,sha256:crypto.createHash('sha256').update(b).digest('hex')}]}))}));`
     ownedContainer = `${campaignId}-preflight-${name}`
@@ -227,6 +285,7 @@ try {
       ]),
     )
     await cleanup()
+    checkInterrupted()
     ownedContainer = undefined
     fs.writeFileSync(path.join(output, `${name}-preflight.json`), JSON.stringify(preflight, null, 2) + "\n")
     if (
@@ -256,10 +315,12 @@ try {
       raw.short[`${name}-selected`] = []
     }
   }
+  checkInterrupted()
   stub = new Stub(50)
   stub.keepBodies = true
   for (let rep = 0; rep < input.repeats; rep++) {
     for (const arm of rep % 2 ? [...arms].reverse() : arms) {
+      checkInterrupted()
       stub.reset("short")
       const runId = `${String(rep + 1).padStart(2, "0")}-${arm}-short`
       ownedContainer = `${campaignId}-${runId}`
@@ -318,12 +379,14 @@ try {
       )
       let timeout = false
       let cleanupFailure: string | undefined
+      checkInterrupted()
       const child = Bun.spawn(argv, { env: hostEnv, stdin: "ignore", stdout: "pipe", stderr: "pipe" })
       proc = child
       const timer = setTimeout(() => {
         timeout = true
+        recordFailure(new Error(`Capture ${runId} timed out`))
         void cleanup().catch((error) => {
-          cleanupFailure = String(error)
+          cleanupFailure ??= String(error)
         })
       }, TIMEOUT)
       let stdout = "",
@@ -340,7 +403,7 @@ try {
         try {
           await cleanup()
         } catch (error) {
-          cleanupFailure = String(error)
+          cleanupFailure ??= String(error)
         }
         if (!cleanupFailure) ownedContainer = undefined
         proc = undefined
@@ -432,25 +495,44 @@ try {
     }
   }
 } catch (error) {
-  failures.push({ campaignError: error instanceof Error ? error.message : String(error) })
-  checkpoint()
-  throw error
+  recordFailure(error)
 } finally {
   try {
     await cleanup()
+  } catch (error) {
+    recordFailure(error, "cleanupError")
+  }
+  try {
     const remaining = await cleanupCommand(["ps", "-aq", "--filter", `label=aictrl.harness-benchmark=${campaignId}`])
     cleanupChecks.push({ finalCampaignCheck: remaining })
     if (remaining.timedOut || remaining.exit !== 0 || remaining.stdout.trim())
       throw new Error("Campaign-owned containers remain or cleanup state could not be inspected")
+  } catch (error) {
+    recordFailure(error, "cleanupError")
+  }
+  try {
+    await stub?.server.stop(true)
+  } catch (error) {
+    recordFailure(error, "cleanupError")
+  }
+  await Promise.allSettled(cleanups.map((item) => item.promise))
+  try {
+    fs.rmSync(hostHome, { recursive: true, force: true })
+  } catch (error) {
+    recordFailure(error, "cleanupError")
+  }
+  try {
     checkpoint()
   } catch (error) {
-    failures.push({ cleanupError: String(error) })
-    checkpoint()
-    throw error
-  } finally {
-    stub?.server.stop(true)
-    fs.rmSync(hostHome, { recursive: true, force: true })
+    recordFailure(error)
   }
+  for (const { signal, handler } of handlers) process.off(signal, handler)
+}
+if (errors.length) {
+  const error = new AggregateError(errors, errors.map(String).join("; "), { cause: errors[0] })
+  if (!interruption) throw error
+  console.error(error)
+  process.exit(128 + (interruption.signal === "SIGINT" ? 2 : 15))
 }
 console.log(
   `Captured ${input.repeats} sessions per supported arm; containers verified absent in ${output}; run release-count.py next`,
