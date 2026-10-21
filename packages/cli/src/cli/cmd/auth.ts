@@ -266,7 +266,7 @@ export const AuthLoginCommand = cmd({
         if (args.url) {
           const wellknown = await WellKnownAuth.fetchCommand(args.url)
           const approved = await prompts.confirm({
-            message: `${args.url} wants to run \`${wellknown.command.join(" ")}\` to get a token. Run it?`,
+            message: `${WellKnownAuth.display(args.url)} wants to run ${WellKnownAuth.display(wellknown.command)} to get a token. Run it?`,
             initialValue: false,
           })
           if (prompts.isCancel(approved)) throw new UI.CancelledError()
@@ -293,7 +293,7 @@ export const AuthLoginCommand = cmd({
             key: wellknown.env,
             token: token.trim(),
           })
-          prompts.log.success("Logged into " + args.url)
+          prompts.log.success("Logged into " + WellKnownAuth.display(args.url))
           prompts.outro("Done")
           return
         }
