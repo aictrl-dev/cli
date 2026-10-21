@@ -37,5 +37,29 @@ jobs:
           sudo apt-get install --no-install-recommends -y ripgrep
           rg --version
 
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      # Setup may download pinned wheels/ranks. Capture and accounting are offline.
+      - name: Provision reference tokenizer
+        run: python3 -I -B script/token-budget/setup.py --directory "$RUNNER_TEMP/token-budget-environment"
+
+      - name: Enforce actual SDK prefix token budgets
+        run: '"$RUNNER_TEMP/token-budget-environment/venv/bin/python3" -I -B script/token-budget/run.py --output "$RUNNER_TEMP/token-budget-evidence"'
+
+      - name: Verify token-budget fault controls
+        run: '"$RUNNER_TEMP/token-budget-environment/venv/bin/python3" -I -B -m unittest discover -s script/token-budget -p "test_*.py" -v'
+        env:
+          TOKEN_BUDGET_TEST_CAMPAIGN: ${{ runner.temp }}/token-budget-evidence
+
+      - name: Retain token-budget captures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: token-budget-evidence
+          path: ${{ runner.temp }}/token-budget-evidence
+          if-no-files-found: warn
+
       - name: Run Tests
         run: bun turbo test --concurrency=100%
