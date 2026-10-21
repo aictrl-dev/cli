@@ -677,9 +677,13 @@ describe("runtime hints through actual tool loop and next request (#244)", () =>
       {
         permission: { ...denied, read: "deny" },
         init: async (directory) => {
+          await Bun.write(path.join(directory, "oversized-output.txt"), original)
           await Bun.write(
             path.join(directory, ".aictrl/tool/oversized.ts"),
-            `export default { description: "Custom plugin fixture", args: {}, execute: async () => ${JSON.stringify(original)} }`,
+            [
+              'import { readFile } from "node:fs/promises"',
+              'export default { description: "Custom plugin fixture", args: {}, execute: async () => readFile(new URL("../../oversized-output.txt", import.meta.url), "utf8") }',
+            ].join("\n"),
           )
         },
         call: () => ({ name: "oversized", arguments: {} }),
