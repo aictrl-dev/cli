@@ -21,7 +21,9 @@ The invocation envelope covers accepted `run --format json` executions from the 
 
 ### `invocation_start`
 
-Emitted once, before piped stdin is read and before run validation or bootstrap begins.
+Emitted once, before any selected stdin is read and before run validation or bootstrap begins. Stdin is selected by a standalone `-` message operand (including after `--`), or by no message operands with non-terminal stdin. A supplied ordinary prompt does not read stdin. Repeated markers cause one read and are removed before message and derived-title assembly. An explicitly selected stream still waits for EOF; no stdin deadline is implied by this event.
+
+Missing required option values and unknown options fail in the argument parser, before the handler starts. They exit with a parser error and do not emit invocation events. Failures after the handler starts retain the invocation lifecycle below.
 
 ```json
 {
@@ -670,15 +672,15 @@ can contain property names submitted by the model (for example, in map or
 to 64 characters; paths also have an overall length bound.
 A result file that cannot be used emits one fixed diagnostic with `path: ""`:
 
-| `keyword` | `message` |
-|---|---|
-| `file` | `working directory unavailable` |
-| `file` | `file not found` |
-| `file` | `path must stay inside the working directory` |
-| `file` | `file not readable` |
-| `file` | `path must be a regular file` |
-| `file` | `file must not exceed 2097152 bytes` |
-| `parse` | `file must contain complete, valid JSON` |
+| `keyword` | `message`                                     |
+| --------- | --------------------------------------------- |
+| `file`    | `working directory unavailable`               |
+| `file`    | `file not found`                              |
+| `file`    | `path must stay inside the working directory` |
+| `file`    | `file not readable`                           |
+| `file`    | `path must be a regular file`                 |
+| `file`    | `file must not exceed 2097152 bytes`          |
+| `parse`   | `file must contain complete, valid JSON`      |
 
 A file that parses but fails the schema emits Ajv diagnostics as above.
 Feedback for a rejected file goes to the model as the StructuredOutput tool error and

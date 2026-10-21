@@ -26,14 +26,14 @@ Interactive coding agents are built for a person at a terminal: in automation th
 
 Engineers running terminal-first coding agents in CI and batch workflows repeatedly hit the same failure modes:
 
-| What breaks in automation | How `aictrl run` handles it |
-| :--- | :--- |
-| **Silent hangs** (`claude-code-action#865`, `goose#11164`) | **No terminal UI or interactive prompts.** Any unpermitted tool request is rejected immediately; optional stream idle timeouts stop stalled model calls. |
-| **False `exit 0` on failure** (`claude-code#79500`, `goose#11909`, `gemini-cli#1088`) | **Distinct exit codes:** `0` accepted result, `1` provider/runtime/timeout error, `2` configuration error, `3` missing or schema-invalid result, `130`/`143` on `SIGINT`/`SIGTERM`. |
-| **Unparseable prose or broken JSON** (`codex#19816`, `claude-code#18536`, `gemini-cli#4665`) | **Enforced JSON Schema (`--output-schema`)** with bounded corrective turns and atomic file output (`--output-result`). No prose fallback. |
-| **`--dangerously-skip-permissions` in CI** | **Declarative per-tool allow/deny rules.** Tools denied for all patterns are stripped from the model request entirely, saving tokens and shrinking the attack surface. Subagents inherit caller denials. |
-| **Cost & token blind spots** (`claude-code#8245`, `codex#13733`) | **608-token system prompt** and a [versioned NDJSON event stream](EVENTS.md) on stdout reporting per-call token usage, cost, tool timing, and permission decisions. |
-| **Background auto-updates & telemetry** (`claude-code-action#1290`) | **Zero telemetry, no auto-update, built-in model catalog.** Outbound traffic goes only to the model provider, MCP servers, and web tools you configure. |
+| What breaks in automation                                                                    | How `aictrl run` handles it                                                                                                                                                                              |
+| :------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Silent hangs** (`claude-code-action#865`, `goose#11164`)                                   | **No terminal UI or interactive prompts.** Any unpermitted tool request is rejected immediately; optional stream idle timeouts stop stalled model calls.                                                 |
+| **False `exit 0` on failure** (`claude-code#79500`, `goose#11909`, `gemini-cli#1088`)        | **Distinct exit codes:** `0` accepted result, `1` provider/runtime/timeout error, `2` configuration error, `3` missing or schema-invalid result, `130`/`143` on `SIGINT`/`SIGTERM`.                      |
+| **Unparseable prose or broken JSON** (`codex#19816`, `claude-code#18536`, `gemini-cli#4665`) | **Enforced JSON Schema (`--output-schema`)** with bounded corrective turns and atomic file output (`--output-result`). No prose fallback.                                                                |
+| **`--dangerously-skip-permissions` in CI**                                                   | **Declarative per-tool allow/deny rules.** Tools denied for all patterns are stripped from the model request entirely, saving tokens and shrinking the attack surface. Subagents inherit caller denials. |
+| **Cost & token blind spots** (`claude-code#8245`, `codex#13733`)                             | **608-token system prompt** and a [versioned NDJSON event stream](EVENTS.md) on stdout reporting per-call token usage, cost, tool timing, and permission decisions.                                      |
+| **Background auto-updates & telemetry** (`claude-code-action#1290`)                          | **Zero telemetry, no auto-update, built-in model catalog.** Outbound traffic goes only to the model provider, MCP servers, and web tools you configure.                                                  |
 
 ## Install
 
@@ -55,9 +55,17 @@ aictrl run --format json \
   --output-result findings.json \
   "Review the changes on this branch and report security or reliability bugs"
 
-# Pipe input from stdin
-git diff origin/main...HEAD | aictrl run --model openai/gpt-5 "Summarize breaking API changes"
+# Explicitly append stdin to a prompt
+git diff origin/main...HEAD | aictrl run --model openai/gpt-5 "Summarize breaking API changes" -
 ```
+
+Stdin is read only when a standalone `-` is a message operand, or when no message operands are supplied and stdin is not a terminal. A supplied prompt proceeds without reading an unrelated open pipe. Existing pipelines that combine a prompt and piped context must add `-` as shown above.
+
+The marker can appear before or after `--`; repeated markers still read stdin once. Markers are removed from the model message, command arguments and derived session title. `--` ends option parsing, so `run -- -` also selects stdin. An operand such as `"literal -"` remains ordinary text. An explicit empty operand (`run ""`) does not select implicit stdin. Selected stdin is read to EOF and appended after a newline, preserving the prompt's existing quoting and the input's contents.
+
+Option values belong to their options: `--model=-` or `--command=-` does not select stdin, and scalar options also accept a separated hyphen value. Use `--file=-` to attach a file literally named `-`; `--file -` is missing its required file value. Multiple file values and repeated `--skill` flags retain their existing behavior. Required option values are checked by the argument parser; explicit `--title ""` remains supported.
+
+An explicit marker reads stdin even from a terminal. Any selected stream can wait for EOF indefinitely; this change adds no stdin timeout. Callers must close selected input or apply their own supervisor deadline.
 
 ### 2. Drop-in GitHub Actions PR review (split-secret pattern)
 
@@ -145,19 +153,19 @@ Notes on this example:
 
 We benchmarked six coding-agent CLIs (`aictrl 0.5.4`, `pi 1.3.0`, `Goose 1.55.0`, `Codex 0.163.0`, `OpenCode 2.1.0`, and `Hermes 0.22.2`) in fresh 2-CPU Docker containers against a deterministic 50 ms local stub model to isolate harness overhead from remote LLM latency. Full runner, raw JSON captures, and methodology are open in [`aictrl-dev/skill-md-research`](https://github.com/aictrl-dev/skill-md-research/tree/main/experiments/headless-cli-benchmark) and analyzed in the [benchmark post](https://aictrl.dev/blog/headless-coding-agent-cli-benchmark?utm_source=github&utm_medium=readme&utm_campaign=headless-readme).
 
-| Metric (lower is better, except coverage) | **aictrl 0.5.4** | pi 1.3.0 | Goose 1.55.0 | Codex 0.163.0 | OpenCode 2.1.0 | Hermes 0.22.2 |
-| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
-| **First response, median** (ms) | 579 | 522 | **392** (1st) | 471 (2nd) | 926 | 5,521 |
-| **50-read session time, median** (s) | **4.27** (2nd) | **3.98** (1st) | 7.22 | 5.57 | 6.03 | 12.76 |
-| **Harness time per turn, median** (ms) | **12** (2nd) | **9** (1st) | 72 | 45 | 32 | 64 |
-| **Peak cgroup memory, median** (MiB) | **207** (2nd) | **154** (1st) | 247 | 132\* | 424 | 344 |
-| **Container image increment** (MiB) | **113** (2nd) | **108** (1st) | 292 | 410 | 818 | 388 |
-| **System prompt** (`o200k_base` tokens) | 608 | 601 (2nd) | **563** (1st) | 4,047 | 1,857 | 1,053 |
-| **First request total** (tokens, default tools) | 3,442 (9 tools) | **1,276** (4 tools) | 1,577 (6 tools) | 8,178 (9 tools) | 4,903 (12 tools) | 3,391 (8 tools) |
-| **Short task, 4 calls** (tokens, default tools) | 15,209 (9,805 w/ 4 tools) | **6,074** (1st) | 7,281 (2nd) | 34,078 | 21,489 | 15,562 |
-| **NDJSON event stream coverage** (25 facts) | **100%** | **100%** | 68% | 40% | 80% | 72% |
+| Metric (lower is better, except coverage)       |          **aictrl 0.5.4** |            pi 1.3.0 |    Goose 1.55.0 |   Codex 0.163.0 |   OpenCode 2.1.0 |   Hermes 0.22.2 |
+| :---------------------------------------------- | ------------------------: | ------------------: | --------------: | --------------: | ---------------: | --------------: |
+| **First response, median** (ms)                 |                       579 |                 522 |   **392** (1st) |       471 (2nd) |              926 |           5,521 |
+| **50-read session time, median** (s)            |            **4.27** (2nd) |      **3.98** (1st) |            7.22 |            5.57 |             6.03 |           12.76 |
+| **Harness time per turn, median** (ms)          |              **12** (2nd) |         **9** (1st) |              72 |              45 |               32 |              64 |
+| **Peak cgroup memory, median** (MiB)            |             **207** (2nd) |       **154** (1st) |             247 |           132\* |              424 |             344 |
+| **Container image increment** (MiB)             |             **113** (2nd) |       **108** (1st) |             292 |             410 |              818 |             388 |
+| **System prompt** (`o200k_base` tokens)         |                       608 |           601 (2nd) |   **563** (1st) |           4,047 |            1,857 |           1,053 |
+| **First request total** (tokens, default tools) |           3,442 (9 tools) | **1,276** (4 tools) | 1,577 (6 tools) | 8,178 (9 tools) | 4,903 (12 tools) | 3,391 (8 tools) |
+| **Short task, 4 calls** (tokens, default tools) | 15,209 (9,805 w/ 4 tools) |     **6,074** (1st) |     7,281 (2nd) |          34,078 |           21,489 |          15,562 |
+| **NDJSON event stream coverage** (25 facts)     |                  **100%** |            **100%** |             68% |             40% |              80% |             72% |
 
-*\*Codex's shell reader truncates each 800-line file to its first and last ~80 lines, holding ~1/5th of the file in context. `pi`, `Goose`, and `Hermes` ran without a subagent tool in the tested profile; restricting `aictrl` to `pi`'s 4 tools via permission config drops its first request from 3,442 to 2,091 tokens.*
+_\*Codex's shell reader truncates each 800-line file to its first and last ~80 lines, holding ~1/5th of the file in context. `pi`, `Goose`, and `Hermes` ran without a subagent tool in the tested profile; restricting `aictrl` to `pi`'s 4 tools via permission config drops its first request from 3,442 to 2,091 tokens._
 
 ## Core Contracts for Automation
 
