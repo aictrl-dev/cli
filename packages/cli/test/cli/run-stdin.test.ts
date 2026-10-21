@@ -253,7 +253,8 @@ describe("explicit stdin contract (#210)", () => {
         payload: "context λ\n",
       })
       expect(result.code, result.stderr + result.stdout).toBe(0)
-      expect(message(result)).toBe('"summarize this"\ncontext λ\n')
+      // Structured operands preserve raw decoded prompt text; quotes are not added.
+      expect(message(result)).toBe("summarize this\ncontext λ\n")
       expect(title(result)).toBe("summarize this")
     }, 6000)
   }
@@ -316,10 +317,10 @@ describe("stdin operands and option ownership", () => {
 
     test.each([
       ["numeric", ["0007", "1e3"], "0007 1e3", "0007 1e3"],
-      ["quoted-unicode", ['say "hello" λ', "next\nline"], '"say \\"hello\\" λ" next\nline', 'say "hello" λ next\nline'],
-      ["literal-embedded-dash", ["literal -"], '"literal -"', "literal -"],
+      ["quoted-unicode", ['say "hello" λ', "next\nline"], 'say "hello" λ next\nline', 'say "hello" λ next\nline'],
+      ["literal-embedded-dash", ["literal -"], "literal -", "literal -"],
       ["post-separator-word", ["--", "--literal"], "--literal", "--literal"],
-      ["empty-explicit-title", ["--title", "", "two words"], '"two words"', '"two words"'],
+      ["empty-explicit-title", ["--title", "", "two words"], "two words", "two words"],
       ["hyphen-title-value", ["--title", "-", "probe"], "probe", "-"],
       ["hyphen-variant-value", ["--variant", "-", "probe"], "probe", "probe"],
       ["options-after-operand", ["probe", "--title", "explicit"], "probe", "explicit"],
@@ -363,21 +364,43 @@ describe("stdin operands and option ownership", () => {
         ["--command", "check", "review", "-", "this"],
         "late λ\n",
         "check",
-        "review this\nlate λ\n",
+        { argv: ["review", "this"], stdin: "late λ\n" },
         "/check review this",
       ],
-      ["command-hyphen-value", ["--command", "-", "probe"], undefined, "-", "probe", "/- probe"],
-      ["command-no-operands", ["--command", "check"], "late λ\n", "check", "\nlate λ\n", "/check late λ"],
+      ["command-hyphen-value", ["--command", "-", "probe"], undefined, "-", { argv: ["probe"] }, "/- probe"],
+      [
+        "command-empty-stdin",
+        ["--command", "check", "alpha", "-"],
+        "",
+        "check",
+        { argv: ["alpha"], stdin: "" },
+        "/check alpha",
+      ],
+      [
+        "command-no-operands",
+        ["--command", "check"],
+        "late λ\n",
+        "check",
+        { argv: [], stdin: "late λ\n" },
+        "/check late λ",
+      ],
     ] as const)(
       `${entry}: %s preserves command ownership`,
       async (name, args, payload, command, argumentsText, expectedTitle) => {
-        const result = await run({ entry, name, args: [...args], stdin: payload ? "late" : "open", payload })
+        const result = await run({
+          entry,
+          name,
+          args: [...args],
+          stdin: payload !== undefined ? "late" : "open",
+          payload,
+        })
         expect(result.code, result.stderr + result.stdout).toBe(0)
         const body = result.requests.find((request) => request.path.endsWith("/command"))?.body
         expect(body?.command).toBe(command)
-        expect(body?.arguments).toBe(argumentsText)
+        // This fixture proves SDK wire shape only; the local-command suite proves handler assembly.
+        expect(body?.arguments).toEqual(argumentsText)
         expect(title(result)).toBe(expectedTitle)
-        if (payload) expect(result.requestsBeforeEOF).toBe(0)
+        if (payload !== undefined) expect(result.requestsBeforeEOF).toBe(0)
       },
       6000,
     )

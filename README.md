@@ -61,11 +61,27 @@ git diff origin/main...HEAD | aictrl run --model openai/gpt-5 "Summarize breakin
 
 Stdin is read only when a standalone `-` is a message operand, or when no message operands are supplied and stdin is not a terminal. A supplied prompt proceeds without reading an unrelated open pipe. Existing pipelines that combine a prompt and piped context must add `-` as shown above.
 
-The marker can appear before or after `--`; repeated markers still read stdin once. Markers are removed from the model message, command arguments and derived session title. `--` ends option parsing, so `run -- -` also selects stdin. An operand such as `"literal -"` remains ordinary text. An explicit empty operand (`run ""`) does not select implicit stdin. Selected stdin is read to EOF and appended after a newline, preserving the prompt's existing quoting and the input's contents.
+The marker can appear before or after `--`; repeated markers still read stdin once. Markers are removed from the model message, command arguments and derived session title. `--` ends option parsing, so `run -- -` also selects stdin. An operand such as `"literal -"` remains ordinary text. An explicit empty operand (`run ""`) does not select implicit stdin. Selected stdin is read to EOF and appended after one actual newline. Ordinary prompt operands are joined with spaces without adding artificial quotes or backslash escapes; quotes, backslashes and whitespace inside an operand remain its text.
 
 Option values belong to their options: `--model=-` or `--command=-` does not select stdin, and scalar options also accept a separated hyphen value. Use `--file=-` to attach a file literally named `-`; `--file -` is missing its required file value. Multiple file values and repeated `--skill` flags retain their existing behavior. Required option values are checked by the argument parser; explicit `--title ""` remains supported.
 
 An explicit marker reads stdin even from a terminal. Any selected stream can wait for EOF indefinitely; this change adds no stdin timeout. Callers must close selected input or apply their own supervisor deadline.
+
+### Command argument data
+
+`--command` supplies structured arguments as `{ argv: string[], stdin?: string }`. Each normalized operand retains its exact value, including empty text, embedded quotes, tabs, newlines and Windows paths. An explicitly selected stream, even an empty stream, is preserved separately and becomes one final positional data operand. The highest numbered `$N` placeholder still consumes the remaining operands joined with spaces; missing positions remain empty.
+
+`$ARGUMENTS`, command plugins and the executed-command event receive textual arguments derived as `argv.join(" ")` plus one newline and the exact stream when stdin was selected. Commands without argument placeholders append this text after two newlines. This projection preserves text but does not encode operand boundaries. Session titles keep their existing separate derivation. Legacy SDK callers may continue passing an `arguments` string; its existing quote-tokenization and positional rules remain unchanged. Raw `$ARGUMENTS` insertion now treats dollar replacement tokens as literal data.
+
+Attached command execution requires a receiver that accepts this structured argument contract. This headless checkout does not include that HTTP receiver or capability negotiation, so attached compatibility is not established by the local implementation. Do not retry a rejected structured request by converting it to a legacy string: that can lose argument boundaries. Command-template shell preprocessing follows the separate authority and data-binding rules below.
+
+### Command-template shell expansion
+
+Only `!` followed by a backtick-delimited shell span already present in the resolved command template executes. Operands, selected stdin, appended fallback text and shell output are inserted as data; they cannot create additional shell spans or argument placeholders. Configured commands, skill commands and MCP-provided command templates keep their existing template authority. Treat executable templates from any of these sources as code you choose to trust. This preprocessing runs independently of model tool permissions; denying the model's Bash tool does not disable an original template's shell span.
+
+Inside an original shell span, `$N` is one scalar data value. The highest numbered placeholder in the **whole original template**, including prose and shell spans, still consumes the remaining operands joined with spaces. Missing positions bind an empty scalar. `$ARGUMENTS` binds the decoded operand vector, including a selected stream as one final element. Unquoted vectors supply separate shell arguments; inside single or double quotes Bun binds the vector as one space-joined scalar. An empty unquoted vector supplies no argument; an explicitly empty element or missing numbered scalar remains an empty data argument. Quoting an empty vector binds an empty scalar. Outside shell spans, `$ARGUMENTS` continues using the textual projection described above.
+
+These binding rules intentionally replace raw argument-to-shell-source interpolation. Trusted template operators, pipelines, substitutions and explicit interpreters remain available. An author may deliberately invoke an interpreter or `eval` that reinterprets data; binding is not a sandbox and cannot promise that arbitrary trusted programs preserve their inputs. Shell spans retain concurrent execution, captured stdout, nonthrowing exit handling and the existing execution-error text. The complete expanded template retains its final outer whitespace trim.
 
 ### 2. Drop-in GitHub Actions PR review (split-secret pattern)
 

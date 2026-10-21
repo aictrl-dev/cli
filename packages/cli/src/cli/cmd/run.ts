@@ -313,9 +313,9 @@ function truncatedTitle(text: string) {
  */
 export function sessionTitle(input: {
   title?: string
-  /** The positional words as typed, before they are re-quoted for the model. */
+  /** The normalized positional text used to derive the title. */
   prompt: string
-  /** The message sent to the model: the re-quoted prompt plus any stdin. */
+  /** The message sent to the model: normalized prompt text plus any selected stdin. */
   message: string
   command?: string
 }) {
@@ -494,6 +494,7 @@ export const RunCommand = cmd({
 
     const normalized = runInput([...args._.slice(1), ...(args["--"] ?? [])].map(String), process.stdin.isTTY)
     let message = normalized.message
+    let stdin: string | undefined
 
     const directory = await (async () => {
       if (!args.dir) return undefined
@@ -543,7 +544,8 @@ export const RunCommand = cmd({
 
     if (normalized.stdin) {
       invocation.phase("stdin")
-      message += "\n" + (await invocation.guard(() => Bun.stdin.text()))
+      stdin = await invocation.guard(() => Bun.stdin.text())
+      message += "\n" + stdin
       invocation.phase("validation")
     }
 
@@ -1145,7 +1147,7 @@ export const RunCommand = cmd({
           agent,
           model: args.model,
           command: args.command,
-          arguments: message,
+          arguments: { argv: normalized.argv, ...(stdin !== undefined ? { stdin } : {}) },
           variant: args.variant,
           ...(schema ? { format: schema.format } : {}),
         }
