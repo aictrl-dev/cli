@@ -19,6 +19,7 @@ import path from "path"
 import { Plugin } from "@/plugin"
 import { Skill } from "../skill"
 import { Log } from "@/util/log"
+import { ToolGuidance } from "@/tool/guidance"
 
 export namespace Agent {
   const log = Log.create({ service: "agent" })
@@ -49,6 +50,14 @@ export namespace Agent {
       ref: "Agent",
     })
   export type Info = z.infer<typeof Info>
+
+  const prompts = new WeakMap<Info, { source: string; render: ToolGuidance.Renderer }>()
+
+  export function renderPrompt(agent: Info, tools: ReadonlySet<string>) {
+    const owned = prompts.get(agent)
+    if (!owned || agent.prompt !== owned.source) return agent.prompt
+    return owned.render(owned.source, tools)
+  }
 
   const state = Instance.state(async () => {
     const cfg = await Config.get()
@@ -171,6 +180,8 @@ export namespace Agent {
       },
     }
 
+    prompts.set(result.explore, { source: PROMPT_EXPLORE, render: ToolGuidance.explore })
+
     for (const [key, value] of Object.entries(cfg.agent ?? {})) {
       // the plan agent was removed: an old override of it must not become a custom agent with full permissions
       if (key === "plan") {
@@ -192,6 +203,7 @@ export namespace Agent {
         }
       if (value.model) item.model = Provider.parseModel(value.model)
       item.variant = value.variant ?? item.variant
+      if (value.prompt !== undefined) prompts.delete(item)
       item.prompt = value.prompt ?? item.prompt
       item.description = value.description ?? item.description
       item.temperature = value.temperature ?? item.temperature

@@ -119,4 +119,37 @@ export namespace ToolGuidance {
         : "- Replacing an existing file requires its current contents to already be recorded as read in this session. This tool fails if that record is missing or stale; creating a new file does not need that record.\n",
     )
   }
+
+  export function explore(description: string, tools: ReadonlySet<string>) {
+    const lines = [
+      ["glob", "- Use Glob for broad file pattern matching\n"],
+      ["grep", "- Use Grep for searching file contents with regex\n"],
+      ["read", "- Use Read when you know the specific file path you need to read\n"],
+      ["bash", "- Use Bash for file operations like copying, moving, or listing directory contents\n"],
+    ] as const
+    return lines.reduce((text, [id, line]) => replace(text, line, tools.has(id) ? line : ""), description)
+  }
+
+  export function batch(description: string, tools: ReadonlySet<string>) {
+    const example =
+      'Payload Format (JSON array):\n[{"tool": "read", "parameters": {"filePath": "src/index.ts", "limit": 350}},{"tool": "grep", "parameters": {"pattern": "Session\\\\.updatePart", "include": "src/**/*.ts"}},{"tool": "bash", "parameters": {"command": "git status", "description": "Shows working tree status"}}]'
+    const search = ["grep", "glob", "read"].filter((id) => tools.has(id))
+    const cases = [
+      ["- Read many files\n", tools.has("read") ? "- Read many files\n" : ""],
+      ["- grep + glob + read combos\n", search.length >= 2 ? `- ${search.join(" + ")} combos\n` : ""],
+      ["- Multiple bash commands\n", tools.has("bash") ? "- Multiple bash commands\n" : ""],
+      [
+        "- Multi-part edits; on the same, or different files\n",
+        ["edit", "write"].some((id) => tools.has(id)) ? "- Multi-part edits; on the same, or different files\n" : "",
+      ],
+    ] as const
+    const rendered = cases.reduce((text, [line, replacement]) => replace(text, line, replacement), description)
+    return replace(
+      replace(rendered, "Good Use Cases:\n", cases.some(([, replacement]) => replacement) ? "Good Use Cases:\n" : ""),
+      example,
+      ["read", "grep", "bash"].every((id) => tools.has(id))
+        ? example
+        : "Supply independent calls to tools available in this request through the `tool_calls` array. Each item has `tool` and `parameters` fields.",
+    )
+  }
 }

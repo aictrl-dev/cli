@@ -76,6 +76,8 @@ const [
   { Auth },
   { HeadlessRun },
   { tmpdir },
+  { Agent },
+  { default: nativeExplorePrompt },
 ] = await Promise.all([
   import("../../src/tool/tool"),
   import("zod"),
@@ -90,6 +92,8 @@ const [
   import("../../src/auth"),
   import("../../src/flag/headless-run"),
   import("../fixture/fixture"),
+  import("../../src/agent/agent"),
+  import("../../src/agent/prompt/explore.txt"),
 ])
 
 type StreamInput = Parameters<typeof LLM.stream>[0]
@@ -134,6 +138,10 @@ async function fixture(
     session?: StreamInput["permission"]
     gpt?: boolean
     codex?: boolean
+    permissionDefault?: "native"
+    explorePrompt?: string
+    exploreTemperature?: number
+    batch?: boolean
     buildPrompt?: string
     call?: () => { name: string; arguments: Record<string, unknown> }
     images?: boolean
@@ -204,7 +212,8 @@ async function fixture(
     await using tmp = await tmpdir({
       init: options.init,
       config: {
-        permission: { "*": "allow", ...options.permission },
+        permission: { ...(options.permissionDefault === "native" ? {} : { "*": "allow" }), ...options.permission },
+        ...(options.batch ? { experimental: { batch_tool: true } } : {}),
         enabled_providers: [providerID],
         provider: {
           [providerID]: {
@@ -224,7 +233,23 @@ async function fixture(
               : {}),
           },
         },
-        ...(options.buildPrompt ? { agent: { build: { prompt: options.buildPrompt } } } : {}),
+        ...(options.buildPrompt || options.explorePrompt !== undefined || options.exploreTemperature !== undefined
+          ? {
+              agent: {
+                ...(options.buildPrompt ? { build: { prompt: options.buildPrompt } } : {}),
+                ...(options.explorePrompt !== undefined || options.exploreTemperature !== undefined
+                  ? {
+                      explore: {
+                        ...(options.explorePrompt !== undefined ? { prompt: options.explorePrompt } : {}),
+                        ...(options.exploreTemperature !== undefined
+                          ? { temperature: options.exploreTemperature }
+                          : {}),
+                      },
+                    }
+                  : {}),
+              },
+            }
+          : {}),
       },
     })
     await Instance.provide({
@@ -290,7 +315,14 @@ async function fixture(
       await Bun.write(
         path.join(output, `${label}.json`),
         JSON.stringify(
-          { label, codex: options.codex ?? false, requests: transport.captures, persisted, persistedCheckpoints },
+          {
+            label,
+            fixtureOptions: options,
+            codex: options.codex ?? false,
+            requests: transport.captures,
+            persisted,
+            persistedCheckpoints,
+          },
           null,
           2,
         ),
@@ -751,6 +783,307 @@ describe("runtime hints through actual tool loop and next request (#244)", () =>
           expect(content[2].resource?.text).toBe("resource tail")
         },
       )
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})
+
+const explorePeers = ["glob", "grep", "read", "bash"]
+const exploreDenials = explorePeers.map((permission) => ({ permission, pattern: "*", action: "deny" as const }))
+const nativeExploreFull = ["bash", "glob", "grep", "read", "webfetch"]
+const explicitAgentParts: NonNullable<PromptInput["parts"]> = [
+  { type: "text", text: "Inspect the fixtures using the requested agent." },
+  { type: "agent", name: "explore" },
+]
+function syntheticDelegation(messages: Awaited<ReturnType<typeof Session.messages>>) {
+  return messages
+    .flatMap((message) => message.parts)
+    .filter((part) => part.type === "text" && part.synthetic && part.text.includes("explore"))
+}
+
+describe("remaining owned guidance completeness (#244)", () => {
+  test("native Explore full catalog preserves specialized peer guidance", async () => {
+    await fixture("completeness-explore-full", { permissionDefault: "native" }, async (context) => {
+      const body = await context.prompt({ agent: "explore" })
+      expect(names(body)).toEqual(nativeExploreFull)
+      expect(system(body)).toContain("Use Glob for broad file pattern matching")
+      expect(system(body)).toContain("Use Grep for searching file contents")
+      expect(system(body)).toContain("Use Read when you know the specific file path")
+      expect(system(body)).toContain("Use Bash for file operations")
+    })
+  })
+
+  test("native Explore session-denied peers are absent from both schema and owned prompt", async () => {
+    await fixture(
+      "completeness-explore-reduced",
+      { permissionDefault: "native", session: exploreDenials },
+      async (context) => {
+        const body = await context.prompt({ agent: "explore" })
+        expect(names(body)).toEqual(["webfetch"])
+        expect(system(body)).not.toContain("Use Glob for broad file pattern matching")
+        expect(system(body)).not.toContain("Use Grep for searching file contents")
+        expect(system(body)).not.toContain("Use Read when you know the specific file path")
+        expect(system(body)).not.toContain("Use Bash for file operations")
+      },
+    )
+  })
+
+  test("custom Explore override stays verbatim with the same session-denied peers", async () => {
+    const prompt =
+      "CUSTOM Explore owner text: Use Glob for broad file pattern matching. Use Grep, Read and Bash literally; preserve this exact sentence."
+    await fixture(
+      "completeness-explore-custom",
+      { permissionDefault: "native", session: exploreDenials, explorePrompt: prompt },
+      async (context) => {
+        const body = await context.prompt({ agent: "explore" })
+        expect(names(body)).toEqual(["webfetch"])
+        expect(system(body)).toStartWith(prompt)
+        expect(system(body)).not.toContain("You are a file search specialist.")
+      },
+    )
+  })
+
+  test("experimental Batch full catalog retains concrete examples", async () => {
+    await fixture("completeness-batch-full", { batch: true }, async (context) => {
+      const body = await context.prompt()
+      expect(names(body)).toEqual(["batch", ...full].sort())
+      const text = description(body, "batch")
+      for (const peer of ["read", "grep", "bash"]) expect(text).toContain(`"tool": "${peer}"`)
+      expect(text).toContain("grep + glob + read combos")
+    })
+  })
+
+  for (const absent of explorePeers) {
+    test(`experimental Batch session-denied ${absent} peer is absent from its owned recommendations`, async () => {
+      await fixture(
+        `completeness-batch-no-${absent}`,
+        { batch: true, session: [{ permission: absent, pattern: "*", action: "deny" }] },
+        async (context) => {
+          const body = await context.prompt()
+          expect(names(body)).toEqual(["batch", ...full.filter((name) => name !== absent)].sort())
+          const text = description(body, "batch")
+          if (absent === "glob") expect(text).not.toContain("grep + glob + read combos")
+          else expect(text).not.toContain(`"tool": "${absent}"`)
+        },
+      )
+    })
+  }
+
+  test("fresh explicit-agent part with Task present generates a persisted delegation instruction", async () => {
+    await fixture("completeness-agent-task-present", {}, async (context) => {
+      const body = await context.prompt({ parts: explicitAgentParts })
+      expect(names(body)).toEqual(full)
+      const parts = syntheticDelegation(await context.messages())
+      expect(parts).toHaveLength(1)
+      if (parts[0].type !== "text") throw new Error("Expected synthetic text")
+      expect(parts[0].text).toContain("subagent: explore")
+      expect(parts[0].text).toContain("delegation tool is available")
+      expect(parts[0].text).toContain("report that delegation is unavailable")
+      expect(JSON.stringify(body.messages)).toContain(parts[0].text)
+      expect(JSON.stringify(body.messages)).toContain("Inspect the fixtures using the requested agent.")
+    })
+  })
+
+  test("fresh explicit-agent part does not prescribe Task removed by final session denial", async () => {
+    await fixture(
+      "completeness-agent-task-denied",
+      { session: [{ permission: "task", pattern: "*", action: "deny" }] },
+      async (context) => {
+        const body = await context.prompt({ parts: explicitAgentParts })
+        expect(names(body)).toEqual(full.filter((name) => name !== "task"))
+        const parts = syntheticDelegation(await context.messages())
+        expect(parts).toHaveLength(1)
+        if (parts[0].type !== "text") throw new Error("Expected synthetic text")
+        expect(JSON.stringify(body.messages)).toContain(parts[0].text)
+        expect(parts[0].text).not.toContain("call the task tool")
+        expect(parts[0].text).toContain("delegation tool is available")
+        expect(parts[0].text).toContain("report that delegation is unavailable")
+      },
+    )
+  })
+
+  test("historical generated delegation instruction is replayed verbatim with Task denied", async () => {
+    await fixture(
+      "completeness-agent-history",
+      { session: [{ permission: "task", pattern: "*", action: "deny" }] },
+      async (context) => {
+        await context.prompt({ parts: explicitAgentParts })
+        const generated = syntheticDelegation(await context.messages())[0]
+        if (generated.type !== "text") throw new Error("Expected generated synthetic text")
+        const historical = {
+          ...generated,
+          text: " Use the above message and context to generate a prompt and call the task tool with subagent: explore",
+        }
+        await Session.updatePart(historical)
+        const body = await context.prompt({
+          parts: [{ type: "text", text: "Continue, preserving the stored history." }],
+        })
+        expect(names(body)).not.toContain("task")
+        expect(JSON.stringify(body.messages)).toContain(historical.text)
+        const replay = (await context.messages())
+          .flatMap((message) => message.parts)
+          .find((part) => part.id === historical.id)
+        expect(replay).toEqual(historical)
+      },
+    )
+  })
+})
+
+describe("remaining guidance provenance and lifetime controls (#244)", () => {
+  test("canonical-text custom Explore override remains verbatim after final session denial", async () => {
+    await fixture(
+      "completeness-explore-identical-override",
+      { permissionDefault: "native", session: exploreDenials, explorePrompt: nativeExplorePrompt },
+      async (context) => {
+        const body = await context.prompt({ agent: "explore" })
+        expect(names(body)).toEqual(["webfetch"])
+        expect(system(body)).toStartWith(nativeExplorePrompt)
+        for (const peer of ["Glob", "Grep", "Read", "Bash"]) expect(system(body)).toContain(`Use ${peer}`)
+      },
+    )
+  })
+
+  test("parameter-only native Explore configuration retains owned conditional guidance", async () => {
+    await fixture(
+      "completeness-explore-parameters",
+      { permissionDefault: "native", session: exploreDenials, exploreTemperature: 0.17 },
+      async (context) => {
+        const body = await context.prompt({ agent: "explore" })
+        expect(names(body)).toEqual(["webfetch"])
+        expect((await Agent.get("explore")).temperature).toBe(0.17)
+        expect(system(body)).toContain("You are a file search specialist")
+        for (const peer of ["Glob", "Grep", "Read", "Bash"]) expect(system(body)).not.toContain(`Use ${peer}`)
+      },
+    )
+  })
+
+  for (const absent of explorePeers) {
+    test(`native Explore removes only session-denied ${absent} peer advice`, async () => {
+      await fixture(
+        `completeness-explore-no-${absent}`,
+        { permissionDefault: "native", session: [{ permission: absent, pattern: "*", action: "deny" }] },
+        async (context) => {
+          const body = await context.prompt({ agent: "explore" })
+          expect(names(body)).toEqual(nativeExploreFull.filter((name) => name !== absent))
+          const title = absent[0].toUpperCase() + absent.slice(1)
+          expect(system(body)).not.toContain(`Use ${title}`)
+          for (const other of explorePeers.filter((name) => name !== absent))
+            expect(system(body)).toContain(`Use ${other[0].toUpperCase() + other.slice(1)}`)
+        },
+      )
+    })
+  }
+
+  test("native Explore cached source survives full reduced full request rendering", async () => {
+    await fixture("completeness-explore-full-reduced-full", { permissionDefault: "native" }, async (context) => {
+      const first = await context.prompt({ agent: "explore" })
+      const input = context.input()
+      const cached = await Agent.get("explore")
+      expect(input.agent).toBe(cached)
+      const source = cached.prompt
+      expect(source).toBe(nativeExplorePrompt)
+      const middle = await context.direct({ ...input, permission: exploreDenials })
+      expect(names(middle)).toEqual(["webfetch"])
+      for (const peer of ["Glob", "Grep", "Read", "Bash"]) expect(system(middle)).not.toContain(`Use ${peer}`)
+      expect(cached.prompt).toBe(source)
+      expect(await Agent.get("explore")).toBe(cached)
+      const last = await context.direct({ ...input, permission: [] })
+      expect(names(last)).toEqual(nativeExploreFull)
+      expect(system(last)).toBe(system(first))
+      expect(cached.prompt).toBe(source)
+    })
+  })
+})
+
+describe("remaining guidance ownership boundaries (#244)", () => {
+  test("runtime-changed native Explore text is preserved by source-validity guard", async () => {
+    const changed = "Runtime-owned Explore prompt: Use Glob, Grep, Read and Bash literally. Preserve verbatim."
+    await fixture(
+      "completeness-explore-runtime-change",
+      { permissionDefault: "native", session: exploreDenials },
+      async (context) => {
+        const cached = await Agent.get("explore")
+        const original = cached.prompt
+        cached.prompt = changed
+        try {
+          const body = await context.prompt({ agent: "explore" })
+          expect(names(body)).toEqual(["webfetch"])
+          expect(system(body)).toStartWith(changed)
+          expect(cached.prompt).toBe(changed)
+        } finally {
+          cached.prompt = original
+        }
+      },
+    )
+  })
+
+  test("Batch with every illustrated capability denied has no empty recommendation section", async () => {
+    const unavailable = ["read", "grep", "glob", "bash", "edit", "write"]
+    await fixture(
+      "completeness-batch-no-illustrated-peers",
+      { batch: true, session: unavailable.map((permission) => ({ permission, pattern: "*", action: "deny" })) },
+      async (context) => {
+        const body = await context.prompt()
+        expect(names(body)).toEqual(["batch", "skill", "task", "webfetch"])
+        const text = description(body, "batch")
+        expect(text).not.toContain("Good Use Cases:")
+        expect(text).not.toContain("Read many files")
+        expect(text).not.toContain("Multiple bash commands")
+        expect(text).not.toContain("Multi-part edits")
+        expect(text).not.toContain('"tool": "read"')
+        expect(text).not.toContain('"tool": "grep"')
+        expect(text).not.toContain('"tool": "bash"')
+        expect(text).toContain("tools available in this request")
+        expect(text).toContain("Partial failures do not stop other tool calls")
+      },
+    )
+  })
+})
+
+describe("Batch actual dispatch description boundaries (#244)", () => {
+  test("GPT Batch with only apply_patch cannot recommend batched edits absent from inner dispatch", async () => {
+    const unavailable = ["bash", "glob", "grep", "read", "task", "webfetch", "skill"]
+    await fixture(
+      "completeness-batch-gpt-apply-patch-only",
+      {
+        gpt: true,
+        batch: true,
+        session: unavailable.map((permission) => ({ permission, pattern: "*", action: "deny" })),
+      },
+      async (context) => {
+        const body = await context.prompt()
+        expect(names(body)).toEqual(["apply_patch", "batch"])
+        const inner = (await ToolRegistry.tools({ modelID: "", providerID: "" })).map((tool) => tool.id)
+        expect(inner).not.toContain("apply_patch")
+        expect(inner).toContain("edit")
+        expect(inner).toContain("write")
+        expect(description(body, "batch")).not.toContain("Multi-part edits")
+        expect(description(body, "batch")).not.toContain("Good Use Cases:")
+      },
+    )
+  })
+
+  test("plugin-appended Batch description remains entirely plugin-owned verbatim", async () => {
+    const original = Plugin.trigger
+    let expected = ""
+    const spy = spyOn(Plugin, "trigger").mockImplementation((async (name, input, output) => {
+      await original(name, input, output)
+      if (name === "tool.definition" && (input as { toolID: string }).toolID === "batch") {
+        const definition = output as { description: string }
+        definition.description += "\nPlugin-owned Batch appendix: Use Read, Grep and Bash literally."
+        expected = definition.description
+      }
+      return output
+    }) as typeof Plugin.trigger)
+    try {
+      await fixture("completeness-batch-plugin-owned", { batch: true, session: exploreDenials }, async (context) => {
+        const body = await context.prompt()
+        expect(names(body)).toEqual(["batch", "edit", "skill", "task", "webfetch", "write"])
+        expect(description(body, "batch")).toBe(expected)
+        expect(description(body, "batch")).toContain('"tool": "read"')
+        expect(description(body, "batch")).toContain("Plugin-owned Batch appendix")
+      })
     } finally {
       spy.mockRestore()
     }

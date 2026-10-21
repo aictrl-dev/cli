@@ -1434,9 +1434,6 @@ export namespace SessionPrompt {
         }
 
         if (part.type === "agent") {
-          // Check if this agent would be denied by task permission
-          const perm = PermissionNext.evaluate("task", part.name, agent.permission)
-          const hint = perm.action === "deny" ? " . Invoked by user; guaranteed to exist." : ""
           return [
             {
               ...part,
@@ -1448,12 +1445,11 @@ export namespace SessionPrompt {
               sessionID: input.sessionID,
               type: "text",
               synthetic: true,
-              // An extra space is added here. Otherwise the 'Use' gets appended
-              // to user's last word; making a combined word
+              // Keep this fresh instruction neutral: final request tools are resolved later.
               text:
-                " Use the above message and context to generate a prompt and call the task tool with subagent: " +
-                part.name +
-                hint,
+                ` The user requested delegation to subagent: ${part.name}. ` +
+                "Use the preceding message and context to prepare its task. " +
+                "Delegate if an appropriate delegation tool is available; otherwise report that delegation is unavailable.",
             },
           ]
         }

@@ -16,7 +16,7 @@ import {
 import { mergeDeep, pipe } from "remeda"
 import { ProviderTransform } from "@/provider/transform"
 import { Config } from "@/config/config"
-import type { Agent } from "@/agent/agent"
+import { Agent } from "@/agent/agent"
 import type { MessageV2 } from "./message-v2"
 import { Plugin } from "@/plugin"
 import { SystemPrompt } from "./system"
@@ -272,7 +272,8 @@ export namespace LLM {
    * Codex sign-in sessions send no base prompt here, because they send the Codex header as `options.instructions`.
    */
   function leadPrompt(agent: Agent.Info, isCodex: boolean, tools: ReadonlySet<string>) {
-    if (agent.prompt) return [agent.prompt]
+    const prompt = Agent.renderPrompt(agent, tools)
+    if (prompt) return [prompt]
     if (isCodex) return []
     return [SystemPrompt.base(tools)]
   }
