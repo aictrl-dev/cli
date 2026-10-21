@@ -56,6 +56,8 @@ globalThis.fetch = (async (input, init) => {
     transport.captures.push(JSON.parse(String(init?.body)) as Wire)
     return responses()
   }
+  if (["data:image/png;base64,aW5lcnQ=", "data:application/octet-stream;base64,Ynl0ZXM="].includes(url.href))
+    return originalFetch(input, init)
   if (url.origin !== transport.origin) throw new Error(`Blocked unexpected model transport: ${url.origin}`)
   return originalFetch(input, init)
 }) as typeof fetch
@@ -96,6 +98,9 @@ type Fixture = {
   prompt(input?: Partial<PromptInput>): Promise<Wire>
   direct(input: StreamInput): Promise<Wire>
   input(): StreamInput
+  directory: string
+  sessionID: string
+  messages(): ReturnType<typeof Session.messages>
 }
 
 function definitions(body: Wire) {
@@ -130,6 +135,9 @@ async function fixture(
     gpt?: boolean
     codex?: boolean
     buildPrompt?: string
+    call?: () => { name: string; arguments: Record<string, unknown> }
+    images?: boolean
+    init?: (directory: string) => Promise<void>
   } = {},
   fn: (context: Fixture) => Promise<void>,
 ) {
@@ -142,6 +150,36 @@ async function fixture(
     port: 0,
     async fetch(request) {
       transport.captures.push((await request.json()) as Wire)
+      if (options.call && transport.captures.length === 1) {
+        const call = options.call()
+        return sse([
+          {
+            id: "fixture-call",
+            object: "chat.completion.chunk",
+            choices: [
+              {
+                index: 0,
+                delta: {
+                  role: "assistant",
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: "runtime-call",
+                      type: "function",
+                      function: { name: call.name, arguments: JSON.stringify(call.arguments) },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+          {
+            id: "fixture-call",
+            object: "chat.completion.chunk",
+            choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+          },
+        ])
+      }
       return providerID === "openai" ? responses() : chat()
     },
   })
@@ -156,12 +194,15 @@ async function fixture(
     })
   const original = LLM.stream
   let last: StreamInput | undefined
+  let persisted: unknown
+  const persistedCheckpoints: unknown[] = []
   const spy = spyOn(LLM, "stream").mockImplementation(async (input) => {
     last = input
     return original(input)
   })
   try {
     await using tmp = await tmpdir({
+      init: options.init,
       config: {
         permission: { "*": "allow", ...options.permission },
         enabled_providers: [providerID],
@@ -170,7 +211,16 @@ async function fixture(
             npm: providerID === "openai" ? "@ai-sdk/openai" : "@ai-sdk/openai-compatible",
             options: { apiKey: "fixture", baseURL: `${server.url.origin}/v1` },
             ...(providerID === "fixture"
-              ? { models: { fixture: { name: "fixture", tool_call: true, limit: { context: 200_000, output: 1000 } } } }
+              ? {
+                  models: {
+                    fixture: {
+                      name: "fixture",
+                      tool_call: true,
+                      ...(options.images ? { modalities: { input: ["text", "image"], output: ["text"] } } : {}),
+                      limit: { context: 200_000, output: 1000 },
+                    },
+                  },
+                }
               : {}),
           },
         },
@@ -182,6 +232,9 @@ async function fixture(
       fn: async () => {
         const session = await Session.create({ title: "Tool guidance fixture", permission: options.session })
         const context: Fixture = {
+          directory: tmp.path,
+          sessionID: session.id,
+          messages: () => Session.messages({ sessionID: session.id }),
           async prompt(input = {}) {
             const before = transport.captures.length
             const result = await SessionPrompt.prompt({
@@ -191,8 +244,24 @@ async function fixture(
               ...input,
             })
             if (result.info.role !== "assistant" || result.info.error) throw new Error(JSON.stringify(result.info))
-            expect(transport.captures.length - before).toBe(1)
-            return transport.captures[before]
+            expect(transport.captures.length - before).toBe(before === 0 && options.call ? 2 : 1)
+            const messages = await Session.messages({ sessionID: session.id })
+            const savedOutputs = []
+            for (const message of messages)
+              for (const part of message.parts) {
+                if (part.type !== "tool" || part.state.status !== "completed" || !part.state.metadata.outputPath)
+                  continue
+                const outputPath = part.state.metadata.outputPath as string
+                const bytes = await Bun.file(outputPath).bytes()
+                savedOutputs.push({
+                  outputPath,
+                  bytes: bytes.length,
+                  sha256: new Bun.CryptoHasher("sha256").update(bytes).digest("hex"),
+                  content: new TextDecoder().decode(bytes),
+                })
+              }
+            persistedCheckpoints.push({ afterRequestCount: transport.captures.length, messages, savedOutputs })
+            return transport.captures.at(-1)!
           },
           async direct(input) {
             const before = transport.captures.length
@@ -208,7 +277,11 @@ async function fixture(
             return last
           },
         }
-        await fn(context)
+        try {
+          await fn(context)
+        } finally {
+          persisted = await context.messages()
+        }
       },
     })
   } finally {
@@ -216,7 +289,11 @@ async function fixture(
     if (output)
       await Bun.write(
         path.join(output, `${label}.json`),
-        JSON.stringify({ label, codex: options.codex ?? false, requests: transport.captures }, null, 2),
+        JSON.stringify(
+          { label, codex: options.codex ?? false, requests: transport.captures, persisted, persistedCheckpoints },
+          null,
+          2,
+        ),
       )
     spy.mockRestore()
     server.stop(true)
@@ -497,5 +574,181 @@ describe("final request capability and ownership boundaries (#244)", () => {
       expect(body.instructions).toContain("Run tool calls in parallel")
       expect(body.instructions).toContain("NEVER revert existing changes")
     })
+  })
+})
+
+function toolParts(messages: Awaited<ReturnType<typeof Session.messages>>) {
+  return messages.flatMap((message) => message.parts).filter((part) => part.type === "tool")
+}
+function nextToolText(body: Wire) {
+  return (body.messages ?? [])
+    .filter((message) => message.role === "tool")
+    .map((message) => (typeof message.content === "string" ? message.content : JSON.stringify(message.content)))
+    .join("\n")
+}
+function noNewAdvice(text: string) {
+  expect(text).not.toContain("Use the Task tool")
+  expect(text).not.toContain("Use Grep to search")
+  expect(text).not.toContain("Read with offset/limit")
+  expect(text).not.toContain("Use the Read tool first")
+}
+
+describe("runtime hints through actual tool loop and next request (#244)", () => {
+  test("real oversized Bash persists factual result and serializes it on the next request", async () => {
+    const original = "benign-runtime-line\n".repeat(3001)
+    await fixture(
+      "runtime-bash",
+      {
+        permission: { ...denied, read: "deny" },
+        call: () => ({
+          name: "bash",
+          arguments: {
+            command: `node -e 'process.stdout.write("benign-runtime-line\\n".repeat(3001))'`,
+            description: "Print benign oversized fixture output",
+          },
+        }),
+      },
+      async (context) => {
+        const body = await context.prompt()
+        expect(names(body)).toEqual(["bash", "edit", "write"])
+        const part = toolParts(await context.messages()).find((part) => part.tool === "bash")!
+        expect(part.state.status).toBe("completed")
+        if (part.state.status !== "completed") throw new Error(JSON.stringify(part.state))
+        const outputPath = part.state.metadata.outputPath as string
+        expect(await Bun.file(outputPath).text()).toBe(original)
+        expect(part.state.metadata.truncated).toBe(true)
+        expect(part.state.output).toContain(outputPath)
+        expect(nextToolText(body)).toContain(part.state.output)
+        noNewAdvice(part.state.output)
+        noNewAdvice(nextToolText(body))
+        const historical =
+          "Historical result: Use the Task tool to have explore agent process this file with Grep and Read (with offset/limit)."
+        await Session.updatePart({ ...part, state: { ...part.state, output: historical } })
+        const replay = await context.prompt()
+        expect(nextToolText(replay)).toContain(historical)
+      },
+    )
+  })
+
+  for (const name of ["edit", "write"] as const) {
+    test(`Read-denied real ${name} failure keeps bytes and replays accurate error`, async () => {
+      let filepath = ""
+      await fixture(
+        `runtime-${name}-unread`,
+        {
+          permission: { ...denied, read: "deny" },
+          init: async (directory) => {
+            filepath = path.join(directory, "protected.txt")
+            await Bun.write(filepath, "original bytes\n")
+          },
+          call: () => ({
+            name,
+            arguments:
+              name === "edit"
+                ? { filePath: filepath, oldString: "original", newString: "changed" }
+                : { filePath: filepath, content: "changed bytes" },
+          }),
+        },
+        async (context) => {
+          const body = await context.prompt()
+          expect(names(body)).not.toContain("read")
+          expect(await Bun.file(filepath).text()).toBe("original bytes\n")
+          const part = toolParts(await context.messages()).find((part) => part.tool === name)!
+          expect(part.state.status).toBe("error")
+          if (part.state.status !== "error") throw new Error(JSON.stringify(part.state))
+          expect(part.state.error).toContain(filepath)
+          expect(part.state.error).toMatch(/read/i)
+          expect(nextToolText(body)).toContain(part.state.error)
+          noNewAdvice(part.state.error)
+          noNewAdvice(nextToolText(body))
+          const historical = `You must read file ${filepath} before overwriting it. Use the Read tool first`
+          await Session.updatePart({ ...part, state: { ...part.state, error: historical } })
+          const replay = await context.prompt()
+          expect(nextToolText(replay)).toContain(historical)
+        },
+      )
+    })
+  }
+
+  test("custom plugin output retains literal advice while only harness suffix changes", async () => {
+    const original = "Plugin original: Use the Task tool, Grep and Read literally.\n" + "plugin-data\n".repeat(3001)
+    await fixture(
+      "runtime-plugin",
+      {
+        permission: { ...denied, read: "deny" },
+        init: async (directory) => {
+          await Bun.write(
+            path.join(directory, ".aictrl/tool/oversized.ts"),
+            `export default { description: "Custom plugin fixture", args: {}, execute: async () => ${JSON.stringify(original)} }`,
+          )
+        },
+        call: () => ({ name: "oversized", arguments: {} }),
+      },
+      async (context) => {
+        const body = await context.prompt()
+        const part = toolParts(await context.messages()).find((part) => part.tool === "oversized")!
+        if (part.state.status !== "completed") throw new Error(JSON.stringify(part.state))
+        expect(await Bun.file(part.state.metadata.outputPath as string).text()).toBe(original)
+        expect(part.state.output).toStartWith("Plugin original: Use the Task tool, Grep and Read literally.")
+        const suffix = part.state.output.split("The tool call succeeded")[1]
+        expect(suffix).toBeString()
+        noNewAdvice(suffix)
+        expect(nextToolText(body)).toContain(part.state.output)
+      },
+    )
+  })
+
+  test("MCP original text content and attachment ordering survives truncation wrapper", async () => {
+    const first = "MCP original: Use the Task tool, Grep and Read literally.\n" + "mcp-data\n".repeat(3001)
+    const content = [
+      { type: "text" as const, text: first },
+      { type: "image" as const, mimeType: "image/png", data: "aW5lcnQ=" },
+      {
+        type: "resource" as const,
+        resource: { uri: "fixture://notes", mimeType: "text/plain", text: "resource tail" },
+      },
+      {
+        type: "resource" as const,
+        resource: { uri: "fixture://blob", mimeType: "application/octet-stream", blob: "Ynl0ZXM=" },
+      },
+    ]
+    const spy = spyOn(MCP, "tools").mockImplementation(async () => ({
+      fixture_mcp: tool({
+        description: "Local MCP fixture",
+        inputSchema: jsonSchema({ type: "object", properties: {} }),
+        execute: async () => ({ content, metadata: { fixture: "preserve" } }),
+      }),
+    }))
+    try {
+      await fixture(
+        "runtime-mcp",
+        { images: true, permission: { ...denied, read: "deny" }, call: () => ({ name: "fixture_mcp", arguments: {} }) },
+        async (context) => {
+          const body = await context.prompt()
+          const part = toolParts(await context.messages()).find((part) => part.tool === "fixture_mcp")!
+          if (part.state.status !== "completed") throw new Error(JSON.stringify(part.state))
+          expect(await Bun.file(part.state.metadata.outputPath as string).text()).toBe(first + "\n\nresource tail")
+          expect(part.state.metadata.fixture).toBe("preserve")
+          expect(part.state.output).toStartWith("MCP original: Use the Task tool, Grep and Read literally.")
+          noNewAdvice(part.state.output.split("The tool call succeeded")[1])
+          expect(part.state.attachments?.map((item) => item.mime)).toEqual(["image/png", "application/octet-stream"])
+          expect(part.state.attachments?.map((item) => item.url)).toEqual([
+            "data:image/png;base64,aW5lcnQ=",
+            "data:application/octet-stream;base64,Ynl0ZXM=",
+          ])
+          expect(nextToolText(body)).toContain("MCP original: Use the Task tool, Grep and Read literally.")
+          expect(nextToolText(body)).not.toContain("resource tail")
+          const toolContent = JSON.parse(nextToolText(body))
+          expect(toolContent.map((item: { type: string }) => item.type)).toEqual(["text", "media"])
+          expect(toolContent[0].text).toBe(part.state.output)
+          expect(toolContent[1]).toEqual({ type: "media", mediaType: "application/octet-stream", data: "Ynl0ZXM=" })
+          expect(JSON.stringify(body.messages)).toContain("data:image/png;base64,aW5lcnQ=")
+          expect(content[0].text).toBe(first)
+          expect(content[2].resource?.text).toBe("resource tail")
+        },
+      )
+    } finally {
+      spy.mockRestore()
+    }
   })
 })

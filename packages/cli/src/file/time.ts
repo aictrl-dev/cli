@@ -59,12 +59,15 @@ export namespace FileTime {
     }
 
     const time = get(sessionID, filepath)
-    if (!time) throw new Error(`You must read file ${filepath} before overwriting it. Use the Read tool first`)
+    if (!time)
+      throw new Error(
+        `You must read file ${filepath} before overwriting it. This session has no recorded read of its current contents.`,
+      )
     const mtime = Filesystem.stat(filepath)?.mtime
     // Allow a 50ms tolerance for Windows NTFS timestamp fuzziness / async flushing
     if (mtime && mtime.getTime() > time.getTime() + 50) {
       throw new Error(
-        `File ${filepath} has been modified since it was last read.\nLast modification: ${mtime.toISOString()}\nLast read: ${time.toISOString()}\n\nPlease read the file again before modifying it.`,
+        `File ${filepath} has been modified since it was last read.\nLast modification: ${mtime.toISOString()}\nLast read: ${time.toISOString()}\n\nA current read must be recorded in this session before modifying the file.`,
       )
     }
   }
