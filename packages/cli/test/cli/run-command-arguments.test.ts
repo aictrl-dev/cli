@@ -199,7 +199,18 @@ async function capture(input: Input) {
   }
   if (deadline) throw new Error("Command argument fixture deadline fired: " + JSON.stringify(result))
   if (!result.groupGone) throw new Error("Command argument fixture process group remains")
-  if (network.some((row) => row.allowed === false)) throw new Error("Command argument fixture blocked external attempt")
+  const denied = network
+    .filter((row: { allowed?: boolean }) => row.allowed === false)
+    .map((row: { kind: string; origin?: string; path?: string }) => ({
+      kind: row.kind,
+      origin: row.origin,
+      path: row.path,
+    }))
+  if (denied.length)
+    throw new Error(
+      "Command argument fixture blocked external attempt: " +
+        JSON.stringify({ code, requestCount: requests.length, denied }),
+    )
   expect(code, stderr + stdout).toBe(0)
   expect(requests).toHaveLength(1)
   return result
