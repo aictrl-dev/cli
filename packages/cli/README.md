@@ -184,6 +184,40 @@ Provider failures and stream timeouts retain **1**; SIGINT/SIGTERM retain
 
 In headless mode, Aictrl automatically rejects permissions that would otherwise prompt a user.
 
+### Bash environment forwarding (unreleased)
+
+These examples require a build containing this option; Windows execution is not
+verified. Choose the exact environment names forwarded to the built-in `bash`
+tool's shell and its path-resolution helper:
+
+```bash
+aictrl run "Run the trusted task" # existing parent + hook inheritance
+aictrl run --bash-env-allowlist '[]' "Run the trusted task"
+aictrl run --bash-env-allowlist '["PATH","LANG"]' "Run the trusted task"
+```
+
+Omitting the option keeps existing inheritance. `[]` forwards no parent or hook
+entries; a shell can still synthesize its own variables. Nothing automatically
+adds `PATH`, `HOME`, proxy or CA settings. Missing selected names are omitted,
+existing empty values remain empty, and duplicates are removed. POSIX names are
+case-sensitive. Only the caller option sets this policy; project config and
+`.env` cannot widen it.
+
+The helper receives selected parent values. After permission checks, the final
+shell also considers the `shell.env` hook's overrides, then filters by name.
+Opt-in hook records require valid environment names and string values without
+NUL; invalid hook data fails that Bash launch. Invalid, missing or repeated
+option values are configuration errors (exit **2**). Any explicit policy,
+including `[]`, fails early with `--attach` because receiver enforcement is not
+supported.
+
+This controls forwarding, not access to secrets: a command can still read
+same-UID parent processes or credential files. `PATH` and `HOME` can grant
+executable and file access. Trusted plugins, command-template shell expansion,
+MCP, formatters and other bootstrap helpers retain separate parent authority.
+Use separate credential phases and OS isolation; this option is not a sandbox
+or a guarantee that an untrusted checkout is safe.
+
 ### Skill Scope
 
 `aictrl run` lists project skills (`.aictrl/skill(s)/`, and `.claude/skills/`,

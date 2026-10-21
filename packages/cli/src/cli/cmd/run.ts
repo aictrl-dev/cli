@@ -16,6 +16,7 @@ import { Flag } from "../../flag/flag"
 import { HeadlessRun } from "../../flag/headless-run"
 import { bootstrap } from "../bootstrap"
 import { EOL } from "os"
+import { AsyncLocalStorage } from "node:async_hooks"
 import { Filesystem } from "../../util/filesystem"
 import { createAictrlClient } from "@aictrl/sdk"
 import type { ToolPart } from "@aictrl/sdk/v2"
@@ -377,6 +378,12 @@ export const RunCommand = cmd({
         .strictOptions()
         .strictCommands(false)
         .parserConfiguration({ "populate--": true, "parse-positional-numbers": false })
+        .option("bash-env-allowlist", {
+          type: "string",
+          nargs: 1,
+          requiresArg: true,
+          describe: "JSON array of exact environment variable names forwarded by native Bash",
+        })
         .option("tools", {
           type: "string",
           nargs: 1,
@@ -1265,9 +1272,7 @@ export const RunCommand = cmd({
             })
             return { data: session }
           },
-          abort(opts: any) {
-            return SessionPrompt.cancel(opts.sessionID)
-          },
+          abort: AsyncLocalStorage.bind((opts: { sessionID: string }) => SessionPrompt.cancel(opts.sessionID)),
           async prompt(opts: any) {
             promptResult = SessionPrompt.prompt({
               sessionID: opts.sessionID,

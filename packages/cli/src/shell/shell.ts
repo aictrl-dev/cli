@@ -2,12 +2,15 @@ import { Flag } from "@/flag/flag"
 import { lazy } from "@/util/lazy"
 import { Filesystem } from "@/util/filesystem"
 import path from "path"
-import { spawn, type ChildProcess } from "child_process"
+import { spawn } from "child_process"
 
 const SIGKILL_TIMEOUT_MS = 200
 
 export namespace Shell {
-  export async function killTree(proc: ChildProcess, opts?: { exited?: () => boolean }): Promise<void> {
+  export async function killTree(
+    proc: { pid?: number; kill(signal: "SIGTERM" | "SIGKILL"): unknown },
+    opts?: { exited?: () => boolean },
+  ): Promise<void> {
     const pid = proc.pid
     if (!pid || opts?.exited?.()) return
 

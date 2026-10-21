@@ -1,5 +1,9 @@
 import z from "zod"
 import { spawn } from "child_process"
+import { EventEmitter } from "node:events"
+import { Readable } from "node:stream"
+import type { ReadableStream as NodeReadableStream } from "node:stream/web"
+import { finished } from "node:stream/promises"
 import { Tool } from "./tool"
 import { ToolGuidance } from "./guidance"
 import path from "path"
@@ -18,6 +22,7 @@ import { Shell } from "@/shell/shell"
 import { BashArity } from "@/permission/arity"
 import { Truncate } from "./truncation"
 import { Plugin } from "@/plugin"
+import { BashEnvPolicy } from "@/util/bash-env-policy"
 
 export const MAX_OUTPUT_BUFFER = 2 * 1024 * 1024 // 2MB, matching PTY module precedent
 const MAX_METADATA_LENGTH = 30_000
@@ -92,6 +97,58 @@ async function extractEmbeddedCommands(
   return commands
 }
 
+// Bun's node:child_process envPairs conversion drops an own __proto__ name.
+// The direct primitive preserves exact env entries; keep it scoped to opt-in.
+function exact(command: string, shell: string, cwd: string, env: Record<string, string>) {
+  const events = new EventEmitter<{ exit: []; error: [Error] }>()
+  const windows = process.platform === "win32" && /^(?:.*\\)?cmd(?:\.exe)?$/i.test(shell)
+  let code: number | null = null
+  const proc = Bun.spawn({
+    cmd: windows ? [shell, "/d", "/s", "/c", `"${command}"`] : [shell, "-c", command],
+    windowsVerbatimArguments: windows,
+    cwd,
+    env,
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+    detached: process.platform !== "win32",
+    onExit(_proc, exit, signal, error) {
+      // Bun may invoke onExit before spawn returns. Defer until adapters and
+      // completion listeners exist, as its node:child_process wrapper does.
+      process.nextTick(async () => {
+        // Match the existing Bun node:child_process signal/exit-code mapping.
+        code = typeof signal === "string" ? null : typeof signal === "number" ? 0 : exit
+        try {
+          await Promise.all([finished(stdout, { cleanup: true }), finished(stderr, { cleanup: true })])
+        } catch (error) {
+          events.emit("error", error instanceof Error ? error : new Error("Bash output stream failed."))
+          return
+        }
+        if (error) {
+          events.emit("error", error)
+          return
+        }
+        events.emit("exit")
+      })
+    },
+  })
+  // Bun and Node augment their Web-stream declarations differently.
+  const stdout = Readable.fromWeb(proc.stdout as unknown as NodeReadableStream<Uint8Array>)
+  const stderr = Readable.fromWeb(proc.stderr as unknown as NodeReadableStream<Uint8Array>)
+  return {
+    pid: proc.pid,
+    stdout,
+    stderr,
+    get exitCode() {
+      return code
+    },
+    kill(signal: "SIGTERM" | "SIGKILL") {
+      proc.kill(signal)
+    },
+    once: events.once.bind(events),
+  }
+}
+
 // TODO: we may wanna rename this tool so it works better on other shells
 export const BashTool = Tool.define("bash", async () => {
   const shell = Shell.acceptable()
@@ -114,6 +171,10 @@ export const BashTool = Tool.define("bash", async () => {
       description: z.string().describe("Short summary of what this command does, in 5-10 words"),
     }),
     async execute(params, ctx) {
+      const policy = BashEnvPolicy.current()
+      const platform = process.platform === "win32" ? "win32" : "posix"
+      const environment =
+        policy.mode === "allowlist" ? BashEnvPolicy.select(policy, process.env, {}, platform) : undefined
       const cwd = params.workdir || Instance.directory
       if (params.timeout !== undefined && params.timeout < 0) {
         throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
@@ -141,8 +202,9 @@ export const BashTool = Tool.define("bash", async () => {
         if (["cd", "rm", "cp", "mv", "mkdir", "touch", "chmod", "chown", "cat"].includes(command[0])) {
           for (const arg of command.slice(1)) {
             if (arg.startsWith("-") || (command[0] === "chmod" && arg.startsWith("+"))) continue
-            const resolved = await $`realpath ${arg}`
-              .cwd(cwd)
+            const preflight = $`realpath ${arg}`.cwd(cwd)
+            if (environment) preflight.env(environment)
+            const resolved = await preflight
               .quiet()
               .nothrow()
               .text()
@@ -293,16 +355,19 @@ export const BashTool = Tool.define("bash", async () => {
         { cwd, sessionID: ctx.sessionID, callID: ctx.callID },
         { env: {} },
       )
-      const proc = spawn(params.command, {
-        shell,
-        cwd,
-        env: {
-          ...process.env,
-          ...shellEnv.env,
-        },
-        stdio: ["ignore", "pipe", "pipe"],
-        detached: process.platform !== "win32",
-      })
+      const proc =
+        policy.mode === "allowlist"
+          ? exact(params.command, shell, cwd, BashEnvPolicy.select(policy, process.env, shellEnv.env, platform))
+          : spawn(params.command, {
+              shell,
+              cwd,
+              env: {
+                ...process.env,
+                ...shellEnv.env,
+              },
+              stdio: ["ignore", "pipe", "pipe"],
+              detached: process.platform !== "win32",
+            })
 
       let output = ""
       let truncatedBytes = 0
@@ -343,24 +408,16 @@ export const BashTool = Tool.define("bash", async () => {
 
       const kill = () => Shell.killTree(proc, { exited: () => exited })
 
-      if (ctx.abort.aborted) {
-        aborted = true
-        await kill()
-      }
-
       const abortHandler = () => {
         aborted = true
         void kill()
       }
 
-      ctx.abort.addEventListener("abort", abortHandler, { once: true })
-
-      const timeoutTimer = setTimeout(() => {
-        timedOut = true
-        void kill()
-      }, timeout + 100)
-
       await new Promise<void>((resolve, reject) => {
+        const timeoutTimer = setTimeout(() => {
+          timedOut = true
+          void kill()
+        }, timeout + 100)
         const cleanup = () => {
           clearTimeout(timeoutTimer)
           ctx.abort.removeEventListener("abort", abortHandler)
@@ -377,6 +434,11 @@ export const BashTool = Tool.define("bash", async () => {
           cleanup()
           reject(error)
         })
+
+        // Register completion before killing even an already-aborted child:
+        // killTree awaits escalation, during which an exit can otherwise be lost.
+        ctx.abort.addEventListener("abort", abortHandler, { once: true })
+        if (ctx.abort.aborted) abortHandler()
       })
 
       if (truncatedBytes > 0) {

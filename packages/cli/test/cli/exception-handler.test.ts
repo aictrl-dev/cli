@@ -1,8 +1,98 @@
 import { describe, expect, test } from "bun:test"
 import path from "path"
 import { fileURLToPath } from "url"
+import { EOL } from "os"
+import ts from "typescript"
+import { BashEnvPolicy } from "../../src/util/bash-env-policy"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+// Execute the source-extracted callbacks with controlled effects. This checks the
+// actual handler bodies, not whole-CLI startup or global event delivery.
+async function handlers(file: string) {
+  const source = ts.createSourceFile(
+    file,
+    await Bun.file(path.join(__dirname, "../../src", file)).text(),
+    ts.ScriptTarget.Latest,
+    true,
+  )
+  for (const event of ["uncaughtException", "unhandledRejection"] as const) {
+    const registrations = source.statements.filter((statement): statement is ts.ExpressionStatement => {
+      if (!ts.isExpressionStatement(statement) || !ts.isCallExpression(statement.expression)) return false
+      const call = statement.expression
+      return (
+        ts.isPropertyAccessExpression(call.expression) &&
+        ts.isIdentifier(call.expression.expression) &&
+        call.expression.expression.text === "process" &&
+        call.expression.name.text === "on" &&
+        !!call.arguments[0] &&
+        ts.isStringLiteral(call.arguments[0]) &&
+        call.arguments[0].text === event
+      )
+    })
+    expect(registrations).toHaveLength(1)
+    const call = registrations[0]?.expression
+    if (!call || !ts.isCallExpression(call) || call.arguments.length !== 2) {
+      throw new Error(`Expected one module-top process.on callback for ${file}: ${event}`)
+    }
+    const callback = call.arguments[1]
+    if (!callback || (!ts.isArrowFunction(callback) && !ts.isFunctionExpression(callback))) {
+      throw new Error(`Expected an inline callback for ${file}: ${event}`)
+    }
+    const compiled = new Bun.Transpiler({ loader: "ts" }).transformSync(`const handler = ${callback.getText(source)}`)
+    const marker = "owned-sensitive-policy-marker"
+    let policy: unknown
+    try {
+      BashEnvPolicy.parse(`["${marker}`)
+    } catch (error) {
+      policy = error
+    }
+    expect(policy).toBeInstanceOf(BashEnvPolicy.ConfigError)
+    const ordinary = new Error("owned ordinary exception")
+    for (const error of [ordinary, policy]) {
+      const logs: { event: string; data: Record<string, unknown> }[] = []
+      const stderr: string[] = []
+      const exits: number[] = []
+      const sentinel = new Error("controlled process.exit")
+      const handler = new Function("BashEnvPolicy", "Log", "process", "EOL", compiled + "\nreturn handler")(
+        BashEnvPolicy,
+        { Default: { error: (event: string, data: Record<string, unknown>) => logs.push({ event, data }) } },
+        {
+          stderr: { write: (value: string) => stderr.push(value) },
+          exit: (code: number): never => {
+            exits.push(code)
+            throw sentinel
+          },
+        },
+        EOL,
+      ) as (error: unknown) => void
+      let thrown: unknown
+      try {
+        handler(error)
+      } catch (error) {
+        thrown = error
+      }
+      expect(thrown).toBe(sentinel)
+      if (error === ordinary) {
+        expect(exits).toEqual([1])
+        expect(stderr).toEqual([])
+        expect(logs).toEqual([
+          {
+            event: event === "uncaughtException" ? "exception" : "rejection",
+            data: { e: ordinary.message, stack: ordinary.stack },
+          },
+        ])
+      } else {
+        expect(exits).toEqual([2])
+        expect(stderr).toEqual([
+          "BASH_ENV_CONFIGURATION: --bash-env-allowlist must be a JSON array of variable names." + EOL,
+        ])
+        expect(logs).toEqual([])
+        expect(JSON.stringify({ stderr, logs })).not.toContain(marker)
+      }
+    }
+  }
+}
 
 describe("exception handler exit behavior", () => {
   test("uncaughtException handler exits with code 1", async () => {
@@ -58,47 +148,12 @@ describe("exception handler exit behavior", () => {
     expect(stderr).toContain("test unhandled rejection")
   }, 10_000)
 
-  test("index.ts exception handlers include process.exit(1)", async () => {
-    // Static analysis: ensure handlers include process.exit(1)
-    const indexSource = await Bun.file(path.join(__dirname, "../../src/index.ts")).text()
-
-    // Verify both handlers exist and include process.exit(1)
-    // Match the pattern: process.on("uncaughtException", ...) block containing process.exit(1)
-    expect(indexSource).toContain('process.on("uncaughtException"')
-    expect(indexSource).toContain('process.on("unhandledRejection"')
-
-    // Verify process.exit(1) appears after both handlers (crude but effective)
-    const uncaughtIdx = indexSource.indexOf('process.on("uncaughtException"')
-    const rejectionIdx = indexSource.indexOf('process.on("unhandledRejection"')
-
-    // Find the next process.exit(1) after each handler registration
-    const exitAfterUncaught = indexSource.indexOf("process.exit(1)", uncaughtIdx)
-    const exitAfterRejection = indexSource.indexOf("process.exit(1)", rejectionIdx)
-
-    // Both should find process.exit(1) within the handler (before the next major block)
-    expect(exitAfterUncaught).toBeGreaterThan(uncaughtIdx)
-    expect(exitAfterRejection).toBeGreaterThan(rejectionIdx)
-    // Handlers are close together, so exit should be within ~200 chars
-    expect(exitAfterUncaught - uncaughtIdx).toBeLessThan(200)
-    expect(exitAfterRejection - rejectionIdx).toBeLessThan(200)
+  test("index.ts actual callbacks classify ordinary and policy errors", async () => {
+    await handlers("index.ts")
   })
 
-  test("headless.ts exception handlers include process.exit(1)", async () => {
-    const headlessSource = await Bun.file(path.join(__dirname, "../../src/headless.ts")).text()
-
-    expect(headlessSource).toContain('process.on("uncaughtException"')
-    expect(headlessSource).toContain('process.on("unhandledRejection"')
-
-    const uncaughtIdx = headlessSource.indexOf('process.on("uncaughtException"')
-    const rejectionIdx = headlessSource.indexOf('process.on("unhandledRejection"')
-
-    const exitAfterUncaught = headlessSource.indexOf("process.exit(1)", uncaughtIdx)
-    const exitAfterRejection = headlessSource.indexOf("process.exit(1)", rejectionIdx)
-
-    expect(exitAfterUncaught).toBeGreaterThan(uncaughtIdx)
-    expect(exitAfterRejection).toBeGreaterThan(rejectionIdx)
-    expect(exitAfterUncaught - uncaughtIdx).toBeLessThan(200)
-    expect(exitAfterRejection - rejectionIdx).toBeLessThan(200)
+  test("headless.ts actual callbacks classify ordinary and policy errors", async () => {
+    await handlers("headless.ts")
   })
 
   test("exception handlers log stack traces", async () => {

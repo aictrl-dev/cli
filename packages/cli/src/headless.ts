@@ -20,8 +20,14 @@ import { Global } from "./global"
 import { JsonMigration } from "./storage/json-migration"
 import { Database } from "./storage/db"
 import { Shutdown } from "./cli/shutdown"
+import { BashEnvPolicy } from "./util/bash-env-policy"
 
 process.on("unhandledRejection", (e) => {
+  const formatted = BashEnvPolicy.format(e)
+  if (formatted) {
+    process.stderr.write(formatted + EOL)
+    process.exit(2)
+  }
   Log.Default.error("rejection", {
     e: e instanceof Error ? e.message : e,
     stack: e instanceof Error ? e.stack : undefined,
@@ -30,6 +36,11 @@ process.on("unhandledRejection", (e) => {
 })
 
 process.on("uncaughtException", (e) => {
+  const formatted = BashEnvPolicy.format(e)
+  if (formatted) {
+    process.stderr.write(formatted + EOL)
+    process.exit(2)
+  }
   Log.Default.error("exception", {
     e: e instanceof Error ? e.message : e,
     stack: e instanceof Error ? e.stack : undefined,
@@ -55,6 +66,7 @@ let cli = yargs(hideBin(process.argv))
     choices: ["DEBUG", "INFO", "WARN", "ERROR"],
   })
   .middleware(async (opts) => {
+    BashEnvPolicy.initialize(opts)
     await Log.init({
       print: process.argv.includes("--print-logs"),
       dev: Installation.isLocal(),
@@ -70,7 +82,7 @@ let cli = yargs(hideBin(process.argv))
 
     Log.Default.info("aictrl-headless", {
       version: Installation.VERSION,
-      args: process.argv.slice(2),
+      args: BashEnvPolicy.explicit(opts) ? { command: "run", bashEnvPolicy: "allowlist" } : process.argv.slice(2),
     })
 
     const storageDir = path.join(Global.Path.data, "storage")
@@ -112,6 +124,12 @@ let cli = yargs(hideBin(process.argv))
 
 cli = cli
   .fail((msg, err) => {
+    const missing = BashEnvPolicy.parserError(cli as typeof cli & BashEnvPolicy.Parser, msg ?? err?.message)
+    if (missing) throw missing
+    // Use yargs' actual parse result even when validation fails before middleware.
+    if (cli.parsed && BashEnvPolicy.explicit(cli.parsed.argv)) {
+      throw new BashEnvPolicy.ConfigError("Invalid run options; check --bash-env-allowlist and other run arguments.")
+    }
     if (
       msg?.startsWith("Unknown argument") ||
       msg?.startsWith("Not enough non-option arguments") ||
@@ -128,31 +146,37 @@ cli = cli
 try {
   await cli.parse()
 } catch (e) {
-  let data: Record<string, any> = {}
-  if (e instanceof NamedError) {
-    const obj = e.toObject()
-    Object.assign(data, {
-      ...obj.data,
-    })
-  }
+  const policyError = BashEnvPolicy.format(e)
+  if (policyError) {
+    process.stderr.write(policyError + EOL)
+    process.exitCode = 2
+  } else {
+    let data: Record<string, any> = {}
+    if (e instanceof NamedError) {
+      const obj = e.toObject()
+      Object.assign(data, {
+        ...obj.data,
+      })
+    }
 
-  if (e instanceof Error) {
-    Object.assign(data, {
-      name: e.name,
-      message: e.message,
-      cause: e.cause?.toString(),
-      stack: e.stack,
-    })
-  }
+    if (e instanceof Error) {
+      Object.assign(data, {
+        name: e.name,
+        message: e.message,
+        cause: e.cause?.toString(),
+        stack: e.stack,
+      })
+    }
 
-  Log.Default.error("fatal", data)
-  const formatted = FormatError(e)
-  if (formatted) UI.error(formatted)
-  if (formatted === undefined) {
-    UI.error("Unexpected error, check log file at " + Log.file() + " for more details" + EOL)
-    process.stderr.write((e instanceof Error ? e.message : String(e)) + EOL)
+    Log.Default.error("fatal", data)
+    const formatted = FormatError(e)
+    if (formatted) UI.error(formatted)
+    if (formatted === undefined) {
+      UI.error("Unexpected error, check log file at " + Log.file() + " for more details" + EOL)
+      process.stderr.write((e instanceof Error ? e.message : String(e)) + EOL)
+    }
+    process.exitCode = 1
   }
-  process.exitCode = 1
 } finally {
   await Shutdown.flush()
   process.exit()
