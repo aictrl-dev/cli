@@ -21,7 +21,9 @@ The invocation envelope covers accepted `run --format json` executions from the 
 
 ### `invocation_start`
 
-Emitted once, before piped stdin is read and before run validation or bootstrap begins.
+Emitted once, before any selected stdin is read and before run validation or bootstrap begins. Stdin is selected by a standalone `-` message operand (including after `--`), or by no message operands with non-terminal stdin. A supplied ordinary prompt does not read stdin. Repeated markers cause one read and are removed before message and derived-title assembly. An explicitly selected stream still waits for EOF; no stdin deadline is implied by this event.
+
+Missing required option values and unknown options fail in the argument parser, before the handler starts. They exit with a parser error and do not emit invocation events. Failures after the handler starts retain the invocation lifecycle below.
 
 ```json
 {
@@ -249,6 +251,10 @@ Emitted once for each primary-session user message, after all of its parts are s
 - `model` (object, **required**) — `{ providerID, modelID }` the message was sent with.
 - `parts` (array, **required**) — the message's parts exactly as stored, in the order they were written. Parts the CLI derived from the input have `synthetic: true`; for example, the text a `-f` file or MCP resource expands to, or the compaction "continue" text. A compaction request has a single `compaction` part. Parts are not truncated: a `file` part can carry a `data:` URL, so consumers must accept arbitrarily large lines, as for `reasoning`.
 - `sequenceNum` (number, **required**) — the same per-session counter as `text`, `reasoning` and `tool_use`. A `user_message` is emitted before any event of the assistant turn it triggers, so its `sequenceNum` is lower than theirs.
+
+Ordinary prompt text joins normalized message operands with spaces without adding quote or backslash encoding; selected stdin is appended after one actual newline. Command templates receive exact structured operands and the selected stream as one final positional data operand. The highest numbered placeholder joins its remaining operands with spaces. Raw `$ARGUMENTS`, plugin arguments and command-executed arguments use the textual projection `argv.join(" ")` plus a newline and exact selected stdin. Existing string SDK inputs retain their legacy lexer. Literal dollar replacement tokens are not interpreted as JavaScript replacement instructions. These data-fidelity rules do not establish attached receiver support.
+
+Only shell spans present in the original resolved command template execute. Argument values, selected stdin, fallback text and captured shell output are never rescanned for placeholders or shell spans. In original shell spans, numbered placeholders bind scalar data using the original template's global highest-position suffix rule, while `$ARGUMENTS` binds the decoded operand vector. Bun supplies unquoted vector elements as separate arguments and quoted vectors as one space-joined scalar; missing numbered values bind empty scalars. This intentionally replaces raw shell-source interpolation while keeping the existing template-source authority, trusted operators and explicit interpreters. It is independent of model tool permissions and is not a sandbox. The expanded template keeps its outer whitespace trim before user-message parts are resolved.
 
 The StructuredOutput corrective reminder is not a stored user message. It is added to the next model request only, so it emits no `user_message`; `structured_output_rejected` reports each corrective turn instead. Child-session (subagent) user messages are not emitted, matching `text`.
 
@@ -670,15 +676,15 @@ can contain property names submitted by the model (for example, in map or
 to 64 characters; paths also have an overall length bound.
 A result file that cannot be used emits one fixed diagnostic with `path: ""`:
 
-| `keyword` | `message` |
-|---|---|
-| `file` | `working directory unavailable` |
-| `file` | `file not found` |
-| `file` | `path must stay inside the working directory` |
-| `file` | `file not readable` |
-| `file` | `path must be a regular file` |
-| `file` | `file must not exceed 2097152 bytes` |
-| `parse` | `file must contain complete, valid JSON` |
+| `keyword` | `message`                                     |
+| --------- | --------------------------------------------- |
+| `file`    | `working directory unavailable`               |
+| `file`    | `file not found`                              |
+| `file`    | `path must stay inside the working directory` |
+| `file`    | `file not readable`                           |
+| `file`    | `path must be a regular file`                 |
+| `file`    | `file must not exceed 2097152 bytes`          |
+| `parse`   | `file must contain complete, valid JSON`      |
 
 A file that parses but fails the schema emits Ajv diagnostics as above.
 Feedback for a rejected file goes to the model as the StructuredOutput tool error and

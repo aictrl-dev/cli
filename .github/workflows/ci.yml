@@ -34,5 +34,11 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Install ripgrep test prerequisite
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ripgrep
+          rg --version
+
       - name: Run Tests
         run: bun turbo test --concurrency=100%

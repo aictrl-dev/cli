@@ -151,8 +151,8 @@ describe("run --format json user_message (#223)", () => {
       agent: "build",
       model: { providerID: "alibaba", modelID: "qwen-plus" },
       sequenceNum: 1,
-      // run appends piped stdin (empty here) after a newline.
-      parts: [{ type: "text", text: "Hello\n", messageID: message.messageID, sessionID: message.sessionID }],
+      // An explicit prompt leaves unused stdin unread and adds no separator newline.
+      parts: [{ type: "text", text: "Hello", messageID: message.messageID, sessionID: message.sessionID }],
     })
     expect(message.parts[0].synthetic).toBeUndefined()
     const text = result.events.find((event) => event.type === "text")
@@ -190,7 +190,7 @@ describe("run --format json user_message (#223)", () => {
     expect(parts.filter((part) => part.synthetic === true).map((part) => part.text)).toEqual(
       expect.arrayContaining([expect.stringContaining("attached content")]),
     )
-    expect(parts.at(-1)).toMatchObject({ type: "text", text: "Summarize\n" })
+    expect(parts.at(-1)).toMatchObject({ type: "text", text: "Summarize" })
   }, 25_000)
 
   test("carries the --command expansion", async () => {
@@ -198,7 +198,7 @@ describe("run --format json user_message (#223)", () => {
     expect(result.exit, result.stderr).toBe(0)
     const [message, ...rest] = userMessageEvents(result.events)
     expect(rest).toEqual([])
-    expect(message.parts).toMatchObject([{ type: "text", text: "Check input\n." }])
+    expect(message.parts).toMatchObject([{ type: "text", text: "Check input." }])
   }, 25_000)
 
   test("a StructuredOutput corrective turn adds no user_message: its reminder is never stored", async () => {
@@ -209,7 +209,7 @@ describe("run --format json user_message (#223)", () => {
     expect(result.exit, result.stderr).toBe(0)
     expect(result.requests).toBe(2)
     expect(result.events.filter((event) => event.type === "structured_output_rejected")).toHaveLength(1)
-    expect(userMessageEvents(result.events)).toMatchObject([{ parts: [{ type: "text", text: "Hello\n" }] }])
+    expect(userMessageEvents(result.events)).toMatchObject([{ parts: [{ type: "text", text: "Hello" }] }])
   }, 25_000)
 
   test("emits the compaction request and its synthetic continue message", async () => {

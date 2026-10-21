@@ -47,6 +47,7 @@ import { Shutdown } from "../shutdown"
 import { Stdout } from "../stdout"
 import { attempt, signals, type Signals } from "../signals"
 import { createRunInvocation } from "./run.invocation"
+import { runInput } from "./run.input"
 
 type ToolProps<T extends Tool.Info> = {
   input: Tool.InferParameters<T>
@@ -312,9 +313,9 @@ function truncatedTitle(text: string) {
  */
 export function sessionTitle(input: {
   title?: string
-  /** The positional words as typed, before they are re-quoted for the model. */
+  /** The normalized positional text used to derive the title. */
   prompt: string
-  /** The message sent to the model: the re-quoted prompt plus any stdin. */
+  /** The message sent to the model: normalized prompt text plus any selected stdin. */
   message: string
   command?: string
 }) {
@@ -362,102 +363,121 @@ async function sessionPermissions(sessionID: string, agent: string | undefined, 
 }
 
 export const RunCommand = cmd({
-  command: "run [message..]",
+  command: "run",
   describe: "run aictrl with a message",
   builder: (yargs: Argv) => {
-    return yargs
-      .positional("message", {
-        describe: "message to send",
-        type: "string",
-        array: true,
-        default: [],
-      })
-      .option("command", {
-        describe: "the command to run, use message for args",
-        type: "string",
-      })
-      .option("continue", {
-        alias: ["c"],
-        describe: "continue the last session",
-        type: "boolean",
-      })
-      .option("session", {
-        alias: ["s"],
-        describe: "session id to continue",
-        type: "string",
-      })
-      .option("fork", {
-        describe: "fork the session before continuing (requires --continue or --session)",
-        type: "boolean",
-      })
-      // Removed (#189); still parsed so the run can fail with a clear error.
-      .option("share", {
-        type: "boolean",
-        hidden: true,
-      })
-      .option("model", {
-        type: "string",
-        alias: ["m"],
-        describe: "model to use in the format of provider/model",
-      })
-      .option("agent", {
-        type: "string",
-        describe: "agent to use",
-      })
-      .option("format", {
-        type: "string",
-        choices: ["default", "json"],
-        default: "default",
-        describe: "format: default (formatted) or json (raw JSON events)",
-      })
-      .option("output-schema", {
-        type: "string",
-        describe:
-          "JSON Schema file for the final result (object root); the agent writes the result to a JSON file in the working directory and passes its path to StructuredOutput",
-      })
-      .option("output-schema-retries", { type: "number", describe: "additional corrective turns (0-10, default: 2)" })
-      .option("output-result", {
-        type: "string",
-        describe: "atomically write only the validated JSON result to this file",
-      })
-      .option("file", {
-        alias: ["f"],
-        type: "string",
-        array: true,
-        describe: "file(s) to attach to message",
-      })
-      .option("title", {
-        type: "string",
-        describe: "title for the session (defaults to the truncated prompt, or /<command> <args> for command runs)",
-      })
-      .option("attach", {
-        type: "string",
-        describe: "attach to a running aictrl server (e.g., http://localhost:4096)",
-      })
-      .option("dir", {
-        type: "string",
-        describe: "directory to run in, path on remote server if attaching",
-      })
-      .option("port", {
-        type: "number",
-        describe: "port for the local server (defaults to random port if no value provided)",
-      })
-      .option("variant", {
-        type: "string",
-        describe: "model variant (provider-specific reasoning effort, e.g., high, max, minimal)",
-      })
-      .option("thinking", {
-        type: "boolean",
-        describe: "show thinking blocks",
-        default: false,
-      })
-      .option("skill", {
-        type: "string",
-        array: true,
-        // One value per flag, so a trailing message is not taken as a skill name.
-        nargs: 1,
-        describe: "only list and load this skill (repeatable); overrides config skills.allow",
-      })
+    return (
+      yargs
+        // A variadic positional is reparsed by yargs and loses bare "-" operands.
+        // Keep the parser's operands in this leaf while still rejecting unknown options.
+        .usage("$0 run [message..]")
+        .strict(false)
+        .strictOptions()
+        .strictCommands(false)
+        .parserConfiguration({ "populate--": true, "parse-positional-numbers": false })
+        .option("command", {
+          describe: "the command to run, use message for args",
+          type: "string",
+          requiresArg: true,
+        })
+        .option("continue", {
+          alias: ["c"],
+          describe: "continue the last session",
+          type: "boolean",
+        })
+        .option("session", {
+          alias: ["s"],
+          describe: "session id to continue",
+          type: "string",
+          requiresArg: true,
+        })
+        .option("fork", {
+          describe: "fork the session before continuing (requires --continue or --session)",
+          type: "boolean",
+        })
+        // Removed (#189); still parsed so the run can fail with a clear error.
+        .option("share", {
+          type: "boolean",
+          hidden: true,
+        })
+        .option("model", {
+          type: "string",
+          requiresArg: true,
+          alias: ["m"],
+          describe: "model to use in the format of provider/model",
+        })
+        .option("agent", {
+          type: "string",
+          requiresArg: true,
+          describe: "agent to use",
+        })
+        .option("format", {
+          type: "string",
+          requiresArg: true,
+          choices: ["default", "json"],
+          default: "default",
+          describe: "format: default (formatted) or json (raw JSON events)",
+        })
+        .option("output-schema", {
+          type: "string",
+          requiresArg: true,
+          describe:
+            "JSON Schema file for the final result (object root); the agent writes the result to a JSON file in the working directory and passes its path to StructuredOutput",
+        })
+        .option("output-schema-retries", {
+          type: "number",
+          requiresArg: true,
+          describe: "additional corrective turns (0-10, default: 2)",
+        })
+        .option("output-result", {
+          type: "string",
+          requiresArg: true,
+          describe: "atomically write only the validated JSON result to this file",
+        })
+        .option("file", {
+          alias: ["f"],
+          type: "string",
+          requiresArg: true,
+          array: true,
+          describe: "file(s) to attach to message",
+        })
+        .option("title", {
+          type: "string",
+          requiresArg: true,
+          describe: "title for the session (defaults to the truncated prompt, or /<command> <args> for command runs)",
+        })
+        .option("attach", {
+          type: "string",
+          requiresArg: true,
+          describe: "attach to a running aictrl server (e.g., http://localhost:4096)",
+        })
+        .option("dir", {
+          type: "string",
+          requiresArg: true,
+          describe: "directory to run in, path on remote server if attaching",
+        })
+        .option("port", {
+          type: "number",
+          describe: "port for the local server (defaults to random port if no value provided)",
+        })
+        .option("variant", {
+          type: "string",
+          requiresArg: true,
+          describe: "model variant (provider-specific reasoning effort, e.g., high, max, minimal)",
+        })
+        .option("thinking", {
+          type: "boolean",
+          describe: "show thinking blocks",
+          default: false,
+        })
+        .option("skill", {
+          type: "string",
+          array: true,
+          // One value per flag, so a trailing message is not taken as a skill name.
+          nargs: 1,
+          describe: "only list and load this skill (repeatable); overrides config skills.allow",
+        })
+    )
   },
   handler: async (args) => {
     const invocation = createRunInvocation(args.format === "json")
@@ -472,9 +492,9 @@ export const RunCommand = cmd({
       await fail("--share was removed: session sharing is no longer supported", "INVOCATION_INVALID_ARGUMENTS")
     }
 
-    let message = [...args.message, ...(args["--"] || [])]
-      .map((arg) => (arg.includes(" ") ? `"${arg.replace(/"/g, '\\"')}"` : arg))
-      .join(" ")
+    const normalized = runInput([...args._.slice(1), ...(args["--"] ?? [])].map(String), process.stdin.isTTY)
+    let message = normalized.message
+    let stdin: string | undefined
 
     const directory = await (async () => {
       if (!args.dir) return undefined
@@ -522,9 +542,10 @@ export const RunCommand = cmd({
       }
     }
 
-    if (!process.stdin.isTTY) {
+    if (normalized.stdin) {
       invocation.phase("stdin")
-      message += "\n" + (await invocation.guard(() => Bun.stdin.text()))
+      stdin = await invocation.guard(() => Bun.stdin.text())
+      message += "\n" + stdin
       invocation.phase("validation")
     }
 
@@ -570,8 +591,7 @@ export const RunCommand = cmd({
 
       if (baseID) return baseID
 
-      const prompt = [...args.message, ...(args["--"] || [])].join(" ")
-      const title = sessionTitle({ title: args.title, prompt, message, command: args.command })
+      const title = sessionTitle({ title: args.title, prompt: normalized.prompt, message, command: args.command })
       const result = await sdk.session.create(input(undefined, { title }))
       return result.data?.id
     }
@@ -794,7 +814,12 @@ export const RunCommand = cmd({
                 const message = await completedMessage(info)
                 // message_complete stays primary-session only; child turns get their own event (#213)
                 if (own) emit("message_complete", message)
-                else emit("subagent_message_complete", { subagentSessionID: info.sessionID, parentSessionID: sessionID, ...message })
+                else
+                  emit("subagent_message_complete", {
+                    subagentSessionID: info.sessionID,
+                    parentSessionID: sessionID,
+                    ...message,
+                  })
               }
             } else if (toggles.get("start") !== true) {
               UI.empty()
@@ -1122,7 +1147,7 @@ export const RunCommand = cmd({
           agent,
           model: args.model,
           command: args.command,
-          arguments: message,
+          arguments: { argv: normalized.argv, ...(stdin !== undefined ? { stdin } : {}) },
           variant: args.variant,
           ...(schema ? { format: schema.format } : {}),
         }
