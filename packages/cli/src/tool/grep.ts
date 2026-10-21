@@ -1,6 +1,7 @@
 import z from "zod"
 import { text } from "node:stream/consumers"
 import { Tool } from "./tool"
+import { ToolGuidance } from "./guidance"
 import { Filesystem } from "../util/filesystem"
 import { Ripgrep } from "../file/ripgrep"
 import { Process } from "../util/process"
@@ -14,6 +15,7 @@ const MAX_LINE_LENGTH = 2000
 
 export const GrepTool = Tool.define("grep", {
   description: DESCRIPTION,
+  renderDescription: ToolGuidance.grep,
   parameters: z.object({
     pattern: z.string().describe("The regex pattern to search for in file contents"),
     path: z.string().optional().describe("The directory to search in. Defaults to the current working directory."),

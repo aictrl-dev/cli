@@ -1,0 +1,1200 @@
+import { afterAll, beforeAll, describe, expect, spyOn, test, type Mock } from "bun:test"
+import path from "node:path"
+
+// Install before runtime imports: every model request is local or an intercepted
+// Codex request carrying inert auth. Never fall through to an external origin.
+const originalFetch = globalThis.fetch
+const transport = { origin: "", codex: false, captures: [] as Wire[] }
+type WireTool = { name?: string; description?: string; parameters?: unknown; function?: WireTool }
+type Wire = {
+  messages?: { role: string; content: unknown }[]
+  input?: unknown
+  instructions?: string
+  tools?: WireTool[]
+}
+function chat() {
+  const chunks = [
+    {
+      id: "fixture",
+      object: "chat.completion.chunk",
+      choices: [{ index: 0, delta: { role: "assistant", content: "done" } }],
+    },
+    { id: "fixture", object: "chat.completion.chunk", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] },
+  ]
+  return sse(chunks)
+}
+function responses() {
+  return sse([
+    { type: "response.created", response: { id: "resp-fixture", created_at: 1, model: "gpt-5.2", service_tier: null } },
+    { type: "response.output_item.added", output_index: 0, item: { type: "message", id: "item-fixture" } },
+    { type: "response.output_text.delta", item_id: "item-fixture", delta: "done", logprobs: null },
+    { type: "response.output_item.done", output_index: 0, item: { type: "message", id: "item-fixture" } },
+    {
+      type: "response.completed",
+      response: {
+        incomplete_details: null,
+        usage: { input_tokens: 1, input_tokens_details: null, output_tokens: 1, output_tokens_details: null },
+        service_tier: null,
+      },
+    },
+  ])
+}
+function sse(chunks: unknown[]) {
+  return new Response(
+    chunks
+      .map((chunk) => `data: ${JSON.stringify(chunk)}`)
+      .concat("data: [DONE]")
+      .join("\n\n") + "\n\n",
+    {
+      headers: { "content-type": "text/event-stream" },
+    },
+  )
+}
+globalThis.fetch = (async (input, init) => {
+  const url = new URL(input instanceof Request ? input.url : String(input))
+  if (transport.codex && url.origin === "https://chatgpt.com" && url.pathname.endsWith("/responses")) {
+    transport.captures.push(JSON.parse(String(init?.body)) as Wire)
+    return responses()
+  }
+  if (["data:image/png;base64,aW5lcnQ=", "data:application/octet-stream;base64,Ynl0ZXM="].includes(url.href))
+    return originalFetch(input, init)
+  if (url.origin !== transport.origin) throw new Error(`Blocked unexpected model transport: ${url.origin}`)
+  return originalFetch(input, init)
+}) as typeof fetch
+
+const [
+  { Tool },
+  { default: z },
+  { tool, jsonSchema },
+  { Instance },
+  { Session },
+  { SessionPrompt },
+  { LLM },
+  { ToolRegistry },
+  { Plugin },
+  { MCP },
+  { Auth },
+  { HeadlessRun },
+  { tmpdir },
+  { Agent },
+  { default: nativeExplorePrompt },
+] = await Promise.all([
+  import("../../src/tool/tool"),
+  import("zod"),
+  import("ai"),
+  import("../../src/project/instance"),
+  import("../../src/session"),
+  import("../../src/session/prompt"),
+  import("../../src/session/llm"),
+  import("../../src/tool/registry"),
+  import("../../src/plugin"),
+  import("../../src/mcp"),
+  import("../../src/auth"),
+  import("../../src/flag/headless-run"),
+  import("../fixture/fixture"),
+  import("../../src/agent/agent"),
+  import("../../src/agent/prompt/explore.txt"),
+])
+
+type StreamInput = Parameters<typeof LLM.stream>[0]
+type PromptInput = Parameters<typeof SessionPrompt.prompt>[0]
+type Fixture = {
+  prompt(input?: Partial<PromptInput>): Promise<Wire>
+  direct(input: StreamInput): Promise<Wire>
+  input(): StreamInput
+  directory: string
+  sessionID: string
+  messages(): ReturnType<typeof Session.messages>
+}
+
+function definitions(body: Wire) {
+  return (body.tools ?? []).map((item) => item.function ?? item)
+}
+function names(body: Wire) {
+  return definitions(body)
+    .map((item) => item.name)
+    .sort()
+}
+function description(body: Wire, name: string) {
+  const result = definitions(body).find((item) => item.name === name)
+  if (!result) throw new Error(`Expected declared tool ${name}`)
+  return result.description ?? ""
+}
+function system(body: Wire) {
+  return (body.messages ?? [])
+    .filter((item) => item.role === "system")
+    .map((item) => (typeof item.content === "string" ? item.content : JSON.stringify(item.content)))
+    .join("\n")
+}
+const full = ["bash", "edit", "glob", "grep", "read", "skill", "task", "webfetch", "write"]
+const reduced = ["bash", "edit", "read", "write"]
+const off = ["glob", "grep", "task", "webfetch", "skill"]
+const denied = Object.fromEntries(off.map((name) => [name, "deny" as const]))
+
+async function fixture(
+  label: string,
+  options: {
+    permission?: Record<string, "allow" | "deny">
+    session?: StreamInput["permission"]
+    gpt?: boolean
+    codex?: boolean
+    permissionDefault?: "native"
+    explorePrompt?: string
+    exploreTemperature?: number
+    batch?: boolean
+    buildPrompt?: string
+    call?: () => { name: string; arguments: Record<string, unknown> }
+    images?: boolean
+    init?: (directory: string) => Promise<void>
+  } = {},
+  fn: (context: Fixture) => Promise<void>,
+) {
+  const providerID = options.gpt || options.codex ? "openai" : "fixture"
+  const modelID = providerID === "openai" ? "gpt-5.2" : "fixture"
+  let server: Bun.Server<undefined> | undefined
+  let previousAuth: { value: Awaited<ReturnType<typeof Auth.get>> } | undefined
+  let authSwapAttempted = false
+  const original = LLM.stream
+  let last: StreamInput | undefined
+  let persisted: unknown
+  const persistedCheckpoints: unknown[] = []
+  let spy: Mock<typeof LLM.stream> | undefined
+  let primaryFailure: { error: unknown } | undefined
+  const cleanupErrors: Error[] = []
+  const diagnosticErrors: Error[] = []
+  async function attempt(errors: Error[], operation: string, fn: () => unknown | Promise<unknown>) {
+    try {
+      await fn()
+    } catch (cause) {
+      errors.push(new Error(operation, { cause }))
+    }
+  }
+  try {
+    transport.captures = []
+    transport.codex = options.codex ?? false
+    server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        transport.captures.push((await request.json()) as Wire)
+        if (options.call && transport.captures.length === 1) {
+          const call = options.call()
+          return sse([
+            {
+              id: "fixture-call",
+              object: "chat.completion.chunk",
+              choices: [
+                {
+                  index: 0,
+                  delta: {
+                    role: "assistant",
+                    tool_calls: [
+                      {
+                        index: 0,
+                        id: "runtime-call",
+                        type: "function",
+                        function: { name: call.name, arguments: JSON.stringify(call.arguments) },
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+            {
+              id: "fixture-call",
+              object: "chat.completion.chunk",
+              choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+            },
+          ])
+        }
+        return providerID === "openai" ? responses() : chat()
+      },
+    })
+    transport.origin = server.url.origin
+    if (options.codex) {
+      previousAuth = { value: await Auth.get("openai") }
+      authSwapAttempted = true
+      await Auth.set("openai", {
+        type: "oauth",
+        access: "fixture-access",
+        refresh: "fixture-refresh",
+        expires: Date.now() + 60_000,
+      })
+    }
+    spy = spyOn(LLM, "stream")
+    spy.mockImplementation(async (input) => {
+      last = input
+      return original(input)
+    })
+    await using tmp = await tmpdir({
+      init: options.init,
+      config: {
+        permission: { ...(options.permissionDefault === "native" ? {} : { "*": "allow" }), ...options.permission },
+        ...(options.batch ? { experimental: { batch_tool: true } } : {}),
+        enabled_providers: [providerID],
+        provider: {
+          [providerID]: {
+            npm: providerID === "openai" ? "@ai-sdk/openai" : "@ai-sdk/openai-compatible",
+            options: { apiKey: "fixture", baseURL: `${server.url.origin}/v1` },
+            ...(providerID === "fixture"
+              ? {
+                  models: {
+                    fixture: {
+                      name: "fixture",
+                      tool_call: true,
+                      ...(options.images ? { modalities: { input: ["text", "image"], output: ["text"] } } : {}),
+                      limit: { context: 200_000, output: 1000 },
+                    },
+                  },
+                }
+              : {}),
+          },
+        },
+        ...(options.buildPrompt || options.explorePrompt !== undefined || options.exploreTemperature !== undefined
+          ? {
+              agent: {
+                ...(options.buildPrompt ? { build: { prompt: options.buildPrompt } } : {}),
+                ...(options.explorePrompt !== undefined || options.exploreTemperature !== undefined
+                  ? {
+                      explore: {
+                        ...(options.explorePrompt !== undefined ? { prompt: options.explorePrompt } : {}),
+                        ...(options.exploreTemperature !== undefined
+                          ? { temperature: options.exploreTemperature }
+                          : {}),
+                      },
+                    }
+                  : {}),
+              },
+            }
+          : {}),
+      },
+    })
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const session = await Session.create({ title: "Tool guidance fixture", permission: options.session })
+        const context: Fixture = {
+          directory: tmp.path,
+          sessionID: session.id,
+          messages: () => Session.messages({ sessionID: session.id }),
+          async prompt(input = {}) {
+            const before = transport.captures.length
+            const result = await SessionPrompt.prompt({
+              sessionID: session.id,
+              model: { providerID, modelID },
+              parts: [{ type: "text", text: "Say done without calling tools." }],
+              ...input,
+            })
+            if (result.info.role !== "assistant" || result.info.error) throw new Error(JSON.stringify(result.info))
+            expect(transport.captures.length - before).toBe(before === 0 && options.call ? 2 : 1)
+            const messages = await Session.messages({ sessionID: session.id })
+            const savedOutputs = []
+            for (const message of messages)
+              for (const part of message.parts) {
+                if (part.type !== "tool" || part.state.status !== "completed" || !part.state.metadata.outputPath)
+                  continue
+                const outputPath = part.state.metadata.outputPath as string
+                const bytes = await Bun.file(outputPath).bytes()
+                savedOutputs.push({
+                  outputPath,
+                  bytes: bytes.length,
+                  sha256: new Bun.CryptoHasher("sha256").update(bytes).digest("hex"),
+                  content: new TextDecoder().decode(bytes),
+                })
+              }
+            persistedCheckpoints.push({ afterRequestCount: transport.captures.length, messages, savedOutputs })
+            return transport.captures.at(-1)!
+          },
+          async direct(input) {
+            const before = transport.captures.length
+            const stream = await LLM.stream(input)
+            for await (const _ of stream.fullStream) {
+              /* consume actual SDK serialization */
+            }
+            expect(transport.captures.length - before).toBe(1)
+            return transport.captures[before]
+          },
+          input() {
+            if (!last) throw new Error("Prompt must capture production-built tools first")
+            return last
+          },
+        }
+        try {
+          await fn(context)
+        } finally {
+          await attempt(diagnosticErrors, "Failed to capture persisted fixture messages", async () => {
+            persisted = await context.messages()
+          })
+        }
+      },
+    })
+  } catch (error) {
+    primaryFailure = { error }
+  } finally {
+    const acquiredSpy = spy
+    if (acquiredSpy) await attempt(cleanupErrors, "Failed to restore LLM.stream", () => acquiredSpy.mockRestore())
+    const acquiredServer = server
+    if (acquiredServer) await attempt(cleanupErrors, "Failed to stop fixture server", () => acquiredServer.stop(true))
+    await attempt(cleanupErrors, "Failed to reset fixture transport", () => {
+      transport.origin = ""
+      transport.codex = false
+    })
+    if (authSwapAttempted && previousAuth) {
+      const snapshot = previousAuth.value
+      await attempt(cleanupErrors, "Failed to restore fixture auth", async () => {
+        if (snapshot) await Auth.set("openai", snapshot)
+        else await Auth.remove("openai")
+      })
+    }
+    const output = process.env.GUIDANCE_CAPTURE_DIR
+    if (output)
+      await attempt(diagnosticErrors, "Failed to write fixture capture", () =>
+        Bun.write(
+          path.join(output, `${label}.json`),
+          JSON.stringify(
+            {
+              label,
+              fixtureOptions: options,
+              codex: options.codex ?? false,
+              requests: transport.captures,
+              persisted,
+              persistedCheckpoints,
+            },
+            null,
+            2,
+          ),
+        ),
+      )
+  }
+  if (cleanupErrors.length || diagnosticErrors.length) {
+    throw new AggregateError(
+      [
+        ...(primaryFailure ? [primaryFailure.error] : []),
+        ...(cleanupErrors.length ? [new AggregateError(cleanupErrors, "Fixture cleanup failed")] : []),
+        ...(diagnosticErrors.length ? [new AggregateError(diagnosticErrors, "Fixture diagnostics failed")] : []),
+      ],
+      `Tool guidance fixture ${label} failed`,
+      primaryFailure ? { cause: primaryFailure.error } : undefined,
+    )
+  }
+  if (primaryFailure) throw primaryFailure.error
+}
+
+beforeAll(() => HeadlessRun.enable())
+afterAll(() => {
+  HeadlessRun.disable()
+  globalThis.fetch = originalFetch
+})
+
+describe("guidance fixture teardown", () => {
+  for (const callbackFails of [false, true]) {
+    test(`capture failure restores fixture resources${callbackFails ? " and preserves the callback error" : ""}`, async () => {
+      await using tmp = await tmpdir()
+      const output = path.join(tmp.path, "capture-path-conflict")
+      await Bun.write(output, "owned regular file, not a capture directory")
+      const previousCapture = process.env.GUIDANCE_CAPTURE_DIR
+      const previousStream = LLM.stream
+      const previousAuth = await Auth.get("openai")
+      const primary = new Error("Owned callback failure")
+      let origin = ""
+      let failure: unknown
+      process.env.GUIDANCE_CAPTURE_DIR = output
+      try {
+        await fixture("teardown-capture-conflict", { codex: true }, async () => {
+          origin = transport.origin
+          if (callbackFails) throw primary
+        })
+      } catch (error) {
+        failure = error
+      } finally {
+        if (previousCapture === undefined) delete process.env.GUIDANCE_CAPTURE_DIR
+        else process.env.GUIDANCE_CAPTURE_DIR = previousCapture
+      }
+      expect(failure).toBeInstanceOf(AggregateError)
+      const aggregate = failure as AggregateError
+      if (callbackFails) {
+        expect(aggregate.cause).toBe(primary)
+        expect(aggregate.errors[0]).toBe(primary)
+      } else expect(aggregate.cause).toBeUndefined()
+      const diagnostic = aggregate.errors.find(
+        (error) => error instanceof AggregateError && error.message === "Fixture diagnostics failed",
+      ) as AggregateError
+      expect(diagnostic).toBeInstanceOf(AggregateError)
+      expect(diagnostic.errors.some((error) => error.message === "Failed to write fixture capture")).toBe(true)
+      expect(LLM.stream).toBe(previousStream)
+      expect(transport.origin).toBe("")
+      expect(transport.codex).toBe(false)
+      expect(await Auth.get("openai")).toEqual(previousAuth)
+      expect(origin).toStartWith("http://127.0.0.1:")
+      await expect(originalFetch(origin)).rejects.toThrow()
+    })
+  }
+
+  test("successful capture is written after fixture resources are restored", async () => {
+    await using tmp = await tmpdir()
+    const previousCapture = process.env.GUIDANCE_CAPTURE_DIR
+    const previousStream = LLM.stream
+    const previousAuth = await Auth.get("openai")
+    process.env.GUIDANCE_CAPTURE_DIR = tmp.path
+    try {
+      await fixture("teardown-capture-success", { codex: true }, async () => {})
+      const capture = await Bun.file(path.join(tmp.path, "teardown-capture-success.json")).json()
+      expect(capture.label).toBe("teardown-capture-success")
+      expect(capture.codex).toBe(true)
+      expect(capture.requests).toEqual([])
+      expect(LLM.stream).toBe(previousStream)
+      expect(transport.origin).toBe("")
+      expect(transport.codex).toBe(false)
+      expect(await Auth.get("openai")).toEqual(previousAuth)
+    } finally {
+      if (previousCapture === undefined) delete process.env.GUIDANCE_CAPTURE_DIR
+      else process.env.GUIDANCE_CAPTURE_DIR = previousCapture
+    }
+  })
+})
+
+describe("actual request tool guidance (#244)", () => {
+  test("full built-in catalog retains useful peer guidance", async () => {
+    await fixture("full", {}, async (context) => {
+      const body = await context.prompt()
+      expect(names(body)).toEqual(full)
+      expect(system(body)).toContain("Use the Task tool")
+      safety(body)
+      const prefix =
+        system(body).length +
+        definitions(body).reduce(
+          (sum, item) =>
+            sum + (item.name?.length ?? 0) + (item.description?.length ?? 0) + JSON.stringify(item.parameters).length,
+          0,
+        )
+      expect(prefix).toBeLessThanOrEqual(15_000)
+      expect(description(body, "bash")).toContain("Glob (not find/ls)")
+      expect(description(body, "bash")).toContain("Grep (not grep/rg)")
+      expect(description(body, "read")).toContain("Use the grep tool")
+      expect(description(body, "read")).toContain("use the glob tool")
+    })
+  })
+
+  test("four-tool permission profile omits absent Task Glob Grep recommendations", async () => {
+    await fixture("four-tools", { permission: denied }, async (context) => {
+      const body = await context.prompt()
+      expect(names(body)).toEqual(reduced)
+      expect(system(body)).not.toContain("Use the Task tool")
+      expect(description(body, "bash")).not.toContain("Glob (not find/ls)")
+      expect(description(body, "bash")).not.toContain("Grep (not grep/rg)")
+      expect(description(body, "read")).not.toContain("Use the grep tool")
+      expect(description(body, "read")).not.toContain("use the glob tool")
+    })
+  })
+})
+
+function custom(id: string, description: string) {
+  return Tool.define(id, {
+    description,
+    parameters: z.object({ value: z.string().optional() }),
+    execute: async () => ({ title: "fixture", metadata: {}, output: "fixture" }),
+  })
+}
+
+function safety(body: Wire) {
+  expect(system(body)).toContain("don't retry it or work around it")
+  expect(system(body)).toContain("when calls are independent")
+}
+
+describe("final request capability and ownership boundaries (#244)", () => {
+  test("session-only denial removes delegation advice after agent allows Task", async () => {
+    await fixture(
+      "session-deny",
+      { session: [{ permission: "task", pattern: "*", action: "deny" }] },
+      async (context) => {
+        const body = await context.prompt()
+        expect(names(body)).toEqual(full.filter((name) => name !== "task"))
+        expect(system(body)).not.toContain("Use the Task tool")
+        expect(description(body, "glob")).not.toContain("use the Task tool")
+        expect(description(body, "grep")).not.toContain("use the Task tool")
+        safety(body)
+      },
+    )
+  })
+
+  test("legacy prompt tools-false applies before rendering guidance", async () => {
+    await fixture("legacy-tools-false", {}, async (context) => {
+      const body = await context.prompt({ tools: Object.fromEntries(off.map((name) => [name, false])) })
+      expect(names(body)).toEqual(reduced)
+      expect(system(body)).not.toContain("Use the Task tool")
+      expect(description(body, "bash")).not.toContain("Glob (not find/ls)")
+      expect(description(body, "read")).not.toContain("Use the grep tool")
+      safety(body)
+    })
+  })
+
+  for (const absent of ["glob", "grep"] as const) {
+    test(`search capability ${absent} renders independently`, async () => {
+      await fixture(`mixed-search-${absent}`, { permission: { [absent]: "deny" } }, async (context) => {
+        const body = await context.prompt()
+        expect(names(body)).toEqual(full.filter((name) => name !== absent))
+        const present = absent === "glob" ? "grep" : "glob"
+        expect(description(body, "bash")).not.toContain(absent === "glob" ? "Glob (not find/ls)" : "Grep (not grep/rg)")
+        expect(description(body, "bash")).toContain(present === "glob" ? "Glob (not find/ls)" : "Grep (not grep/rg)")
+        expect(description(body, "read")).not.toContain(absent === "glob" ? "use the glob tool" : "Use the grep tool")
+      })
+    })
+  }
+
+  test("Grep does not recommend unavailable Bash for counts", async () => {
+    await fixture("no-bash", { permission: { bash: "deny" } }, async (context) => {
+      const body = await context.prompt()
+      expect(names(body)).not.toContain("bash")
+      expect(description(body, "grep")).not.toContain("Bash tool with `rg`")
+      expect(system(body)).not.toContain("with bash if they were provided")
+    })
+  })
+
+  test("full reduced full reuses original tools without mutation or guidance leakage", async () => {
+    await fixture("full-reduced-full", {}, async (context) => {
+      const first = await context.prompt()
+      const input = context.input()
+      const originalTools = input.tools
+      const before = Object.fromEntries(Object.entries(originalTools).map(([name, value]) => [name, value.description]))
+      const middle = await context.direct({
+        ...input,
+        permission: off.map((permission) => ({ permission, pattern: "*", action: "deny" })),
+      })
+      expect(names(middle)).toEqual(reduced)
+      expect(system(middle)).not.toContain("Use the Task tool")
+      expect(
+        Object.fromEntries(Object.entries(originalTools).map(([name, value]) => [name, value.description])),
+      ).toEqual(before)
+      const last = await context.direct({ ...input, permission: [] })
+      expect(names(first)).toEqual(full)
+      expect(names(last)).toEqual(full)
+      expect(description(last, "bash")).toEqual(description(first, "bash"))
+      expect(system(last)).toContain("Use the Task tool")
+    })
+  })
+
+  test("same-name custom Task does not enable built-in delegation recommendations", async () => {
+    const text = "Custom Task is a ticket lookup. Literal use the Task tool stays verbatim."
+    await fixture("custom-task", {}, async (context) => {
+      await ToolRegistry.register(custom("task", text))
+      const body = await context.prompt()
+      expect(names(body)).toEqual(full)
+      expect(description(body, "task")).toBe(text)
+      expect(system(body)).not.toContain("Use the Task tool")
+      expect(description(body, "glob")).not.toContain("use the Task tool")
+      expect(description(body, "grep")).not.toContain("use the Task tool")
+    })
+  })
+
+  test("same-name custom Read preserves text but cannot enable built-in reading advice", async () => {
+    const text = "Custom Read queries tickets, not files. Read this exact text."
+    await fixture("custom-read", {}, async (context) => {
+      await ToolRegistry.register(custom("read", text))
+      const body = await context.prompt()
+      expect(description(body, "read")).toBe(text)
+      expect(description(body, "bash")).not.toContain("Read (not cat/head/tail)")
+      expect(description(body, "edit")).not.toContain("use your `Read` tool")
+      expect(description(body, "edit")).toContain("oldString")
+      expect(description(body, "write")).not.toContain("use your `Read` tool")
+    })
+  })
+
+  test("missing Read preserves truthful conditional Edit Write prerequisites", async () => {
+    await fixture("no-read-prerequisites", { permission: { read: "deny" } }, async (context) => {
+      const body = await context.prompt()
+      expect(names(body)).not.toContain("read")
+      expect(description(body, "edit")).not.toContain("use your `Read` tool")
+      expect(description(body, "edit")).toContain("oldString")
+      expect(description(body, "edit")).toContain("empty")
+      expect(description(body, "edit")).toContain("missing or stale")
+      expect(description(body, "edit")).toContain("session")
+      expect(description(body, "write")).not.toContain("use your `Read` tool")
+      expect(description(body, "write")).toContain("session")
+      expect(description(body, "write")).toContain("existing")
+      expect(description(body, "write")).toContain("new file")
+      expect(description(body, "write")).toContain("missing or stale")
+    })
+  })
+
+  for (const mode of ["replace", "append", "parameters"] as const) {
+    test(`plugin ${mode} respects description ownership`, async () => {
+      const original = Plugin.trigger
+      let expected = ""
+      const spy = spyOn(Plugin, "trigger").mockImplementation((async (name, input, output) => {
+        await original(name, input, output)
+        if (name === "tool.definition" && (input as { toolID: string }).toolID === "bash") {
+          const definition = output as { description: string; parameters: import("zod").ZodType }
+          if (mode === "replace") definition.description = "Plugin replacement: use Glob and Task literally."
+          if (mode === "append") definition.description += "\nPlugin appendix: use Glob and Task literally."
+          if (mode === "parameters") definition.parameters = definition.parameters.describe("plugin parameters")
+          expected = definition.description
+        }
+        return output
+      }) as typeof Plugin.trigger)
+      try {
+        await fixture(`plugin-${mode}`, { permission: denied }, async (context) => {
+          const body = await context.prompt()
+          expect(names(body)).toEqual(reduced)
+          if (mode === "parameters") {
+            expect(description(body, "bash")).not.toContain("Glob (not find/ls)")
+            expect(description(body, "bash")).not.toBe(expected)
+          } else expect(description(body, "bash")).toBe(expected)
+        })
+      } finally {
+        spy.mockRestore()
+      }
+    })
+  }
+
+  test("custom agent caller and MCP text remains verbatim", async () => {
+    const agent = "Custom agent explicitly mentions Task, Glob and Grep. Preserve this literal sentence."
+    const caller = "Caller text: use the Task tool even when absent. Preserve literally."
+    const mcpText = "MCP text: use the Task tool, Glob and Grep literally."
+    const spy = spyOn(MCP, "tools").mockResolvedValue({
+      fixture_external: tool({
+        description: mcpText,
+        inputSchema: jsonSchema({ type: "object", properties: {} }),
+        execute: async () => ({ content: [{ type: "text" as const, text: "fixture" }] }),
+      }),
+    })
+    try {
+      await fixture("custom-text", { permission: denied, buildPrompt: agent }, async (context) => {
+        const body = await context.prompt({ system: caller })
+        expect(names(body)).toEqual([...reduced, "fixture_external"].sort())
+        expect(system(body)).toContain(agent)
+        expect(system(body)).toContain(caller)
+        expect(description(body, "fixture_external")).toBe(mcpText)
+      })
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  test("GPT catalog uses apply_patch and omits unavailable built-in Bash peers", async () => {
+    await fixture("gpt-api", { gpt: true }, async (context) => {
+      const body = await context.prompt()
+      expect(names(body)).toEqual(["apply_patch", ...full.filter((name) => name !== "edit" && name !== "write")].sort())
+      expect(description(body, "bash")).not.toContain("Edit (not sed/awk/perl)")
+      expect(description(body, "bash")).not.toContain("Write (not echo/heredoc redirection)")
+    })
+  })
+
+  test("Codex full GPT catalog retains surviving capabilities and omits Edit Write", async () => {
+    await fixture("codex-full", { codex: true }, async (context) => {
+      const body = await context.prompt()
+      expect(names(body)).toEqual(["apply_patch", ...full.filter((name) => name !== "edit" && name !== "write")].sort())
+      expect(body.instructions).toContain("Try to use apply_patch")
+      expect(body.instructions).toContain("Use Read")
+      expect(body.instructions).toContain("Use Glob")
+      expect(body.instructions).toContain("Grep to search")
+      expect(body.instructions).not.toContain("Edit to modify")
+      expect(body.instructions).not.toContain("Write only when needed")
+    })
+  })
+
+  test("Codex no-Bash instructions preserve safety without terminal recommendations", async () => {
+    await fixture("codex-no-bash", { codex: true, permission: { bash: "deny" } }, async (context) => {
+      const body = await context.prompt()
+      expect(names(body)).not.toContain("bash")
+      expect(body.instructions).not.toContain("Use Bash for terminal")
+      expect(body.instructions).toContain("Run tool calls in parallel")
+      expect(body.instructions).toContain("NEVER revert existing changes")
+    })
+  })
+
+  test("Codex OAuth instructions use final surviving tools", async () => {
+    await fixture("codex-reduced", { codex: true, permission: { ...denied, apply_patch: "deny" } }, async (context) => {
+      const body = await context.prompt()
+      expect(names(body)).toEqual(["bash", "read"])
+      expect(body.instructions).toBeString()
+      expect(body.instructions).not.toContain("Try to use apply_patch")
+      expect(body.instructions).not.toContain("Use Glob")
+      expect(body.instructions).not.toContain("Grep to search")
+      expect(body.instructions).not.toContain("Edit to modify")
+      expect(body.instructions).toContain("Use Read")
+      expect(body.instructions).toContain("Run tool calls in parallel")
+      expect(body.instructions).toContain("NEVER revert existing changes")
+    })
+  })
+})
+
+function toolParts(messages: Awaited<ReturnType<typeof Session.messages>>) {
+  return messages.flatMap((message) => message.parts).filter((part) => part.type === "tool")
+}
+function nextToolText(body: Wire) {
+  return (body.messages ?? [])
+    .filter((message) => message.role === "tool")
+    .map((message) => (typeof message.content === "string" ? message.content : JSON.stringify(message.content)))
+    .join("\n")
+}
+function noNewAdvice(text: string) {
+  expect(text).not.toContain("Use the Task tool")
+  expect(text).not.toContain("Use Grep to search")
+  expect(text).not.toContain("Read with offset/limit")
+  expect(text).not.toContain("Use the Read tool first")
+}
+
+describe("runtime hints through actual tool loop and next request (#244)", () => {
+  test("real oversized Bash persists factual result and serializes it on the next request", async () => {
+    const original = "benign-runtime-line\n".repeat(3001)
+    await fixture(
+      "runtime-bash",
+      {
+        permission: { ...denied, read: "deny" },
+        call: () => ({
+          name: "bash",
+          arguments: {
+            command: `node -e 'process.stdout.write("benign-runtime-line\\n".repeat(3001))'`,
+            description: "Print benign oversized fixture output",
+          },
+        }),
+      },
+      async (context) => {
+        const body = await context.prompt()
+        expect(names(body)).toEqual(["bash", "edit", "write"])
+        const part = toolParts(await context.messages()).find((part) => part.tool === "bash")!
+        expect(part.state.status).toBe("completed")
+        if (part.state.status !== "completed") throw new Error(JSON.stringify(part.state))
+        const outputPath = part.state.metadata.outputPath as string
+        expect(await Bun.file(outputPath).text()).toBe(original)
+        expect(part.state.metadata.truncated).toBe(true)
+        expect(part.state.output).toContain(outputPath)
+        expect(nextToolText(body)).toContain(part.state.output)
+        noNewAdvice(part.state.output)
+        noNewAdvice(nextToolText(body))
+        const historical =
+          "Historical result: Use the Task tool to have explore agent process this file with Grep and Read (with offset/limit)."
+        await Session.updatePart({ ...part, state: { ...part.state, output: historical } })
+        const replay = await context.prompt()
+        expect(nextToolText(replay)).toContain(historical)
+      },
+    )
+  })
+
+  for (const name of ["edit", "write"] as const) {
+    test(`Read-denied real ${name} failure keeps bytes and replays accurate error`, async () => {
+      let filepath = ""
+      await fixture(
+        `runtime-${name}-unread`,
+        {
+          permission: { ...denied, read: "deny" },
+          init: async (directory) => {
+            filepath = path.join(directory, "protected.txt")
+            await Bun.write(filepath, "original bytes\n")
+          },
+          call: () => ({
+            name,
+            arguments:
+              name === "edit"
+                ? { filePath: filepath, oldString: "original", newString: "changed" }
+                : { filePath: filepath, content: "changed bytes" },
+          }),
+        },
+        async (context) => {
+          const body = await context.prompt()
+          expect(names(body)).not.toContain("read")
+          expect(await Bun.file(filepath).text()).toBe("original bytes\n")
+          const part = toolParts(await context.messages()).find((part) => part.tool === name)!
+          expect(part.state.status).toBe("error")
+          if (part.state.status !== "error") throw new Error(JSON.stringify(part.state))
+          expect(part.state.error).toContain(filepath)
+          expect(part.state.error).toMatch(/read/i)
+          expect(nextToolText(body)).toContain(part.state.error)
+          noNewAdvice(part.state.error)
+          noNewAdvice(nextToolText(body))
+          const historical = `You must read file ${filepath} before overwriting it. Use the Read tool first`
+          await Session.updatePart({ ...part, state: { ...part.state, error: historical } })
+          const replay = await context.prompt()
+          expect(nextToolText(replay)).toContain(historical)
+        },
+      )
+    })
+  }
+
+  test("custom plugin output retains literal advice while only harness suffix changes", async () => {
+    const original = "Plugin original: Use the Task tool, Grep and Read literally.\n" + "plugin-data\n".repeat(3001)
+    await fixture(
+      "runtime-plugin",
+      {
+        permission: { ...denied, read: "deny" },
+        init: async (directory) => {
+          await Bun.write(path.join(directory, "oversized-output.txt"), original)
+          await Bun.write(
+            path.join(directory, ".aictrl/tool/oversized.ts"),
+            [
+              'import { readFile } from "node:fs/promises"',
+              'export default { description: "Custom plugin fixture", args: {}, execute: async () => readFile(new URL("../../oversized-output.txt", import.meta.url), "utf8") }',
+            ].join("\n"),
+          )
+        },
+        call: () => ({ name: "oversized", arguments: {} }),
+      },
+      async (context) => {
+        const body = await context.prompt()
+        const part = toolParts(await context.messages()).find((part) => part.tool === "oversized")!
+        if (part.state.status !== "completed") throw new Error(JSON.stringify(part.state))
+        expect(await Bun.file(part.state.metadata.outputPath as string).text()).toBe(original)
+        expect(part.state.output).toStartWith("Plugin original: Use the Task tool, Grep and Read literally.")
+        const suffix = part.state.output.split("The tool call succeeded")[1]
+        expect(suffix).toBeString()
+        noNewAdvice(suffix)
+        expect(nextToolText(body)).toContain(part.state.output)
+      },
+    )
+  })
+
+  test("MCP original text content and attachment ordering survives truncation wrapper", async () => {
+    const first = "MCP original: Use the Task tool, Grep and Read literally.\n" + "mcp-data\n".repeat(3001)
+    const content = [
+      { type: "text" as const, text: first },
+      { type: "image" as const, mimeType: "image/png", data: "aW5lcnQ=" },
+      {
+        type: "resource" as const,
+        resource: { uri: "fixture://notes", mimeType: "text/plain", text: "resource tail" },
+      },
+      {
+        type: "resource" as const,
+        resource: { uri: "fixture://blob", mimeType: "application/octet-stream", blob: "Ynl0ZXM=" },
+      },
+    ]
+    const spy = spyOn(MCP, "tools").mockImplementation(async () => ({
+      fixture_mcp: tool({
+        description: "Local MCP fixture",
+        inputSchema: jsonSchema({ type: "object", properties: {} }),
+        execute: async () => ({ content, metadata: { fixture: "preserve" } }),
+      }),
+    }))
+    try {
+      await fixture(
+        "runtime-mcp",
+        { images: true, permission: { ...denied, read: "deny" }, call: () => ({ name: "fixture_mcp", arguments: {} }) },
+        async (context) => {
+          const body = await context.prompt()
+          const part = toolParts(await context.messages()).find((part) => part.tool === "fixture_mcp")!
+          if (part.state.status !== "completed") throw new Error(JSON.stringify(part.state))
+          expect(await Bun.file(part.state.metadata.outputPath as string).text()).toBe(first + "\n\nresource tail")
+          expect(part.state.metadata.fixture).toBe("preserve")
+          expect(part.state.output).toStartWith("MCP original: Use the Task tool, Grep and Read literally.")
+          noNewAdvice(part.state.output.split("The tool call succeeded")[1])
+          expect(part.state.attachments?.map((item) => item.mime)).toEqual(["image/png", "application/octet-stream"])
+          expect(part.state.attachments?.map((item) => item.url)).toEqual([
+            "data:image/png;base64,aW5lcnQ=",
+            "data:application/octet-stream;base64,Ynl0ZXM=",
+          ])
+          expect(nextToolText(body)).toContain("MCP original: Use the Task tool, Grep and Read literally.")
+          expect(nextToolText(body)).not.toContain("resource tail")
+          const toolContent = JSON.parse(nextToolText(body))
+          expect(toolContent.map((item: { type: string }) => item.type)).toEqual(["text", "media"])
+          expect(toolContent[0].text).toBe(part.state.output)
+          expect(toolContent[1]).toEqual({ type: "media", mediaType: "application/octet-stream", data: "Ynl0ZXM=" })
+          expect(JSON.stringify(body.messages)).toContain("data:image/png;base64,aW5lcnQ=")
+          expect(content[0].text).toBe(first)
+          expect(content[2].resource?.text).toBe("resource tail")
+        },
+      )
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})
+
+const explorePeers = ["glob", "grep", "read", "bash"]
+const exploreDenials = explorePeers.map((permission) => ({ permission, pattern: "*", action: "deny" as const }))
+const nativeExploreFull = ["bash", "glob", "grep", "read", "webfetch"]
+const explicitAgentParts: NonNullable<PromptInput["parts"]> = [
+  { type: "text", text: "Inspect the fixtures using the requested agent." },
+  { type: "agent", name: "explore" },
+]
+function syntheticDelegation(messages: Awaited<ReturnType<typeof Session.messages>>) {
+  return messages
+    .flatMap((message) => message.parts)
+    .filter((part) => part.type === "text" && part.synthetic && part.text.includes("explore"))
+}
+
+describe("remaining owned guidance completeness (#244)", () => {
+  test("native Explore full catalog preserves specialized peer guidance", async () => {
+    await fixture("completeness-explore-full", { permissionDefault: "native" }, async (context) => {
+      const body = await context.prompt({ agent: "explore" })
+      expect(names(body)).toEqual(nativeExploreFull)
+      expect(system(body)).toContain("Use Glob for broad file pattern matching")
+      expect(system(body)).toContain("Use Grep for searching file contents")
+      expect(system(body)).toContain("Use Read when you know the specific file path")
+      expect(system(body)).toContain("Use Bash for file operations")
+    })
+  })
+
+  test("native Explore session-denied peers are absent from both schema and owned prompt", async () => {
+    await fixture(
+      "completeness-explore-reduced",
+      { permissionDefault: "native", session: exploreDenials },
+      async (context) => {
+        const body = await context.prompt({ agent: "explore" })
+        expect(names(body)).toEqual(["webfetch"])
+        expect(system(body)).not.toContain("Use Glob for broad file pattern matching")
+        expect(system(body)).not.toContain("Use Grep for searching file contents")
+        expect(system(body)).not.toContain("Use Read when you know the specific file path")
+        expect(system(body)).not.toContain("Use Bash for file operations")
+      },
+    )
+  })
+
+  test("custom Explore override stays verbatim with the same session-denied peers", async () => {
+    const prompt =
+      "CUSTOM Explore owner text: Use Glob for broad file pattern matching. Use Grep, Read and Bash literally; preserve this exact sentence."
+    await fixture(
+      "completeness-explore-custom",
+      { permissionDefault: "native", session: exploreDenials, explorePrompt: prompt },
+      async (context) => {
+        const body = await context.prompt({ agent: "explore" })
+        expect(names(body)).toEqual(["webfetch"])
+        expect(system(body)).toStartWith(prompt)
+        expect(system(body)).not.toContain("You are a file search specialist.")
+      },
+    )
+  })
+
+  test("experimental Batch full catalog retains concrete examples", async () => {
+    await fixture("completeness-batch-full", { batch: true }, async (context) => {
+      const body = await context.prompt()
+      expect(names(body)).toEqual(["batch", ...full].sort())
+      const text = description(body, "batch")
+      for (const peer of ["read", "grep", "bash"]) expect(text).toContain(`"tool": "${peer}"`)
+      expect(text).toContain("grep + glob + read combos")
+    })
+  })
+
+  for (const absent of explorePeers) {
+    test(`experimental Batch session-denied ${absent} peer is absent from its owned recommendations`, async () => {
+      await fixture(
+        `completeness-batch-no-${absent}`,
+        { batch: true, session: [{ permission: absent, pattern: "*", action: "deny" }] },
+        async (context) => {
+          const body = await context.prompt()
+          expect(names(body)).toEqual(["batch", ...full.filter((name) => name !== absent)].sort())
+          const text = description(body, "batch")
+          if (absent === "glob") expect(text).not.toContain("grep + glob + read combos")
+          else expect(text).not.toContain(`"tool": "${absent}"`)
+        },
+      )
+    })
+  }
+
+  test("fresh explicit-agent part with Task present generates a persisted delegation instruction", async () => {
+    await fixture("completeness-agent-task-present", {}, async (context) => {
+      const body = await context.prompt({ parts: explicitAgentParts })
+      expect(names(body)).toEqual(full)
+      const parts = syntheticDelegation(await context.messages())
+      expect(parts).toHaveLength(1)
+      if (parts[0].type !== "text") throw new Error("Expected synthetic text")
+      expect(parts[0].text).toContain("subagent: explore")
+      expect(parts[0].text).toContain("delegation tool is available")
+      expect(parts[0].text).toContain("report that delegation is unavailable")
+      expect(JSON.stringify(body.messages)).toContain(parts[0].text)
+      expect(JSON.stringify(body.messages)).toContain("Inspect the fixtures using the requested agent.")
+    })
+  })
+
+  test("fresh explicit-agent part does not prescribe Task removed by final session denial", async () => {
+    await fixture(
+      "completeness-agent-task-denied",
+      { session: [{ permission: "task", pattern: "*", action: "deny" }] },
+      async (context) => {
+        const body = await context.prompt({ parts: explicitAgentParts })
+        expect(names(body)).toEqual(full.filter((name) => name !== "task"))
+        const parts = syntheticDelegation(await context.messages())
+        expect(parts).toHaveLength(1)
+        if (parts[0].type !== "text") throw new Error("Expected synthetic text")
+        expect(JSON.stringify(body.messages)).toContain(parts[0].text)
+        expect(parts[0].text).not.toContain("call the task tool")
+        expect(parts[0].text).toContain("delegation tool is available")
+        expect(parts[0].text).toContain("report that delegation is unavailable")
+      },
+    )
+  })
+
+  test("historical generated delegation instruction is replayed verbatim with Task denied", async () => {
+    await fixture(
+      "completeness-agent-history",
+      { session: [{ permission: "task", pattern: "*", action: "deny" }] },
+      async (context) => {
+        await context.prompt({ parts: explicitAgentParts })
+        const generated = syntheticDelegation(await context.messages())[0]
+        if (generated.type !== "text") throw new Error("Expected generated synthetic text")
+        const historical = {
+          ...generated,
+          text: " Use the above message and context to generate a prompt and call the task tool with subagent: explore",
+        }
+        await Session.updatePart(historical)
+        const body = await context.prompt({
+          parts: [{ type: "text", text: "Continue, preserving the stored history." }],
+        })
+        expect(names(body)).not.toContain("task")
+        expect(JSON.stringify(body.messages)).toContain(historical.text)
+        const replay = (await context.messages())
+          .flatMap((message) => message.parts)
+          .find((part) => part.id === historical.id)
+        expect(replay).toEqual(historical)
+      },
+    )
+  })
+})
+
+describe("remaining guidance provenance and lifetime controls (#244)", () => {
+  test("canonical-text custom Explore override remains verbatim after final session denial", async () => {
+    await fixture(
+      "completeness-explore-identical-override",
+      { permissionDefault: "native", session: exploreDenials, explorePrompt: nativeExplorePrompt },
+      async (context) => {
+        const body = await context.prompt({ agent: "explore" })
+        expect(names(body)).toEqual(["webfetch"])
+        expect(system(body)).toStartWith(nativeExplorePrompt)
+        for (const peer of ["Glob", "Grep", "Read", "Bash"]) expect(system(body)).toContain(`Use ${peer}`)
+      },
+    )
+  })
+
+  test("parameter-only native Explore configuration retains owned conditional guidance", async () => {
+    await fixture(
+      "completeness-explore-parameters",
+      { permissionDefault: "native", session: exploreDenials, exploreTemperature: 0.17 },
+      async (context) => {
+        const body = await context.prompt({ agent: "explore" })
+        expect(names(body)).toEqual(["webfetch"])
+        expect((await Agent.get("explore")).temperature).toBe(0.17)
+        expect(system(body)).toContain("You are a file search specialist")
+        for (const peer of ["Glob", "Grep", "Read", "Bash"]) expect(system(body)).not.toContain(`Use ${peer}`)
+      },
+    )
+  })
+
+  for (const absent of explorePeers) {
+    test(`native Explore removes only session-denied ${absent} peer advice`, async () => {
+      await fixture(
+        `completeness-explore-no-${absent}`,
+        { permissionDefault: "native", session: [{ permission: absent, pattern: "*", action: "deny" }] },
+        async (context) => {
+          const body = await context.prompt({ agent: "explore" })
+          expect(names(body)).toEqual(nativeExploreFull.filter((name) => name !== absent))
+          const title = absent[0].toUpperCase() + absent.slice(1)
+          expect(system(body)).not.toContain(`Use ${title}`)
+          for (const other of explorePeers.filter((name) => name !== absent))
+            expect(system(body)).toContain(`Use ${other[0].toUpperCase() + other.slice(1)}`)
+        },
+      )
+    })
+  }
+
+  test("native Explore cached source survives full reduced full request rendering", async () => {
+    await fixture("completeness-explore-full-reduced-full", { permissionDefault: "native" }, async (context) => {
+      const first = await context.prompt({ agent: "explore" })
+      const input = context.input()
+      const cached = await Agent.get("explore")
+      expect(input.agent).toBe(cached)
+      const source = cached.prompt
+      expect(source).toBe(nativeExplorePrompt)
+      const middle = await context.direct({ ...input, permission: exploreDenials })
+      expect(names(middle)).toEqual(["webfetch"])
+      for (const peer of ["Glob", "Grep", "Read", "Bash"]) expect(system(middle)).not.toContain(`Use ${peer}`)
+      expect(cached.prompt).toBe(source)
+      expect(await Agent.get("explore")).toBe(cached)
+      const last = await context.direct({ ...input, permission: [] })
+      expect(names(last)).toEqual(nativeExploreFull)
+      expect(system(last)).toBe(system(first))
+      expect(cached.prompt).toBe(source)
+    })
+  })
+})
+
+describe("remaining guidance ownership boundaries (#244)", () => {
+  test("runtime-changed native Explore text is preserved by source-validity guard", async () => {
+    const changed = "Runtime-owned Explore prompt: Use Glob, Grep, Read and Bash literally. Preserve verbatim."
+    await fixture(
+      "completeness-explore-runtime-change",
+      { permissionDefault: "native", session: exploreDenials },
+      async (context) => {
+        const cached = await Agent.get("explore")
+        const original = cached.prompt
+        cached.prompt = changed
+        try {
+          const body = await context.prompt({ agent: "explore" })
+          expect(names(body)).toEqual(["webfetch"])
+          expect(system(body)).toStartWith(changed)
+          expect(cached.prompt).toBe(changed)
+        } finally {
+          cached.prompt = original
+        }
+      },
+    )
+  })
+
+  test("Batch with every illustrated capability denied has no empty recommendation section", async () => {
+    const unavailable = ["read", "grep", "glob", "bash", "edit", "write"]
+    await fixture(
+      "completeness-batch-no-illustrated-peers",
+      { batch: true, session: unavailable.map((permission) => ({ permission, pattern: "*", action: "deny" })) },
+      async (context) => {
+        const body = await context.prompt()
+        expect(names(body)).toEqual(["batch", "skill", "task", "webfetch"])
+        const text = description(body, "batch")
+        expect(text).not.toContain("Good Use Cases:")
+        expect(text).not.toContain("Read many files")
+        expect(text).not.toContain("Multiple bash commands")
+        expect(text).not.toContain("Multi-part edits")
+        expect(text).not.toContain('"tool": "read"')
+        expect(text).not.toContain('"tool": "grep"')
+        expect(text).not.toContain('"tool": "bash"')
+        expect(text).toContain("tools available in this request")
+        expect(text).toContain("Partial failures do not stop other tool calls")
+      },
+    )
+  })
+})
+
+describe("Batch actual dispatch description boundaries (#244)", () => {
+  test("GPT Batch with only apply_patch cannot recommend batched edits absent from inner dispatch", async () => {
+    const unavailable = ["bash", "glob", "grep", "read", "task", "webfetch", "skill"]
+    await fixture(
+      "completeness-batch-gpt-apply-patch-only",
+      {
+        gpt: true,
+        batch: true,
+        session: unavailable.map((permission) => ({ permission, pattern: "*", action: "deny" })),
+      },
+      async (context) => {
+        const body = await context.prompt()
+        expect(names(body)).toEqual(["apply_patch", "batch"])
+        const inner = (await ToolRegistry.tools({ modelID: "", providerID: "" })).map((tool) => tool.id)
+        expect(inner).not.toContain("apply_patch")
+        expect(inner).toContain("edit")
+        expect(inner).toContain("write")
+        expect(description(body, "batch")).not.toContain("Multi-part edits")
+        expect(description(body, "batch")).not.toContain("Good Use Cases:")
+      },
+    )
+  })
+
+  test("plugin-appended Batch description remains entirely plugin-owned verbatim", async () => {
+    const original = Plugin.trigger
+    let expected = ""
+    const spy = spyOn(Plugin, "trigger").mockImplementation((async (name, input, output) => {
+      await original(name, input, output)
+      if (name === "tool.definition" && (input as { toolID: string }).toolID === "batch") {
+        const definition = output as { description: string }
+        definition.description += "\nPlugin-owned Batch appendix: Use Read, Grep and Bash literally."
+        expected = definition.description
+      }
+      return output
+    }) as typeof Plugin.trigger)
+    try {
+      await fixture("completeness-batch-plugin-owned", { batch: true, session: exploreDenials }, async (context) => {
+        const body = await context.prompt()
+        expect(names(body)).toEqual(["batch", "edit", "skill", "task", "webfetch", "write"])
+        expect(description(body, "batch")).toBe(expected)
+        expect(description(body, "batch")).toContain('"tool": "read"')
+        expect(description(body, "batch")).toContain("Plugin-owned Batch appendix")
+      })
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})

@@ -11,7 +11,7 @@ import type { Agent } from "../../src/agent/agent"
 import type { PermissionNext } from "../../src/permission/next"
 import type { MessageV2 } from "../../src/session/message-v2"
 import { alibabaProvider } from "../fixture/providers"
-import PROMPT_DEFAULT from "../../src/session/prompt/default.txt"
+import { SystemPrompt } from "../../src/session/system"
 
 describe("session.llm.hasToolCalls", () => {
   test("returns false for empty messages array", () => {
@@ -245,9 +245,9 @@ function createEventResponse(chunks: unknown[], includeDone = false) {
   })
 }
 
-/** Whether a request body carries the shared default system prompt, whatever the provider's payload shape. */
+/** Whether a request body carries the default prompt rendered for these empty/custom-only tool fixtures, whatever the provider's payload shape. */
 function sendsBasePrompt(body: Record<string, unknown>) {
-  return JSON.stringify(body).includes(JSON.stringify(PROMPT_DEFAULT.trim()).slice(1, -1))
+  return JSON.stringify(body).includes(JSON.stringify(SystemPrompt.base(new Set())).slice(1, -1))
 }
 
 describe("session.llm.stream", () => {

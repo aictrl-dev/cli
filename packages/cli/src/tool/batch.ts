@@ -1,6 +1,7 @@
 import z from "zod"
 import { Tool } from "./tool"
 import DESCRIPTION from "./batch.txt"
+import { ToolGuidance } from "./guidance"
 
 const DISALLOWED = new Set(["batch"])
 const FILTERED_FROM_SUGGESTIONS = new Set(["invalid", "patch", ...DISALLOWED])
@@ -8,6 +9,7 @@ const FILTERED_FROM_SUGGESTIONS = new Set(["invalid", "patch", ...DISALLOWED])
 export const BatchTool = Tool.define("batch", async () => {
   return {
     description: DESCRIPTION,
+    renderDescription: ToolGuidance.batch,
     parameters: z.object({
       tool_calls: z
         .array(

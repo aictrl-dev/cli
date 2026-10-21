@@ -4,6 +4,7 @@ import * as fs from "fs/promises"
 import * as path from "path"
 import { createInterface } from "readline"
 import { Tool } from "./tool"
+import { ToolGuidance } from "./guidance"
 import { FileTime } from "../file/time"
 import DESCRIPTION from "./read.txt"
 import { Instance } from "../project/instance"
@@ -40,6 +41,7 @@ async function emitSkillResourceEvent(sessionID: string, filepath: string) {
 
 export const ReadTool = Tool.define("read", {
   description: DESCRIPTION,
+  renderDescription: ToolGuidance.read,
   parameters: z.object({
     filePath: z.string().describe("The absolute path to the file or directory to read"),
     offset: z.coerce.number().describe("The line number to start reading from (1-indexed)").optional(),

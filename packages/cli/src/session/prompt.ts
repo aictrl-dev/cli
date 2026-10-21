@@ -21,6 +21,7 @@ import { Plugin } from "../plugin"
 import MAX_STEPS from "../session/prompt/max-steps.txt"
 import { defer } from "../util/defer"
 import { ToolRegistry } from "../tool/registry"
+import { ToolGuidance } from "../tool/guidance"
 import { MCP } from "../mcp"
 import { ReadTool } from "../tool/read"
 import { FileTime } from "../file/time"
@@ -942,7 +943,7 @@ export namespace SessionPrompt {
       input.session.id,
     )) {
       const schema = ProviderTransform.schema(input.model, z.toJSONSchema(item.parameters))
-      tools[item.id] = tool({
+      const definition = tool({
         id: item.id as any,
         description: item.description,
         inputSchema: jsonSchema(schema as any),
@@ -982,6 +983,7 @@ export namespace SessionPrompt {
           return output
         },
       })
+      tools[item.id] = ToolGuidance.bind(definition, item.builtin, item.renderDescription)
     }
 
     for (const [key, item] of Object.entries(await MCP.tools())) {
@@ -1433,9 +1435,6 @@ export namespace SessionPrompt {
         }
 
         if (part.type === "agent") {
-          // Check if this agent would be denied by task permission
-          const perm = PermissionNext.evaluate("task", part.name, agent.permission)
-          const hint = perm.action === "deny" ? " . Invoked by user; guaranteed to exist." : ""
           return [
             {
               ...part,
@@ -1447,12 +1446,11 @@ export namespace SessionPrompt {
               sessionID: input.sessionID,
               type: "text",
               synthetic: true,
-              // An extra space is added here. Otherwise the 'Use' gets appended
-              // to user's last word; making a combined word
+              // Keep this fresh instruction neutral: final request tools are resolved later.
               text:
-                " Use the above message and context to generate a prompt and call the task tool with subagent: " +
-                part.name +
-                hint,
+                ` The user requested delegation to subagent: ${part.name}. ` +
+                "Use the preceding message and context to prepare its task. " +
+                "Delegate if an appropriate delegation tool is available; otherwise report that delegation is unavailable.",
             },
           ]
         }

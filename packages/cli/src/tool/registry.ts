@@ -107,11 +107,11 @@ export namespace ToolRegistry {
     custom.push(tool)
   }
 
-  async function all(): Promise<Tool.Info[]> {
+  async function all(): Promise<{ info: Tool.Info; builtin: boolean }[]> {
     const custom = await state().then((x) => x.custom)
     const config = await Config.get()
 
-    return [
+    const builtin = [
       InvalidTool,
       BashTool,
       ReadTool,
@@ -126,12 +126,12 @@ export namespace ToolRegistry {
       SkillTool,
       ApplyPatchTool,
       ...(config.experimental?.batch_tool === true ? [BatchTool] : []),
-      ...custom,
     ]
+    return [...builtin.map((info) => ({ info, builtin: true })), ...custom.map((info) => ({ info, builtin: false }))]
   }
 
   export async function ids() {
-    return all().then((x) => x.map((t) => t.id))
+    return all().then((x) => x.map((t) => t.info.id))
   }
 
   export async function tools(
@@ -145,7 +145,7 @@ export namespace ToolRegistry {
     const tools = await all()
     const result = await Promise.all(
       tools
-        .filter((t) => {
+        .filter(({ info: t }) => {
           if (t.id === "codesearch" || t.id === "websearch") return Flag.AICTRL_ENABLE_EXA
 
           // use apply tool in same format as codex
@@ -156,7 +156,7 @@ export namespace ToolRegistry {
 
           return true
         })
-        .map(async (t) => {
+        .map(async ({ info: t, builtin }) => {
           using _ = log.time(t.id)
           const tool = await t.init({ agent, sessionID })
           const output = {
@@ -169,6 +169,8 @@ export namespace ToolRegistry {
             ...tool,
             description: output.description,
             parameters: output.parameters,
+            builtin: builtin ? t.id : undefined,
+            renderDescription: builtin && output.description === tool.description ? tool.renderDescription : undefined,
           }
         }),
     )

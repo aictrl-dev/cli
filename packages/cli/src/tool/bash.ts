@@ -1,6 +1,7 @@
 import z from "zod"
 import { spawn } from "child_process"
 import { Tool } from "./tool"
+import { ToolGuidance } from "./guidance"
 import path from "path"
 import DESCRIPTION from "./bash.txt"
 import { Log } from "../util/log"
@@ -57,7 +58,10 @@ const SHELL_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh", "fish"])
 const TOKEN_TYPES = new Set(["command_name", "word", "string", "raw_string", "concatenation"])
 
 /** Extract token text from a command node, filtering to known token types. */
-function getCommandTokens(node: { childCount: number; child(i: number): { type: string; text: string } | null }): string[] {
+function getCommandTokens(node: {
+  childCount: number
+  child(i: number): { type: string; text: string } | null
+}): string[] {
   const tokens: string[] = []
   for (let i = 0; i < node.childCount; i++) {
     const child = node.child(i)
@@ -94,6 +98,7 @@ export const BashTool = Tool.define("bash", async () => {
   log.info("bash tool using shell", { shell })
 
   return {
+    renderDescription: ToolGuidance.bash,
     // Replacer functions insert values literally, without `$` pattern expansion
     description: DESCRIPTION.replaceAll("${directory}", () => Instance.directory)
       .replaceAll("${maxLines}", () => String(Truncate.MAX_LINES))

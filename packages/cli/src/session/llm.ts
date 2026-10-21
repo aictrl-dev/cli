@@ -16,13 +16,14 @@ import {
 import { mergeDeep, pipe } from "remeda"
 import { ProviderTransform } from "@/provider/transform"
 import { Config } from "@/config/config"
-import type { Agent } from "@/agent/agent"
+import { Agent } from "@/agent/agent"
 import type { MessageV2 } from "./message-v2"
 import { Plugin } from "@/plugin"
 import { SystemPrompt } from "./system"
 import { PermissionNext } from "@/permission/next"
 import { Auth } from "@/auth"
 import { ProviderTermination } from "@/provider/termination"
+import { ToolGuidance } from "@/tool/guidance"
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
@@ -67,11 +68,14 @@ export namespace LLM {
       Auth.get(input.model.providerID),
     ])
     const isCodex = provider.id === "openai" && auth?.type === "oauth"
+    const selected = await resolveTools(input)
+    const names = ToolGuidance.capabilities(selected)
+    const tools = ToolGuidance.render(selected, names)
 
     const system = []
     system.push(
       [
-        ...leadPrompt(input.agent, isCodex),
+        ...leadPrompt(input.agent, isCodex, names),
         // any custom prompt passed into this call
         ...input.system,
         // any custom prompt from last user message
@@ -110,7 +114,7 @@ export namespace LLM {
       mergeDeep(variant),
     )
     if (isCodex) {
-      options.instructions = SystemPrompt.instructions()
+      options.instructions = SystemPrompt.instructions(names)
     }
 
     const params = await Plugin.trigger(
@@ -147,8 +151,6 @@ export namespace LLM {
     )
 
     const maxOutputTokens = isCodex ? undefined : ProviderTransform.maxOutputTokens(input.model)
-
-    const tools = await resolveTools(input)
 
     // LiteLLM and some Anthropic proxies require the tools parameter to be present
     // when message history contains tool calls, even if no tools are being used.
@@ -269,22 +271,24 @@ export namespace LLM {
    * The prompt that opens the system message: the agent's own prompt, else the shared base prompt.
    * Codex sign-in sessions send no base prompt here, because they send the Codex header as `options.instructions`.
    */
-  function leadPrompt(agent: Agent.Info, isCodex: boolean) {
-    if (agent.prompt) return [agent.prompt]
+  function leadPrompt(agent: Agent.Info, isCodex: boolean, tools: ReadonlySet<string>) {
+    const prompt = Agent.renderPrompt(agent, tools)
+    if (prompt) return [prompt]
     if (isCodex) return []
-    return [SystemPrompt.base()]
+    return [SystemPrompt.base(tools)]
   }
 
   async function resolveTools(input: Pick<StreamInput, "tools" | "agent" | "permission" | "user">) {
     // same ruleset tool calls are checked against, so a denied tool is never offered to the model
     const ruleset = PermissionNext.merge(input.agent.permission, input.permission ?? [])
-    const disabled = PermissionNext.disabled(Object.keys(input.tools), ruleset)
-    for (const tool of Object.keys(input.tools)) {
+    const tools = { ...input.tools }
+    const disabled = PermissionNext.disabled(Object.keys(tools), ruleset)
+    for (const tool of Object.keys(tools)) {
       if (input.user.tools?.[tool] === false || disabled.has(tool)) {
-        delete input.tools[tool]
+        delete tools[tool]
       }
     }
-    return input.tools
+    return tools
   }
 
   // Check if messages contain any tool-call content
