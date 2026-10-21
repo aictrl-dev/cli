@@ -18,7 +18,7 @@
    and network access during setup only), then capture and count offline:
 
    ```bash
-   python3.12 script/token-budget/setup.py --directory /absolute/new-counter-env
+   python3.12 -I -B script/token-budget/setup.py --directory /absolute/new-counter-env
    bun run --no-install --no-env-file script/token-budget/release.ts /absolute/release-inputs.json /absolute/new-release-evidence
    /absolute/new-counter-env/venv/bin/python3 -I -B script/token-budget/release-count.py /absolute/new-release-evidence/campaign.json
    ```

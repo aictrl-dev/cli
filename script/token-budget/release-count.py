@@ -17,7 +17,12 @@ def analyze(campaign_path):
         raise ValueError('Refuse overwriting accounting results')
     if campaign['protocolVersion'] != 3 or campaign['failures'] or campaign['REPS'] < 2:
         raise ValueError('Incomplete or failed release campaign')
-    final = campaign['cleanupChecks'][-1]['finalCampaignCheck']
+    checks = campaign.get('cleanupChecks')
+    if not isinstance(checks, list) or not checks or not isinstance(checks[-1], dict):
+        raise ValueError('Incomplete release campaign: final cleanup evidence missing')
+    final = checks[-1].get('finalCampaignCheck')
+    if not isinstance(final, dict) or not {'exit', 'timedOut', 'stdout'} <= final.keys():
+        raise ValueError('Incomplete release campaign: final cleanup evidence missing')
     if final['exit'] != 0 or final['timedOut'] or final['stdout'].strip():
         raise ValueError('Final campaign container cleanup not verified')
     encoding = load_encoding()
