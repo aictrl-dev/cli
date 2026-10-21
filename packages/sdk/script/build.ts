@@ -79,6 +79,17 @@ for (const name of ["EventSessionStructuredOutput", "EventSessionStructuredOutpu
     throw new Error("Legacy Event declaration not found; update the SDK schema bridge")
   source = source.replace("export type Event =\n", `export type Event =\n  | ${name}\n`)
 }
+// Command invocation keeps the legacy endpoint, but uses the canonical arguments component.
+const command = source.indexOf("export type SessionCommandData = {")
+const pathStart = source.indexOf("\n  path:", command)
+if (command < 0 || pathStart < 0) throw new Error("Legacy command body not found; update the SDK schema bridge")
+const body = source.slice(command, pathStart)
+const argument = /    arguments: (?:string|import\("\.\.\/v2\/gen\/types\.gen\.js"\)\.CommandArguments)/
+if (!argument.test(body)) throw new Error("Legacy command arguments not found; update the SDK schema bridge")
+source =
+  source.slice(0, command) +
+  body.replace(argument, '    arguments: import("../v2/gen/types.gen.js").CommandArguments') +
+  source.slice(pathStart)
 await legacy.write(source)
 
 await $`bun prettier --write src/gen`

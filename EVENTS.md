@@ -21,7 +21,9 @@ The invocation envelope covers accepted `run --format json` executions from the 
 
 ### `invocation_start`
 
-Emitted once, before piped stdin is read and before run validation or bootstrap begins.
+Emitted once, before any selected stdin is read and before run validation or bootstrap begins. Stdin is selected by a standalone `-` message operand (including after `--`), or by no message operands with non-terminal stdin. A supplied ordinary prompt does not read stdin. Repeated markers cause one read and are removed before message and derived-title assembly. An explicitly selected stream still waits for EOF; no stdin deadline is implied by this event.
+
+Missing required option values and unknown options fail in the argument parser, before the handler starts. They exit with a parser error and do not emit invocation events. Failures after the handler starts retain the invocation lifecycle below.
 
 ```json
 {
@@ -103,7 +105,7 @@ Emitted once when the session begins.
 
 ### `tool_catalog`
 
-Emitted once per session, immediately after `session_start` and before the first model turn (present even for zero-turn or immediately-failing runs). Lists every tool and skill that was resolved for the session so consumers can structurally verify tool exposure without string-matching the model's prose.
+Emitted once per session, immediately after `session_start` and before the first model turn (present even for zero-turn or immediately-failing runs). Reports builtin registry and resolved MCP tool inventory, plus in-scope skills. This session-level snapshot supports inventory diagnostics; it is not the effective tool list for each model request.
 
 ```json
 {
@@ -111,8 +113,8 @@ Emitted once per session, immediately after `session_start` and before the first
   "sessionID": "ses_…",
   "timestamp": 1741500000000,
   "tools": [
-    { "name": "record_finding", "source": "mcp", "server": "aictrl" },
-    { "name": "record_review_completed", "source": "mcp", "server": "aictrl" },
+    { "name": "aictrl_record_finding", "source": "mcp", "server": "aictrl" },
+    { "name": "aictrl_record_review_completed", "source": "mcp", "server": "aictrl" },
     { "name": "bash", "source": "builtin" },
     { "name": "read", "source": "builtin" }
   ],
@@ -123,13 +125,13 @@ Emitted once per session, immediately after `session_start` and before the first
 }
 ```
 
-#### `tools[]` — builtin and MCP tools resolved for this session
+#### `tools[]` — builtin registry and resolved MCP inventory for this session
 
-- **`name`** (string, **required**) — the tool/function name as exposed to the model. Mirrors upstream `ToolListItem.id`. For MCP tools this is `{serverName}_{toolName}` (both sanitised to `[a-zA-Z0-9_-]`).
+- **`name`** (string, **required**) — the tool/function identifier used when a tool is dispatched. Mirrors upstream `ToolListItem.id`. For MCP tools this is `{serverName}_{toolName}` (both sanitised to `[a-zA-Z0-9_-]`). The identifier does not guarantee inclusion in a model request.
 - **`source`** (string, **required**) — `"builtin"` for tools built into the CLI; `"mcp"` for tools provided by a connected MCP server.
 - **`server`** (string, optional) — the MCP server (client name from config) that provides this tool. Present only when `source` is `"mcp"`.
 
-`description` and `parameters` are intentionally omitted to keep the event lean. The primary consumer only needs `name` + `source` to verify tool exposure.
+`description` and `parameters` are intentionally omitted to keep the event lean. `name` + `source` identify inventory entries and their provenance; they do not prove dispatch exposure.
 
 #### `skills[]` — skill packs resolved for this session (separate from `tools[]`)
 
@@ -138,9 +140,9 @@ Only skills in scope for the run are listed; see [Skill Events](#skill-events).
 - **`name`** (string, **required**) — skill name from `SKILL.md` frontmatter.
 - **`version`** (string or null, **required**) — version string from the `version` field in `SKILL.md` frontmatter. `null` when no version is declared.
 
-> **Use case:** The server-side completion gate (aictrl-dev/aictrl #3216) uses `tools[]` to verify that `record_finding` and `record_review_completed` were actually in the model's function list at dispatch time, and `skills[]` to record which skill version produced the review. Detects the "silent success" failure mode where a missing MCP server lets a run complete green without ever having the review tools available.
+> **Use case:** A server-side completion gate (aictrl-dev/aictrl #3216) can use `tools[]` to detect missing expected inventory and `skills[]` to record resolved skill versions. To verify that `aictrl_record_finding` and `aictrl_record_review_completed` were offered on a particular turn, it must inspect that actual model request's dispatched function list after filtering. Inventory presence alone proves neither dispatch nor a successful review-tool call.
 >
-> **Note on builtin tool filtering:** The `source: "builtin"` entries in `tools[]` reflect the _instance-level superset_ registered in `ToolRegistry`. Per-model filters (e.g. `apply_patch` only on gpt-\*, `codesearch`/`websearch` only for aictrl provider) are applied at dispatch time inside `resolveTools` and are **not** reflected here. Consumers should treat the presence of a builtin tool name as "registered and potentially available", not as "guaranteed to appear in the model's function list". The strong structural guarantee (tool present ↔ tool in dispatch list) applies only to `source: "mcp"` entries.
+> **Inventory versus dispatch:** Builtin entries reflect the _instance-level superset_ registered in `ToolRegistry`; model-specific builtin filters are applied when resolving each request. MCP entries come from connected servers' resolved tool catalogs. Both sources can be excluded by effective work-tool selection, permissions or request-specific disabling. The shared MCP naming helper guarantees identifier consistency, not inclusion in the dispatched function list.
 
 ### `session_complete`
 
@@ -249,6 +251,10 @@ Emitted once for each primary-session user message, after all of its parts are s
 - `model` (object, **required**) — `{ providerID, modelID }` the message was sent with.
 - `parts` (array, **required**) — the message's parts exactly as stored, in the order they were written. Parts the CLI derived from the input have `synthetic: true`; for example, the text a `-f` file or MCP resource expands to, or the compaction "continue" text. A compaction request has a single `compaction` part. Parts are not truncated: a `file` part can carry a `data:` URL, so consumers must accept arbitrarily large lines, as for `reasoning`.
 - `sequenceNum` (number, **required**) — the same per-session counter as `text`, `reasoning` and `tool_use`. A `user_message` is emitted before any event of the assistant turn it triggers, so its `sequenceNum` is lower than theirs.
+
+Ordinary prompt text joins normalized message operands with spaces without adding quote or backslash encoding; selected stdin is appended after one actual newline. Command templates receive exact structured operands and the selected stream as one final positional data operand. The highest numbered placeholder joins its remaining operands with spaces. Raw `$ARGUMENTS`, plugin arguments and command-executed arguments use the textual projection `argv.join(" ")` plus a newline and exact selected stdin. Existing string SDK inputs retain their legacy lexer. Literal dollar replacement tokens are not interpreted as JavaScript replacement instructions. These data-fidelity rules do not establish attached receiver support.
+
+Only shell spans present in the original resolved command template execute. Argument values, selected stdin, fallback text and captured shell output are never rescanned for placeholders or shell spans. In original shell spans, numbered placeholders bind scalar data using the original template's global highest-position suffix rule, while `$ARGUMENTS` binds the decoded operand vector. Bun supplies unquoted vector elements as separate arguments and quoted vectors as one space-joined scalar; missing numbered values bind empty scalars. This intentionally replaces raw shell-source interpolation while keeping the existing template-source authority, trusted operators and explicit interpreters. It is independent of model tool permissions and is not a sandbox. The expanded template keeps its outer whitespace trim before user-message parts are resolved.
 
 The StructuredOutput corrective reminder is not a stored user message. It is added to the next model request only, so it emits no `user_message`; `structured_output_rejected` reports each corrective turn instead. Child-session (subagent) user messages are not emitted, matching `text`.
 
@@ -670,15 +676,15 @@ can contain property names submitted by the model (for example, in map or
 to 64 characters; paths also have an overall length bound.
 A result file that cannot be used emits one fixed diagnostic with `path: ""`:
 
-| `keyword` | `message` |
-|---|---|
-| `file` | `working directory unavailable` |
-| `file` | `file not found` |
-| `file` | `path must stay inside the working directory` |
-| `file` | `file not readable` |
-| `file` | `path must be a regular file` |
-| `file` | `file must not exceed 2097152 bytes` |
-| `parse` | `file must contain complete, valid JSON` |
+| `keyword` | `message`                                     |
+| --------- | --------------------------------------------- |
+| `file`    | `working directory unavailable`               |
+| `file`    | `file not found`                              |
+| `file`    | `path must stay inside the working directory` |
+| `file`    | `file not readable`                           |
+| `file`    | `path must be a regular file`                 |
+| `file`    | `file must not exceed 2097152 bytes`          |
+| `parse`   | `file must contain complete, valid JSON`      |
 
 A file that parses but fails the schema emits Ajv diagnostics as above.
 Feedback for a rejected file goes to the model as the StructuredOutput tool error and

@@ -2478,7 +2478,7 @@ export type SessionCommandData = {
     messageID?: string
     agent?: string
     model?: string
-    arguments: string
+    arguments: import("../v2/gen/types.gen.js").CommandArguments
     command: string
   }
   path: {

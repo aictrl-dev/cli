@@ -49,6 +49,7 @@ import { Shutdown } from "../shutdown"
 import { Stdout } from "../stdout"
 import { attempt, signals, type Signals } from "../signals"
 import { createRunInvocation } from "./run.invocation"
+import { runInput } from "./run.input"
 
 type ToolProps<T extends Tool.Info> = {
   input: Tool.InferParameters<T>
@@ -314,9 +315,9 @@ function truncatedTitle(text: string) {
  */
 export function sessionTitle(input: {
   title?: string
-  /** The positional words as typed, before they are re-quoted for the model. */
+  /** The normalized positional text used to derive the title. */
   prompt: string
-  /** The message sent to the model: the re-quoted prompt plus any stdin. */
+  /** The message sent to the model: normalized prompt text plus any selected stdin. */
   message: string
   command?: string
 }) {
@@ -364,17 +365,18 @@ async function sessionPermissions(sessionID: string, agent: string | undefined, 
 }
 
 export const RunCommand = cmd({
-  command: "run [message..]",
+  command: "run",
   describe: "run aictrl with a message",
   builder: (yargs: Argv) => {
     return (
       yargs
-        .positional("message", {
-          describe: "message to send",
-          type: "string",
-          array: true,
-          default: [],
-        })
+        // A variadic positional is reparsed by yargs and loses bare "-" operands.
+        // Keep the parser's operands in this leaf while still rejecting unknown options.
+        .usage("$0 run [message..]")
+        .strict(false)
+        .strictOptions()
+        .strictCommands(false)
+        .parserConfiguration({ "populate--": true, "parse-positional-numbers": false })
         .option("tools", {
           type: "string",
           nargs: 1,
@@ -384,6 +386,7 @@ export const RunCommand = cmd({
         .option("command", {
           describe: "the command to run, use message for args",
           type: "string",
+          requiresArg: true,
         })
         .option("continue", {
           alias: ["c"],
@@ -394,6 +397,7 @@ export const RunCommand = cmd({
           alias: ["s"],
           describe: "session id to continue",
           type: "string",
+          requiresArg: true,
         })
         .option("fork", {
           describe: "fork the session before continuing (requires --continue or --session)",
@@ -406,45 +410,58 @@ export const RunCommand = cmd({
         })
         .option("model", {
           type: "string",
+          requiresArg: true,
           alias: ["m"],
           describe: "model to use in the format of provider/model",
         })
         .option("agent", {
           type: "string",
+          requiresArg: true,
           describe: "agent to use",
         })
         .option("format", {
           type: "string",
+          requiresArg: true,
           choices: ["default", "json"],
           default: "default",
           describe: "format: default (formatted) or json (raw JSON events)",
         })
         .option("output-schema", {
           type: "string",
+          requiresArg: true,
           describe:
             "JSON Schema file for the final result (object root); the agent writes the result to a JSON file in the working directory and passes its path to StructuredOutput",
         })
-        .option("output-schema-retries", { type: "number", describe: "additional corrective turns (0-10, default: 2)" })
+        .option("output-schema-retries", {
+          type: "number",
+          requiresArg: true,
+          describe: "additional corrective turns (0-10, default: 2)",
+        })
         .option("output-result", {
           type: "string",
+          requiresArg: true,
           describe: "atomically write only the validated JSON result to this file",
         })
         .option("file", {
           alias: ["f"],
           type: "string",
+          requiresArg: true,
           array: true,
           describe: "file(s) to attach to message",
         })
         .option("title", {
           type: "string",
+          requiresArg: true,
           describe: "title for the session (defaults to the truncated prompt, or /<command> <args> for command runs)",
         })
         .option("attach", {
           type: "string",
+          requiresArg: true,
           describe: "attach to a running aictrl server (e.g., http://localhost:4096)",
         })
         .option("dir", {
           type: "string",
+          requiresArg: true,
           describe: "directory to run in, path on remote server if attaching",
         })
         .option("port", {
@@ -453,6 +470,7 @@ export const RunCommand = cmd({
         })
         .option("variant", {
           type: "string",
+          requiresArg: true,
           describe: "model variant (provider-specific reasoning effort, e.g., high, max, minimal)",
         })
         .option("thinking", {
@@ -503,9 +521,9 @@ export const RunCommand = cmd({
       await fail("--share was removed: session sharing is no longer supported", "INVOCATION_INVALID_ARGUMENTS")
     }
 
-    let message = [...args.message, ...(args["--"] || [])]
-      .map((arg) => (arg.includes(" ") ? `"${arg.replace(/"/g, '\\"')}"` : arg))
-      .join(" ")
+    const normalized = runInput([...args._.slice(1), ...(args["--"] ?? [])].map(String), process.stdin.isTTY)
+    let message = normalized.message
+    let stdin: string | undefined
 
     const directory = await (async () => {
       if (!args.dir) return undefined
@@ -553,9 +571,10 @@ export const RunCommand = cmd({
       }
     }
 
-    if (!process.stdin.isTTY) {
+    if (normalized.stdin) {
       invocation.phase("stdin")
-      message += "\n" + (await invocation.guard(() => Bun.stdin.text()))
+      stdin = await invocation.guard(() => Bun.stdin.text())
+      message += "\n" + stdin
       invocation.phase("validation")
     }
 
@@ -601,8 +620,7 @@ export const RunCommand = cmd({
 
       if (baseID) return baseID
 
-      const prompt = [...args.message, ...(args["--"] || [])].join(" ")
-      const title = sessionTitle({ title: args.title, prompt, message, command: args.command })
+      const title = sessionTitle({ title: args.title, prompt: normalized.prompt, message, command: args.command })
       const result = await sdk.session.create(input(undefined, { title }))
       return result.data?.id
     }
@@ -1159,7 +1177,7 @@ export const RunCommand = cmd({
           toolAllowlist,
           model: args.model,
           command: args.command,
-          arguments: message,
+          arguments: { argv: normalized.argv, ...(stdin !== undefined ? { stdin } : {}) },
           variant: args.variant,
           ...(schema ? { format: schema.format } : {}),
         }

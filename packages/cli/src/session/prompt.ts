@@ -31,7 +31,8 @@ import { ReadTool } from "../tool/read"
 import { FileTime } from "../file/time"
 import { ulid } from "ulid"
 import { Command } from "../command"
-import { $, fileURLToPath, pathToFileURL } from "bun"
+import { renderCommandTemplate } from "../command/template"
+import { fileURLToPath, pathToFileURL } from "bun"
 import { ConfigMarkdown } from "../config/markdown"
 import { NamedError } from "@aictrl/util/error"
 import { fn } from "@/util/fn"
@@ -1619,12 +1620,21 @@ export namespace SessionPrompt {
     return { message: { info, parts }, catalog }
   }
 
+  export const CommandArguments = z.union([
+    z.string(),
+    z.object({
+      argv: z.array(z.string()),
+      stdin: z.string().optional(),
+    }),
+  ])
+  export type CommandArguments = z.infer<typeof CommandArguments>
+
   export const CommandInput = z.object({
     messageID: Identifier.schema("message").optional(),
     sessionID: Identifier.schema("session"),
     agent: z.string().optional(),
     model: z.string().optional(),
-    arguments: z.string(),
+    arguments: CommandArguments,
     command: z.string(),
     toolAllowlist: ToolSelection.Names.optional(),
     format: MessageV2.Format.optional(),
@@ -1643,10 +1653,8 @@ export namespace SessionPrompt {
       .optional(),
   })
   export type CommandInput = z.infer<typeof CommandInput>
-  const bashRegex = /!`([^`]+)`/g
   // Match [Image N] as single token, quoted strings, or non-space sequences
   const argsRegex = /(?:\[Image\s+\d+\]|"[^"]*"|'[^']*'|[^\s"']+)/gi
-  const placeholderRegex = /\$(\d+)/g
   const quoteTrimRegex = /^["']|["']$/g
   /**
    * Regular expression to match @ file references in text
@@ -1665,50 +1673,15 @@ export namespace SessionPrompt {
     const command = await Command.get(input.command)
     const agentName = command.agent ?? input.agent ?? (await Agent.defaultAgent())
 
-    const raw = input.arguments.match(argsRegex) ?? []
-    const args = raw.map((arg) => arg.replace(quoteTrimRegex, ""))
+    const value = input.arguments
+    const text =
+      typeof value === "string" ? value : value.argv.join(" ") + (value.stdin !== undefined ? "\n" + value.stdin : "")
+    const args =
+      typeof value === "string"
+        ? (value.match(argsRegex) ?? []).map((arg) => arg.replace(quoteTrimRegex, ""))
+        : [...value.argv, ...(value.stdin !== undefined ? [value.stdin] : [])]
 
-    const templateCommand = await command.template
-
-    const placeholders = templateCommand.match(placeholderRegex) ?? []
-    let last = 0
-    for (const item of placeholders) {
-      const value = Number(item.slice(1))
-      if (value > last) last = value
-    }
-
-    // Let the final placeholder swallow any extra arguments so prompts read naturally
-    const withArgs = templateCommand.replaceAll(placeholderRegex, (_, index) => {
-      const position = Number(index)
-      const argIndex = position - 1
-      if (argIndex >= args.length) return ""
-      if (position === last) return args.slice(argIndex).join(" ")
-      return args[argIndex]
-    })
-    const usesArgumentsPlaceholder = templateCommand.includes("$ARGUMENTS")
-    let template = withArgs.replaceAll("$ARGUMENTS", input.arguments)
-
-    // If command doesn't explicitly handle arguments (no $N or $ARGUMENTS placeholders)
-    // but user provided arguments, append them to the template
-    if (placeholders.length === 0 && !usesArgumentsPlaceholder && input.arguments.trim()) {
-      template = template + "\n\n" + input.arguments
-    }
-
-    const shell = ConfigMarkdown.shell(template)
-    if (shell.length > 0) {
-      const results = await Promise.all(
-        shell.map(async ([, cmd]) => {
-          try {
-            return await $`${{ raw: cmd }}`.quiet().nothrow().text()
-          } catch (error) {
-            return `Error executing command: ${error instanceof Error ? error.message : String(error)}`
-          }
-        }),
-      )
-      let index = 0
-      template = template.replace(bashRegex, () => results[index++])
-    }
-    template = template.trim()
+    const template = await renderCommandTemplate(await command.template, text, args)
 
     const taskModel = await (async () => {
       if (command.model) {
@@ -1770,7 +1743,7 @@ export namespace SessionPrompt {
       {
         command: input.command,
         sessionID: input.sessionID,
-        arguments: input.arguments,
+        arguments: text,
       },
       { parts },
     )
@@ -1789,7 +1762,7 @@ export namespace SessionPrompt {
     Bus.publish(Command.Event.Executed, {
       name: input.command,
       sessionID: input.sessionID,
-      arguments: input.arguments,
+      arguments: text,
       messageID: result.info.id,
     })
 
