@@ -34,6 +34,7 @@ let root
 let server
 let overallTimer
 let pendingFailure
+let signalVersion = 0
 const report = {
   recipe: marker,
   expectedVersion: "0.5.4",
@@ -62,7 +63,14 @@ function abort(reason) {
   controller.abort(new Error(reason))
   for (const pid of groups) signalGroup(pid, "SIGTERM")
 }
-const interrupted = (signal) => abort(`Runner received ${signal}`)
+const interrupted = (signal) => {
+  if (signalVersion) return
+  signalVersion = 1
+  pendingFailure ??= controller.signal.aborted ? controller.signal.reason : new Error(`Runner received ${signal}`)
+  report.status = "fail"
+  report.error ??= { message: pendingFailure.message, stack: pendingFailure.stack }
+  abort(`Runner received ${signal}`)
+}
 const onINT = () => interrupted("SIGINT")
 const onTERM = () => interrupted("SIGTERM")
 process.on("SIGINT", onINT)
@@ -370,9 +378,9 @@ try {
   }
   report.status = "pass"
 } catch (error) {
-  pendingFailure = error
+  pendingFailure ??= error
   report.status = "fail"
-  report.error = { message: error.message, stack: error.stack }
+  report.error ??= { message: pendingFailure.message, stack: pendingFailure.stack }
 } finally {
   clearTimeout(overallTimer)
   if (server?.listening) {
@@ -399,17 +407,18 @@ try {
     report.cleanupErrors.push(error.message)
   }
   report.cleanup = { processGroupsRemaining: groups.size, temporaryRootRemoved: removed }
-  process.removeListener("SIGINT", onINT)
-  process.removeListener("SIGTERM", onTERM)
   report.finishedUTC = new Date().toISOString()
   try {
     if (evidence) {
       await mkdir(evidence, { recursive: true })
-      await writeFile(path.join(evidence, "report.json"), JSON.stringify(report, null, 2) + "\n")
       for (const record of runs) {
         await writeFile(path.join(evidence, `${record.label}.stdout`), record.stdout)
         await writeFile(path.join(evidence, `${record.label}.stderr`), record.stderr)
       }
+      const version = signalVersion
+      await writeFile(path.join(evidence, "report.json"), JSON.stringify(report, null, 2) + "\n")
+      if (version !== signalVersion)
+        await writeFile(path.join(evidence, "report.json"), JSON.stringify(report, null, 2) + "\n")
     }
   } catch (error) {
     pendingFailure ??= error
@@ -418,6 +427,8 @@ try {
     report.evidenceError = { message: error.message, stack: error.stack }
   }
   console.log(JSON.stringify(report, null, 2))
+  process.removeListener("SIGINT", onINT)
+  process.removeListener("SIGTERM", onTERM)
 }
 if (pendingFailure) {
   console.error(`[owned CLI smoke] ${pendingFailure.message}`)
