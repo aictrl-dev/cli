@@ -1,8 +1,10 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import { spawn } from "node:child_process"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+import type { CommandArguments, CommandInput } from "../../../sdk/src/v2/index"
+import { capture as templateCapture } from "./fixture/command-template-capture"
 
 const template = "FIRST<$1>\nSECOND<$2>\nREST<$3>"
 const guard = path.join(import.meta.dir, "fixture/stdin-guard.ts")
@@ -14,206 +16,260 @@ type Input = (
 ) & { template?: string; deadlineMs?: number }
 async function capture(input: Input) {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "aictrl-command-arguments-"))
-  const requests: Record<string, unknown>[] = []
-  const server = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    async fetch(request) {
-      if (new URL(request.url).pathname !== "/v1/chat/completions") throw new Error("Unexpected provider path")
-      requests.push((await request.json()) as Record<string, unknown>)
-      const chunks = [
-        { choices: [{ index: 0, delta: { role: "assistant", content: "Done" }, finish_reason: null }] },
-        {
-          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-        },
-      ]
-      return new Response(chunks.map((value) => `data: ${JSON.stringify(value)}\n\n`).join("") + "data: [DONE]\n\n", {
-        headers: { "content-type": "text/event-stream" },
-      })
+  const evidence = process.env.COMMAND_ARGUMENTS_EVIDENCE
+  const cleanup: (() => void | Promise<void>)[] = [
+    async () => {
+      if (!evidence) await fs.rm(cwd, { recursive: true, force: true })
     },
-  })
-  await fs.writeFile(
-    path.join(cwd, "aictrl.json"),
-    JSON.stringify({
-      enabled_providers: ["fixture"],
-      provider: {
-        fixture: {
-          npm: "@ai-sdk/openai-compatible",
-          options: { apiKey: "fixture", baseURL: server.url.origin + "/v1" },
-          models: { fixture: { name: "fixture", tool_call: true, limit: { context: 100000, output: 1000 } } },
-        },
-      },
-      agent: { title: { disable: true } },
-      command: { argumentprobe: { template: input.template ?? template } },
-    }),
-  )
-  const data = path.join(cwd, "arguments.json")
-  await fs.writeFile(data, JSON.stringify("raw" in input ? { arguments: input.raw } : {}))
-  const ledger = path.join(cwd, "network.jsonl")
-  await fs.writeFile(ledger, "")
-  const env = {
-    PATH: [path.dirname(process.execPath), "/usr/local/bin", "/usr/bin", "/bin"].join(path.delimiter),
-    HOME: path.join(cwd, "home"),
-    AICTRL_TEST_HOME: path.join(cwd, "home"),
-    AICTRL_TEST_MANAGED_CONFIG_DIR: path.join(cwd, "managed"),
-    XDG_DATA_HOME: path.join(cwd, "data"),
-    XDG_CONFIG_HOME: path.join(cwd, "config"),
-    XDG_CACHE_HOME: path.join(cwd, "cache"),
-    XDG_STATE_HOME: path.join(cwd, "state"),
-    BUN_RUNTIME_TRANSPILER_CACHE_PATH: path.join(cwd, "bun-cache"),
-    GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: "/dev/null",
-    TZ: "UTC",
-    AICTRL_DISABLE_DEFAULT_PLUGINS: "true",
-    AICTRL_DISABLE_AUTOCOMPACT: "true",
-    STDIN_FIXTURE_ORIGIN: server.url.origin,
-    STDIN_FIXTURE_LEDGER: ledger,
-    COMMAND_ARGUMENTS_DATA: data,
-  }
-  const source =
-    "raw" in input
-      ? path.join(import.meta.dir, "fixture/command-arguments-legacy.ts")
-      : path.resolve(import.meta.dir, `../../src/${input.entry}.ts`)
-  const command = [
-    "run",
-    "--no-install",
-    "--no-env-file",
-    "--preload",
-    guard,
-    "--conditions=browser",
-    source,
-    ...("raw" in input
-      ? []
-      : ["run", "--format", "json", "--model", "fixture/fixture", "--command", "argumentprobe", ...input.operands]),
   ]
-  const child = spawn(process.execPath, command, {
-    cwd,
-    env,
-    detached: true,
-    stdio: ["stdin" in input ? "pipe" : "ignore", "pipe", "pipe"],
-  })
-  let stdout = "",
-    stderr = "",
-    deadline = false
-  const exists = () => {
-    try {
-      process.kill(-child.pid!, 0)
-      return true
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ESRCH") return false
-      throw error
-    }
-  }
-  let staged = false
-  let firstBytesAt: number | undefined
-  let eofAt: number | undefined
-  let requestsBeforeEOF: number | undefined
-  const started = performance.now()
-  const stages: ReturnType<typeof setTimeout>[] = []
-  child.stdin?.on("error", (error: NodeJS.ErrnoException) => {
-    if (error.code !== "EPIPE") stderr += String(error)
-  })
-  child.stdout!.on("data", (value) => {
-    stdout += value.toString()
-    if ("stdin" in input && !staged && stdout.includes('"type":"invocation_start"')) {
-      staged = true
-      stages.push(
-        setTimeout(() => {
-          firstBytesAt = performance.now() - started
-          child.stdin!.write(input.stdin ?? "")
-          stages.push(
-            setTimeout(() => {
-              eofAt = performance.now() - started
-              requestsBeforeEOF = requests.length
-              child.stdin!.end()
-            }, 100),
-          )
-        }, 100),
-      )
-    }
-  })
-  child.stderr!.on("data", (value) => {
-    stderr += value.toString()
-  })
-  const timer = setTimeout(() => {
-    deadline = true
-    if (exists()) process.kill(-child.pid!, "SIGTERM")
-  }, input.deadlineMs ?? 12000)
-  const escalation = setTimeout(
-    () => {
-      if (deadline && exists()) process.kill(-child.pid!, "SIGKILL")
-    },
-    (input.deadlineMs ?? 12000) + 200,
-  )
-  let code: number | null = null
+  let failed = false
   try {
-    code = await new Promise<number | null>((resolve, reject) => {
-      child.once("error", reject)
-      child.once("close", (value) => resolve(value))
+    const requests: Record<string, unknown>[] = []
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        if (new URL(request.url).pathname !== "/v1/chat/completions") throw new Error("Unexpected provider path")
+        requests.push((await request.json()) as Record<string, unknown>)
+        const chunks = [
+          { choices: [{ index: 0, delta: { role: "assistant", content: "Done" }, finish_reason: null }] },
+          {
+            choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+          },
+        ]
+        return new Response(chunks.map((value) => `data: ${JSON.stringify(value)}\n\n`).join("") + "data: [DONE]\n\n", {
+          headers: { "content-type": "text/event-stream" },
+        })
+      },
     })
-  } finally {
-    for (const stage of stages) clearTimeout(stage)
-    child.stdin?.destroy()
-    clearTimeout(timer)
-    clearTimeout(escalation)
-    if (exists()) {
-      process.kill(-child.pid!, "SIGTERM")
-      await pause(150)
-      if (exists()) process.kill(-child.pid!, "SIGKILL")
-    }
-    server.stop(true)
-  }
-  const network = (await fs.readFile(ledger, "utf8"))
-    .split("\n")
-    .filter(Boolean)
-    .map((value) => JSON.parse(value))
-  const events = stdout
-    .split("\n")
-    .filter((value) => value.startsWith("{"))
-    .map((value) => JSON.parse(value))
-  const result = {
-    input,
-    template: input.template ?? template,
-    firstBytesAt,
-    eofAt,
-    requestsBeforeEOF,
-    command,
-    cwd,
-    code,
-    deadline,
-    groupGone: !exists(),
-    stdout,
-    stderr,
-    requests,
-    events,
-    network,
-  }
-  if (process.env.COMMAND_ARGUMENTS_EVIDENCE) {
-    await fs.mkdir(process.env.COMMAND_ARGUMENTS_EVIDENCE, { recursive: true })
-    const prefix = "entry" in input ? input.entry : "legacy"
+    cleanup.push(() => server.stop(true))
     await fs.writeFile(
-      path.join(process.env.COMMAND_ARGUMENTS_EVIDENCE, `${prefix}-${input.name}.json`),
-      JSON.stringify(result, null, 2) + "\n",
+      path.join(cwd, "aictrl.json"),
+      JSON.stringify({
+        enabled_providers: ["fixture"],
+        provider: {
+          fixture: {
+            npm: "@ai-sdk/openai-compatible",
+            options: { apiKey: "fixture", baseURL: server.url.origin + "/v1" },
+            models: { fixture: { name: "fixture", tool_call: true, limit: { context: 100000, output: 1000 } } },
+          },
+        },
+        agent: { title: { disable: true } },
+        command: { argumentprobe: { template: input.template ?? template } },
+      }),
     )
+    const data = path.join(cwd, "arguments.json")
+    await fs.writeFile(data, JSON.stringify("raw" in input ? { arguments: input.raw } : {}))
+    const ledger = path.join(cwd, "network.jsonl")
+    await fs.writeFile(ledger, "")
+    const env = {
+      PATH: [path.dirname(process.execPath), "/usr/local/bin", "/usr/bin", "/bin"].join(path.delimiter),
+      HOME: path.join(cwd, "home"),
+      AICTRL_TEST_HOME: path.join(cwd, "home"),
+      AICTRL_TEST_MANAGED_CONFIG_DIR: path.join(cwd, "managed"),
+      XDG_DATA_HOME: path.join(cwd, "data"),
+      XDG_CONFIG_HOME: path.join(cwd, "config"),
+      XDG_CACHE_HOME: path.join(cwd, "cache"),
+      XDG_STATE_HOME: path.join(cwd, "state"),
+      BUN_RUNTIME_TRANSPILER_CACHE_PATH: path.join(cwd, "bun-cache"),
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      TZ: "UTC",
+      AICTRL_DISABLE_DEFAULT_PLUGINS: "true",
+      AICTRL_DISABLE_AUTOCOMPACT: "true",
+      STDIN_FIXTURE_ORIGIN: server.url.origin,
+      STDIN_FIXTURE_LEDGER: ledger,
+      COMMAND_ARGUMENTS_DATA: data,
+    }
+    const source =
+      "raw" in input
+        ? path.join(import.meta.dir, "fixture/command-arguments-legacy.ts")
+        : path.resolve(import.meta.dir, `../../src/${input.entry}.ts`)
+    const command = [
+      "run",
+      "--no-install",
+      "--no-env-file",
+      "--preload",
+      guard,
+      "--conditions=browser",
+      source,
+      ...("raw" in input
+        ? []
+        : ["run", "--format", "json", "--model", "fixture/fixture", "--command", "argumentprobe", ...input.operands]),
+    ]
+    const child = spawn(process.execPath, command, {
+      cwd,
+      env,
+      detached: true,
+      stdio: ["stdin" in input ? "pipe" : "ignore", "pipe", "pipe"],
+    })
+    cleanup.push(async () => {
+      if (!child.pid) return
+      try {
+        process.kill(-child.pid, "SIGKILL")
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ESRCH") return
+        throw error
+      }
+      await pause(150)
+      try {
+        process.kill(-child.pid, 0)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ESRCH") return
+        throw error
+      }
+      throw new Error("Fixture process group remains after final cleanup")
+    })
+    let stdout = "",
+      stderr = "",
+      deadline = false
+    const exists = () => {
+      try {
+        process.kill(-child.pid!, 0)
+        return true
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ESRCH") return false
+        throw error
+      }
+    }
+    let staged = false
+    let firstBytesAt: number | undefined
+    let eofAt: number | undefined
+    let requestsBeforeEOF: number | undefined
+    const started = performance.now()
+    const stages: ReturnType<typeof setTimeout>[] = []
+    child.stdin?.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code !== "EPIPE") stderr += String(error)
+    })
+    child.stdout!.on("data", (value) => {
+      stdout += value.toString()
+      if ("stdin" in input && !staged && stdout.includes('"type":"invocation_start"')) {
+        staged = true
+        stages.push(
+          setTimeout(() => {
+            firstBytesAt = performance.now() - started
+            child.stdin!.write(input.stdin ?? "")
+            stages.push(
+              setTimeout(() => {
+                eofAt = performance.now() - started
+                requestsBeforeEOF = requests.length
+                child.stdin!.end()
+              }, 100),
+            )
+          }, 100),
+        )
+      }
+    })
+    child.stderr!.on("data", (value) => {
+      stderr += value.toString()
+    })
+    const timer = setTimeout(() => {
+      deadline = true
+      if (exists()) process.kill(-child.pid!, "SIGTERM")
+    }, input.deadlineMs ?? 12000)
+    const escalation = setTimeout(
+      () => {
+        if (deadline && exists()) process.kill(-child.pid!, "SIGKILL")
+      },
+      (input.deadlineMs ?? 12000) + 200,
+    )
+    cleanup.push(() => {
+      for (const stage of stages) clearTimeout(stage)
+      clearTimeout(timer)
+      clearTimeout(escalation)
+      child.stdin?.destroy()
+    })
+    let code: number | null = null
+    try {
+      code = await new Promise<number | null>((resolve, reject) => {
+        child.once("error", reject)
+        child.once("close", (value) => resolve(value))
+      })
+    } catch (error) {
+      failed = true
+      throw error
+    } finally {
+      try {
+        for (const stage of stages) clearTimeout(stage)
+        child.stdin?.destroy()
+        clearTimeout(timer)
+        clearTimeout(escalation)
+        if (exists()) {
+          process.kill(-child.pid!, "SIGTERM")
+          await pause(150)
+          if (exists()) process.kill(-child.pid!, "SIGKILL")
+        }
+      } catch (error) {
+        console.error("Fixture child cleanup failed", { directory: cwd, error })
+        if (!failed) throw error
+      }
+    }
+    // Partial fetch/install observations only; coverage is documented in fixture/README.md.
+    const network = (await fs.readFile(ledger, "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .map((value) => JSON.parse(value))
+    const events = stdout
+      .split("\n")
+      .filter((value) => value.startsWith("{"))
+      .map((value) => JSON.parse(value))
+    const result = {
+      input,
+      template: input.template ?? template,
+      firstBytesAt,
+      eofAt,
+      requestsBeforeEOF,
+      command,
+      cwd,
+      code,
+      deadline,
+      groupGone: !exists(),
+      stdout,
+      stderr,
+      requests,
+      events,
+      network,
+    }
+    if (evidence) {
+      await fs.mkdir(evidence, { recursive: true })
+      const prefix = "entry" in input ? input.entry : "legacy"
+      await fs.writeFile(path.join(evidence, `${prefix}-${input.name}.json`), JSON.stringify(result, null, 2) + "\n")
+    }
+    if (deadline) throw new Error("Command argument fixture deadline fired: " + JSON.stringify(result))
+    if (!result.groupGone) throw new Error("Command argument fixture process group remains")
+    const denied = network
+      .filter((row: { allowed?: boolean }) => row.allowed === false)
+      .map((row: { kind: string; origin?: string; path?: string }) => ({
+        kind: row.kind,
+        origin: row.origin,
+        path: row.path,
+      }))
+    if (denied.length)
+      throw new Error(
+        "Command argument fixture blocked external attempt: " +
+          JSON.stringify({ code, requestCount: requests.length, denied }),
+      )
+    expect(code, stderr + stdout).toBe(0)
+    expect(requests).toHaveLength(1)
+    return result
+  } catch (error) {
+    failed = true
+    throw error
+  } finally {
+    const errors: unknown[] = []
+    for (const dispose of cleanup.reverse()) {
+      try {
+        await dispose()
+      } catch (error) {
+        errors.push(error)
+      }
+    }
+    if (errors.length) {
+      console.error("Fixture cleanup failed", { directory: cwd, errors })
+      if (!failed) throw new AggregateError(errors, "Fixture cleanup failed")
+    }
   }
-  if (deadline) throw new Error("Command argument fixture deadline fired: " + JSON.stringify(result))
-  if (!result.groupGone) throw new Error("Command argument fixture process group remains")
-  const denied = network
-    .filter((row: { allowed?: boolean }) => row.allowed === false)
-    .map((row: { kind: string; origin?: string; path?: string }) => ({
-      kind: row.kind,
-      origin: row.origin,
-      path: row.path,
-    }))
-  if (denied.length)
-    throw new Error(
-      "Command argument fixture blocked external attempt: " +
-        JSON.stringify({ code, requestCount: requests.length, denied }),
-    )
-  expect(code, stderr + stdout).toBe(0)
-  expect(requests).toHaveLength(1)
-  return result
 }
 function userText(body: Record<string, unknown>) {
   const messages = body.messages as { role: string; content: string | { type: string; text?: string }[] }[]
@@ -229,6 +285,99 @@ function userText(body: Record<string, unknown>) {
     )
     .join("\n")
 }
+
+// These controls fail during real fixture-file setup, after the real listener starts.
+for (const fixture of [
+  { name: "arguments", invoke: () => capture({ entry: "index", name: "setup-failure", operands: ["inert"] }) },
+  { name: "template", invoke: () => templateCapture({ name: "setup-failure", arguments: "inert" }) },
+]) {
+  for (const secondary of [undefined, new Error("listener cleanup failed after close")]) {
+    test(`${fixture.name}: setup failure cleans owned resources${secondary ? " despite a cleanup error" : ""}`, async () => {
+      const primary = new Error("fixture setup write failed")
+      const listener = spyOn(Bun, "serve")
+      const logging = secondary ? spyOn(console, "error").mockImplementation(() => {}) : undefined
+      let directory: string | undefined
+      let stop: { mockRestore: () => void; mock: { calls: unknown[][] } } | undefined
+      const write = spyOn(fs, "writeFile").mockImplementationOnce(async (file) => {
+        directory = path.dirname(String(file))
+        const server = listener.mock.results[0]?.value as ReturnType<typeof Bun.serve> | undefined
+        if (!server) throw new Error("Expected real fixture listener before setup write")
+        const close = server.stop.bind(server)
+        const dispose = spyOn(server, "stop")
+        stop = dispose
+        if (secondary)
+          dispose.mockImplementation(async (active) => {
+            await close(active)
+            throw secondary
+          })
+        throw primary
+      })
+      try {
+        await expect(fixture.invoke()).rejects.toBe(primary)
+        expect(stop?.mock.calls).toEqual([[true]])
+        expect(directory).toBeDefined()
+        if (secondary)
+          expect(logging).toHaveBeenCalledWith("Fixture cleanup failed", { directory, errors: [secondary] })
+        if (!process.env.COMMAND_ARGUMENTS_EVIDENCE)
+          await expect(fs.stat(directory!)).rejects.toMatchObject({ code: "ENOENT" })
+      } finally {
+        write.mockRestore()
+        stop?.mockRestore()
+        listener.mockRestore()
+        logging?.mockRestore()
+      }
+    })
+  }
+}
+
+test("template fixture removes its owned directory after reading final evidence", async () => {
+  const result = await templateCapture({ name: "directory-cleanup", arguments: "alpha beta rest" })
+  expect(userText(result.requests[0])).toBe("FIRST<alpha>\nSECOND<beta>\nREST<rest>")
+  if (!process.env.COMMAND_ARGUMENTS_EVIDENCE)
+    await expect(fs.stat(result.cwd)).rejects.toMatchObject({ code: "ENOENT" })
+}, 15000)
+
+test("successful capture rejects a listener cleanup failure and still removes its directory", async () => {
+  const secondary = new Error("listener cleanup failed after successful capture")
+  const listener = spyOn(Bun, "serve")
+  const logging = spyOn(console, "error").mockImplementation(() => {})
+  const writeFile = fs.writeFile
+  let directory: string | undefined
+  let restore: (() => void) | undefined
+  const write = spyOn(fs, "writeFile").mockImplementationOnce(async (file, data, options) => {
+    directory = path.dirname(String(file))
+    const server = listener.mock.results[0]?.value as ReturnType<typeof Bun.serve> | undefined
+    if (!server) throw new Error("Expected real fixture listener before setup write")
+    const close = server.stop.bind(server)
+    const stop = spyOn(server, "stop").mockImplementation(async (active) => {
+      await close(active)
+      throw secondary
+    })
+    restore = () => stop.mockRestore()
+    return writeFile(file, data, options)
+  })
+  try {
+    await expect(templateCapture({ name: "cleanup-failure", arguments: "alpha beta rest" })).rejects.toBeInstanceOf(
+      AggregateError,
+    )
+    expect(logging).toHaveBeenCalledWith("Fixture cleanup failed", { directory, errors: [secondary] })
+    expect(directory).toBeDefined()
+    if (!process.env.COMMAND_ARGUMENTS_EVIDENCE)
+      await expect(fs.stat(directory!)).rejects.toMatchObject({ code: "ENOENT" })
+  } finally {
+    write.mockRestore()
+    restore?.()
+    listener.mockRestore()
+    logging.mockRestore()
+  }
+}, 15000)
+
+test("public SDK v2 command types match the canonical structured schema", async () => {
+  const { SessionPrompt } = await import("../../src/session/prompt")
+  const argumentsData: CommandArguments = { argv: ["alpha beta", ""], stdin: "late λ\n" }
+  const input: CommandInput = { sessionID: "ses_fixture", command: "argumentprobe", arguments: argumentsData }
+  expect(SessionPrompt.CommandInput.parse(input).arguments).toEqual(argumentsData)
+})
 
 // Literal expected templates are ground truth from original operand boundaries, not a copy of the decoder.
 const cases = [
@@ -293,6 +442,8 @@ describe("actual local command argument grouping", () => {
       test(`${entry}: ${item.name}`, async () => {
         const result = await capture({ entry, name: item.name, operands: item.operands })
         expect(userText(result.requests[0])).toBe(item.expected)
+        if (!process.env.COMMAND_ARGUMENTS_EVIDENCE)
+          await expect(fs.stat(result.cwd)).rejects.toMatchObject({ code: "ENOENT" })
         const emitted = result.events.find((event) => event.type === "user_message")
         expect(
           emitted?.parts
