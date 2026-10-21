@@ -1,4 +1,3 @@
-import { expect } from "bun:test"
 import { spawn, spawnSync } from "node:child_process"
 import fs from "node:fs/promises"
 import { existsSync, readFileSync } from "node:fs"
@@ -6,7 +5,6 @@ import os from "node:os"
 import { Database } from "bun:sqlite"
 import path from "node:path"
 
-const template = "FIRST<$1>\nSECOND<$2>\nREST<$3>"
 const guard = path.join(import.meta.dir, "stdin-guard.ts")
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
