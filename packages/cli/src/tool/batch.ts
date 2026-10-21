@@ -6,21 +6,28 @@ import { ToolGuidance } from "./guidance"
 const DISALLOWED = new Set(["batch"])
 const FILTERED_FROM_SUGGESTIONS = new Set(["invalid", "patch", ...DISALLOWED])
 
+const parameters = z.object({
+  tool_calls: z
+    .array(
+      z.object({
+        tool: z.string().describe("The name of the tool to execute"),
+        parameters: z.object({}).loose().describe("Parameters for the tool"),
+      }),
+    )
+    .min(1, "Provide at least one tool call")
+    .describe("Array of tool calls to execute in parallel"),
+})
+
+export function preflightBatch(input: unknown, selection: NonNullable<Tool.Context["selection"]>) {
+  const parsed = parameters.parse(input)
+  for (const call of parsed.tool_calls) selection.assert(call.tool, true)
+}
+
 export const BatchTool = Tool.define("batch", async () => {
   return {
     description: DESCRIPTION,
     renderDescription: ToolGuidance.batch,
-    parameters: z.object({
-      tool_calls: z
-        .array(
-          z.object({
-            tool: z.string().describe("The name of the tool to execute"),
-            parameters: z.object({}).loose().describe("Parameters for the tool"),
-          }),
-        )
-        .min(1, "Provide at least one tool call")
-        .describe("Array of tool calls to execute in parallel"),
-    }),
+    parameters,
     formatValidationError(error) {
       const formattedErrors = error.issues
         .map((issue) => {
@@ -38,9 +45,15 @@ export const BatchTool = Tool.define("batch", async () => {
       const toolCalls = params.tool_calls.slice(0, 25)
       const discardedCalls = params.tool_calls.slice(25)
 
-      const { ToolRegistry } = await import("./registry")
-      const availableTools = await ToolRegistry.tools({ modelID: "", providerID: "" })
-      const toolMap = new Map(availableTools.map((t) => [t.id, t]))
+      // Request execution shares the exact resolved catalog and permission/selection
+      // intersection. Validate the whole group before hooks or any grouped effect.
+      if (ctx.selection) preflightBatch(params, ctx.selection)
+      const toolMap = ctx.selection
+        ? undefined
+        : await import("./registry").then(
+            async ({ ToolRegistry }) =>
+              new Map((await ToolRegistry.tools({ modelID: "", providerID: "" })).map((tool) => [tool.id, tool])),
+          )
 
       const executeCall = async (call: (typeof toolCalls)[0]) => {
         const callStartTime = Date.now()
@@ -53,14 +66,16 @@ export const BatchTool = Tool.define("batch", async () => {
             )
           }
 
-          const tool = toolMap.get(call.tool)
-          if (!tool) {
-            const availableToolsList = Array.from(toolMap.keys()).filter((name) => !FILTERED_FROM_SUGGESTIONS.has(name))
+          const tool = toolMap?.get(call.tool)
+          if (!ctx.selection && !tool) {
+            const availableToolsList = Array.from(toolMap!.keys()).filter(
+              (name) => !FILTERED_FROM_SUGGESTIONS.has(name),
+            )
             throw new Error(
               `Tool '${call.tool}' not in registry. External tools (MCP, environment) cannot be batched - call them directly. Available tools: ${availableToolsList.join(", ")}`,
             )
           }
-          const validatedParams = tool.parameters.parse(call.parameters)
+          const validatedParams = tool ? tool.parameters.parse(call.parameters) : call.parameters
 
           await Session.updatePart({
             id: partID,
@@ -78,7 +93,10 @@ export const BatchTool = Tool.define("batch", async () => {
             },
           })
 
-          const result = await tool.execute(validatedParams, { ...ctx, callID: partID })
+          const child = { ...ctx, callID: partID }
+          const result = ctx.selection
+            ? await ctx.selection.execute(call.tool, validatedParams, child)
+            : await tool!.execute(validatedParams, child)
           const attachments = result.attachments?.map((attachment) => ({
             ...attachment,
             id: Identifier.ascending("part"),

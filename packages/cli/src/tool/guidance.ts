@@ -3,13 +3,22 @@ import type { Tool } from "ai"
 export namespace ToolGuidance {
   const builtin = Symbol("builtin")
   const renderer = Symbol("description.renderer")
+  const protocol = Symbol("protocol.control")
 
   export type Renderer = (description: string, tools: ReadonlySet<string>) => string
-  type Owned = Tool & { [builtin]?: string; [renderer]?: Renderer }
+  type Owned = Tool & { [builtin]?: string; [renderer]?: Renderer; [protocol]?: true }
 
   export function bind(tool: Tool, id?: string, render?: Renderer): Tool {
     if (!id) return tool
     return { ...tool, [builtin]: id, [renderer]: render } as Owned
+  }
+
+  export function bindProtocol<T extends Tool>(tool: T): T {
+    return { ...tool, [protocol]: true }
+  }
+
+  export function isProtocol(tool: Tool) {
+    return (tool as Owned)[protocol] === true || (tool as Owned)[builtin] === "invalid"
   }
 
   export function capabilities(tools: Record<string, Tool>) {

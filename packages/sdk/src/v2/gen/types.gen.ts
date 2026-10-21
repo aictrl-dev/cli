@@ -154,6 +154,3297 @@ export type AssistantMessage = {
   finish?: string
 }
 
+export type UserMessage = {
+  id: string
+  sessionID: string
+  role: "user"
+  time: {
+    created: number
+  }
+  format?: OutputFormat
+  agent: string
+  model: {
+    providerID: string
+    modelID: string
+  }
+  system?: string
+  tools?: {
+    [key: string]: boolean
+  }
+  toolSelection?: {
+    version: 1
+    allowlist: Array<string> | null
+  }
+  variant?: string
+}
+
+export type Config = {
+  $schema?: string
+  logLevel?: "DEBUG" | "INFO" | "WARN" | "ERROR"
+  command?: {
+    [key: string]: {
+      template: string
+      description?: string
+      agent?: string
+      model?: string
+      subtask?: boolean
+    }
+  }
+  skills?: {
+    paths?: Array<string>
+    urls?: Array<string>
+    allow?: Array<string>
+  }
+  watcher?: unknown
+  plugin?: Array<string>
+  snapshot?: boolean
+  share?: unknown
+  autoshare?: unknown
+  autoupdate?: boolean | "notify"
+  disabled_providers?: Array<string>
+  enabled_providers?: Array<string>
+  model?: string
+  small_model?: string
+  default_agent?: string
+  username?: string
+  mode?: {
+    build?: {
+      model?: string
+      variant?: string
+      temperature?: number
+      top_p?: number
+      prompt?: string
+      tools?: {
+        [key: string]: boolean
+      }
+      disable?: boolean
+      description?: string
+      mode?: "subagent" | "primary" | "all"
+      hidden?: boolean
+      options?: {
+        [key: string]: unknown
+      }
+      color?: string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
+      steps?: number
+      maxSteps?: number
+      permission?:
+        | {
+            __originalKeys?: Array<string>
+            read?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            edit?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            glob?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            grep?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            list?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            bash?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            task?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            external_directory?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            webfetch?: "ask" | "allow" | "deny"
+            websearch?: "ask" | "allow" | "deny"
+            codesearch?: "ask" | "allow" | "deny"
+            lsp?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            doom_loop?: "ask" | "allow" | "deny"
+            skill?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            [key: string]:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | Array<string>
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | undefined
+          }
+        | "ask"
+        | "allow"
+        | "deny"
+      [key: string]: unknown
+    }
+    [key: string]:
+      | {
+          model?: string
+          variant?: string
+          temperature?: number
+          top_p?: number
+          prompt?: string
+          tools?: {
+            [key: string]: boolean
+          }
+          disable?: boolean
+          description?: string
+          mode?: "subagent" | "primary" | "all"
+          hidden?: boolean
+          options?: {
+            [key: string]: unknown
+          }
+          color?: string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
+          steps?: number
+          maxSteps?: number
+          permission?:
+            | {
+                __originalKeys?: Array<string>
+                read?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                edit?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                glob?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                grep?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                list?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                bash?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                task?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                external_directory?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                webfetch?: "ask" | "allow" | "deny"
+                websearch?: "ask" | "allow" | "deny"
+                codesearch?: "ask" | "allow" | "deny"
+                lsp?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                doom_loop?: "ask" | "allow" | "deny"
+                skill?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                [key: string]:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | Array<string>
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | undefined
+              }
+            | "ask"
+            | "allow"
+            | "deny"
+          [key: string]: unknown
+        }
+      | {
+          model?: string
+          variant?: string
+          temperature?: number
+          top_p?: number
+          prompt?: string
+          tools?: {
+            [key: string]: boolean
+          }
+          disable?: boolean
+          description?: string
+          mode?: "subagent" | "primary" | "all"
+          hidden?: boolean
+          options?: {
+            [key: string]: unknown
+          }
+          color?: string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
+          steps?: number
+          maxSteps?: number
+          permission?:
+            | {
+                __originalKeys?: Array<string>
+                read?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                edit?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                glob?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                grep?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                list?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                bash?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                task?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                external_directory?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                webfetch?: "ask" | "allow" | "deny"
+                websearch?: "ask" | "allow" | "deny"
+                codesearch?: "ask" | "allow" | "deny"
+                lsp?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                doom_loop?: "ask" | "allow" | "deny"
+                skill?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                [key: string]:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | Array<string>
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | undefined
+              }
+            | "ask"
+            | "allow"
+            | "deny"
+          [key: string]: unknown
+        }
+      | undefined
+  }
+  agent?: {
+    build?: {
+      model?: string
+      variant?: string
+      temperature?: number
+      top_p?: number
+      prompt?: string
+      tools?: {
+        [key: string]: boolean
+      }
+      disable?: boolean
+      description?: string
+      mode?: "subagent" | "primary" | "all"
+      hidden?: boolean
+      options?: {
+        [key: string]: unknown
+      }
+      color?: string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
+      steps?: number
+      maxSteps?: number
+      permission?:
+        | {
+            __originalKeys?: Array<string>
+            read?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            edit?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            glob?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            grep?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            list?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            bash?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            task?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            external_directory?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            webfetch?: "ask" | "allow" | "deny"
+            websearch?: "ask" | "allow" | "deny"
+            codesearch?: "ask" | "allow" | "deny"
+            lsp?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            doom_loop?: "ask" | "allow" | "deny"
+            skill?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            [key: string]:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | Array<string>
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | undefined
+          }
+        | "ask"
+        | "allow"
+        | "deny"
+      [key: string]: unknown
+    }
+    general?: {
+      model?: string
+      variant?: string
+      temperature?: number
+      top_p?: number
+      prompt?: string
+      tools?: {
+        [key: string]: boolean
+      }
+      disable?: boolean
+      description?: string
+      mode?: "subagent" | "primary" | "all"
+      hidden?: boolean
+      options?: {
+        [key: string]: unknown
+      }
+      color?: string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
+      steps?: number
+      maxSteps?: number
+      permission?:
+        | {
+            __originalKeys?: Array<string>
+            read?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            edit?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            glob?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            grep?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            list?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            bash?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            task?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            external_directory?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            webfetch?: "ask" | "allow" | "deny"
+            websearch?: "ask" | "allow" | "deny"
+            codesearch?: "ask" | "allow" | "deny"
+            lsp?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            doom_loop?: "ask" | "allow" | "deny"
+            skill?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            [key: string]:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | Array<string>
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | undefined
+          }
+        | "ask"
+        | "allow"
+        | "deny"
+      [key: string]: unknown
+    }
+    explore?: {
+      model?: string
+      variant?: string
+      temperature?: number
+      top_p?: number
+      prompt?: string
+      tools?: {
+        [key: string]: boolean
+      }
+      disable?: boolean
+      description?: string
+      mode?: "subagent" | "primary" | "all"
+      hidden?: boolean
+      options?: {
+        [key: string]: unknown
+      }
+      color?: string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
+      steps?: number
+      maxSteps?: number
+      permission?:
+        | {
+            __originalKeys?: Array<string>
+            read?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            edit?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            glob?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            grep?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            list?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            bash?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            task?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            external_directory?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            webfetch?: "ask" | "allow" | "deny"
+            websearch?: "ask" | "allow" | "deny"
+            codesearch?: "ask" | "allow" | "deny"
+            lsp?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            doom_loop?: "ask" | "allow" | "deny"
+            skill?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            [key: string]:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | Array<string>
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | undefined
+          }
+        | "ask"
+        | "allow"
+        | "deny"
+      [key: string]: unknown
+    }
+    title?: {
+      model?: string
+      variant?: string
+      temperature?: number
+      top_p?: number
+      prompt?: string
+      tools?: {
+        [key: string]: boolean
+      }
+      disable?: boolean
+      description?: string
+      mode?: "subagent" | "primary" | "all"
+      hidden?: boolean
+      options?: {
+        [key: string]: unknown
+      }
+      color?: string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
+      steps?: number
+      maxSteps?: number
+      permission?:
+        | {
+            __originalKeys?: Array<string>
+            read?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            edit?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            glob?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            grep?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            list?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            bash?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            task?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            external_directory?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            webfetch?: "ask" | "allow" | "deny"
+            websearch?: "ask" | "allow" | "deny"
+            codesearch?: "ask" | "allow" | "deny"
+            lsp?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            doom_loop?: "ask" | "allow" | "deny"
+            skill?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            [key: string]:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | Array<string>
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | undefined
+          }
+        | "ask"
+        | "allow"
+        | "deny"
+      [key: string]: unknown
+    }
+    summary?: {
+      model?: string
+      variant?: string
+      temperature?: number
+      top_p?: number
+      prompt?: string
+      tools?: {
+        [key: string]: boolean
+      }
+      disable?: boolean
+      description?: string
+      mode?: "subagent" | "primary" | "all"
+      hidden?: boolean
+      options?: {
+        [key: string]: unknown
+      }
+      color?: string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
+      steps?: number
+      maxSteps?: number
+      permission?:
+        | {
+            __originalKeys?: Array<string>
+            read?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            edit?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            glob?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            grep?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            list?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            bash?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            task?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            external_directory?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            webfetch?: "ask" | "allow" | "deny"
+            websearch?: "ask" | "allow" | "deny"
+            codesearch?: "ask" | "allow" | "deny"
+            lsp?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            doom_loop?: "ask" | "allow" | "deny"
+            skill?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            [key: string]:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | Array<string>
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | undefined
+          }
+        | "ask"
+        | "allow"
+        | "deny"
+      [key: string]: unknown
+    }
+    compaction?: {
+      model?: string
+      variant?: string
+      temperature?: number
+      top_p?: number
+      prompt?: string
+      tools?: {
+        [key: string]: boolean
+      }
+      disable?: boolean
+      description?: string
+      mode?: "subagent" | "primary" | "all"
+      hidden?: boolean
+      options?: {
+        [key: string]: unknown
+      }
+      color?: string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
+      steps?: number
+      maxSteps?: number
+      permission?:
+        | {
+            __originalKeys?: Array<string>
+            read?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            edit?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            glob?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            grep?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            list?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            bash?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            task?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            external_directory?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            webfetch?: "ask" | "allow" | "deny"
+            websearch?: "ask" | "allow" | "deny"
+            codesearch?: "ask" | "allow" | "deny"
+            lsp?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            doom_loop?: "ask" | "allow" | "deny"
+            skill?:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+            [key: string]:
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | Array<string>
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | "ask"
+              | "allow"
+              | "deny"
+              | "ask"
+              | "allow"
+              | "deny"
+              | {
+                  [key: string]: "ask" | "allow" | "deny"
+                }
+              | undefined
+          }
+        | "ask"
+        | "allow"
+        | "deny"
+      [key: string]: unknown
+    }
+    [key: string]:
+      | {
+          model?: string
+          variant?: string
+          temperature?: number
+          top_p?: number
+          prompt?: string
+          tools?: {
+            [key: string]: boolean
+          }
+          disable?: boolean
+          description?: string
+          mode?: "subagent" | "primary" | "all"
+          hidden?: boolean
+          options?: {
+            [key: string]: unknown
+          }
+          color?: string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
+          steps?: number
+          maxSteps?: number
+          permission?:
+            | {
+                __originalKeys?: Array<string>
+                read?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                edit?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                glob?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                grep?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                list?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                bash?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                task?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                external_directory?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                webfetch?: "ask" | "allow" | "deny"
+                websearch?: "ask" | "allow" | "deny"
+                codesearch?: "ask" | "allow" | "deny"
+                lsp?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                doom_loop?: "ask" | "allow" | "deny"
+                skill?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                [key: string]:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | Array<string>
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | undefined
+              }
+            | "ask"
+            | "allow"
+            | "deny"
+          [key: string]: unknown
+        }
+      | {
+          model?: string
+          variant?: string
+          temperature?: number
+          top_p?: number
+          prompt?: string
+          tools?: {
+            [key: string]: boolean
+          }
+          disable?: boolean
+          description?: string
+          mode?: "subagent" | "primary" | "all"
+          hidden?: boolean
+          options?: {
+            [key: string]: unknown
+          }
+          color?: string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
+          steps?: number
+          maxSteps?: number
+          permission?:
+            | {
+                __originalKeys?: Array<string>
+                read?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                edit?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                glob?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                grep?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                list?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                bash?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                task?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                external_directory?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                webfetch?: "ask" | "allow" | "deny"
+                websearch?: "ask" | "allow" | "deny"
+                codesearch?: "ask" | "allow" | "deny"
+                lsp?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                doom_loop?: "ask" | "allow" | "deny"
+                skill?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                [key: string]:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | Array<string>
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | undefined
+              }
+            | "ask"
+            | "allow"
+            | "deny"
+          [key: string]: unknown
+        }
+      | {
+          model?: string
+          variant?: string
+          temperature?: number
+          top_p?: number
+          prompt?: string
+          tools?: {
+            [key: string]: boolean
+          }
+          disable?: boolean
+          description?: string
+          mode?: "subagent" | "primary" | "all"
+          hidden?: boolean
+          options?: {
+            [key: string]: unknown
+          }
+          color?: string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
+          steps?: number
+          maxSteps?: number
+          permission?:
+            | {
+                __originalKeys?: Array<string>
+                read?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                edit?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                glob?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                grep?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                list?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                bash?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                task?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                external_directory?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                webfetch?: "ask" | "allow" | "deny"
+                websearch?: "ask" | "allow" | "deny"
+                codesearch?: "ask" | "allow" | "deny"
+                lsp?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                doom_loop?: "ask" | "allow" | "deny"
+                skill?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                [key: string]:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | Array<string>
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | undefined
+              }
+            | "ask"
+            | "allow"
+            | "deny"
+          [key: string]: unknown
+        }
+      | {
+          model?: string
+          variant?: string
+          temperature?: number
+          top_p?: number
+          prompt?: string
+          tools?: {
+            [key: string]: boolean
+          }
+          disable?: boolean
+          description?: string
+          mode?: "subagent" | "primary" | "all"
+          hidden?: boolean
+          options?: {
+            [key: string]: unknown
+          }
+          color?: string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
+          steps?: number
+          maxSteps?: number
+          permission?:
+            | {
+                __originalKeys?: Array<string>
+                read?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                edit?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                glob?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                grep?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                list?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                bash?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                task?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                external_directory?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                webfetch?: "ask" | "allow" | "deny"
+                websearch?: "ask" | "allow" | "deny"
+                codesearch?: "ask" | "allow" | "deny"
+                lsp?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                doom_loop?: "ask" | "allow" | "deny"
+                skill?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                [key: string]:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | Array<string>
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | undefined
+              }
+            | "ask"
+            | "allow"
+            | "deny"
+          [key: string]: unknown
+        }
+      | {
+          model?: string
+          variant?: string
+          temperature?: number
+          top_p?: number
+          prompt?: string
+          tools?: {
+            [key: string]: boolean
+          }
+          disable?: boolean
+          description?: string
+          mode?: "subagent" | "primary" | "all"
+          hidden?: boolean
+          options?: {
+            [key: string]: unknown
+          }
+          color?: string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
+          steps?: number
+          maxSteps?: number
+          permission?:
+            | {
+                __originalKeys?: Array<string>
+                read?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                edit?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                glob?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                grep?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                list?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                bash?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                task?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                external_directory?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                webfetch?: "ask" | "allow" | "deny"
+                websearch?: "ask" | "allow" | "deny"
+                codesearch?: "ask" | "allow" | "deny"
+                lsp?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                doom_loop?: "ask" | "allow" | "deny"
+                skill?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                [key: string]:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | Array<string>
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | undefined
+              }
+            | "ask"
+            | "allow"
+            | "deny"
+          [key: string]: unknown
+        }
+      | {
+          model?: string
+          variant?: string
+          temperature?: number
+          top_p?: number
+          prompt?: string
+          tools?: {
+            [key: string]: boolean
+          }
+          disable?: boolean
+          description?: string
+          mode?: "subagent" | "primary" | "all"
+          hidden?: boolean
+          options?: {
+            [key: string]: unknown
+          }
+          color?: string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
+          steps?: number
+          maxSteps?: number
+          permission?:
+            | {
+                __originalKeys?: Array<string>
+                read?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                edit?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                glob?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                grep?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                list?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                bash?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                task?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                external_directory?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                webfetch?: "ask" | "allow" | "deny"
+                websearch?: "ask" | "allow" | "deny"
+                codesearch?: "ask" | "allow" | "deny"
+                lsp?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                doom_loop?: "ask" | "allow" | "deny"
+                skill?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                [key: string]:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | Array<string>
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | undefined
+              }
+            | "ask"
+            | "allow"
+            | "deny"
+          [key: string]: unknown
+        }
+      | {
+          model?: string
+          variant?: string
+          temperature?: number
+          top_p?: number
+          prompt?: string
+          tools?: {
+            [key: string]: boolean
+          }
+          disable?: boolean
+          description?: string
+          mode?: "subagent" | "primary" | "all"
+          hidden?: boolean
+          options?: {
+            [key: string]: unknown
+          }
+          color?: string | "primary" | "secondary" | "accent" | "success" | "warning" | "error" | "info"
+          steps?: number
+          maxSteps?: number
+          permission?:
+            | {
+                __originalKeys?: Array<string>
+                read?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                edit?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                glob?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                grep?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                list?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                bash?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                task?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                external_directory?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                webfetch?: "ask" | "allow" | "deny"
+                websearch?: "ask" | "allow" | "deny"
+                codesearch?: "ask" | "allow" | "deny"
+                lsp?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                doom_loop?: "ask" | "allow" | "deny"
+                skill?:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                [key: string]:
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | Array<string>
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | "ask"
+                  | "allow"
+                  | "deny"
+                  | {
+                      [key: string]: "ask" | "allow" | "deny"
+                    }
+                  | undefined
+              }
+            | "ask"
+            | "allow"
+            | "deny"
+          [key: string]: unknown
+        }
+      | undefined
+  }
+  provider?: {
+    [key: string]: {
+      api?: string
+      name?: string
+      env?: Array<string>
+      id?: string
+      npm?: string
+      whitelist?: Array<string>
+      blacklist?: Array<string>
+      models?: {
+        [key: string]: {
+          id?: string
+          name?: string
+          family?: string
+          release_date?: string
+          attachment?: boolean
+          reasoning?: boolean
+          temperature?: boolean
+          tool_call?: boolean
+          interleaved?:
+            | true
+            | {
+                field: "reasoning_content" | "reasoning_details"
+              }
+          cost?: {
+            input: number
+            output: number
+            cache_read?: number
+            cache_write?: number
+            context_over_200k?: {
+              input: number
+              output: number
+              cache_read?: number
+              cache_write?: number
+            }
+          }
+          limit?: {
+            context: number
+            input?: number
+            output: number
+          }
+          modalities?: {
+            input: Array<"text" | "audio" | "image" | "video" | "pdf">
+            output: Array<"text" | "audio" | "image" | "video" | "pdf">
+          }
+          experimental?: boolean
+          status?: "alpha" | "beta" | "deprecated"
+          options?: {
+            [key: string]: unknown
+          }
+          headers?: {
+            [key: string]: string
+          }
+          provider?: {
+            npm?: string
+            api?: string
+          }
+          variants?: {
+            [key: string]: {
+              disabled?: boolean
+              [key: string]: unknown
+            }
+          }
+        }
+      }
+      options?: {
+        apiKey?: string
+        baseURL?: string
+        setCacheKey?: boolean
+        timeout?: number | false
+        [key: string]: unknown
+      }
+    }
+  }
+  mcp?: {
+    [key: string]:
+      | {
+          type: "local"
+          command: Array<string>
+          environment?: {
+            [key: string]: string
+          }
+          enabled?: boolean
+          timeout?: number
+        }
+      | {
+          type: "remote"
+          url: string
+          enabled?: boolean
+          headers?: {
+            [key: string]: string
+          }
+          oauth?:
+            | {
+                clientId?: string
+                clientSecret?: string
+                scope?: string
+              }
+            | false
+          timeout?: number
+        }
+      | {
+          enabled: boolean
+        }
+  }
+  formatter?:
+    | false
+    | {
+        [key: string]: {
+          disabled?: boolean
+          command?: Array<string>
+          environment?: {
+            [key: string]: string
+          }
+          extensions?: Array<string>
+        }
+      }
+  lsp?: unknown
+  instructions?: Array<string>
+  layout?: "auto" | "stretch"
+  permission?:
+    | {
+        __originalKeys?: Array<string>
+        read?:
+          | "ask"
+          | "allow"
+          | "deny"
+          | {
+              [key: string]: "ask" | "allow" | "deny"
+            }
+        edit?:
+          | "ask"
+          | "allow"
+          | "deny"
+          | {
+              [key: string]: "ask" | "allow" | "deny"
+            }
+        glob?:
+          | "ask"
+          | "allow"
+          | "deny"
+          | {
+              [key: string]: "ask" | "allow" | "deny"
+            }
+        grep?:
+          | "ask"
+          | "allow"
+          | "deny"
+          | {
+              [key: string]: "ask" | "allow" | "deny"
+            }
+        list?:
+          | "ask"
+          | "allow"
+          | "deny"
+          | {
+              [key: string]: "ask" | "allow" | "deny"
+            }
+        bash?:
+          | "ask"
+          | "allow"
+          | "deny"
+          | {
+              [key: string]: "ask" | "allow" | "deny"
+            }
+        task?:
+          | "ask"
+          | "allow"
+          | "deny"
+          | {
+              [key: string]: "ask" | "allow" | "deny"
+            }
+        external_directory?:
+          | "ask"
+          | "allow"
+          | "deny"
+          | {
+              [key: string]: "ask" | "allow" | "deny"
+            }
+        webfetch?: "ask" | "allow" | "deny"
+        websearch?: "ask" | "allow" | "deny"
+        codesearch?: "ask" | "allow" | "deny"
+        lsp?:
+          | "ask"
+          | "allow"
+          | "deny"
+          | {
+              [key: string]: "ask" | "allow" | "deny"
+            }
+        doom_loop?: "ask" | "allow" | "deny"
+        skill?:
+          | "ask"
+          | "allow"
+          | "deny"
+          | {
+              [key: string]: "ask" | "allow" | "deny"
+            }
+        [key: string]:
+          | "ask"
+          | "allow"
+          | "deny"
+          | {
+              [key: string]: "ask" | "allow" | "deny"
+            }
+          | Array<string>
+          | "ask"
+          | "allow"
+          | "deny"
+          | {
+              [key: string]: "ask" | "allow" | "deny"
+            }
+          | "ask"
+          | "allow"
+          | "deny"
+          | {
+              [key: string]: "ask" | "allow" | "deny"
+            }
+          | "ask"
+          | "allow"
+          | "deny"
+          | {
+              [key: string]: "ask" | "allow" | "deny"
+            }
+          | "ask"
+          | "allow"
+          | "deny"
+          | {
+              [key: string]: "ask" | "allow" | "deny"
+            }
+          | "ask"
+          | "allow"
+          | "deny"
+          | {
+              [key: string]: "ask" | "allow" | "deny"
+            }
+          | "ask"
+          | "allow"
+          | "deny"
+          | {
+              [key: string]: "ask" | "allow" | "deny"
+            }
+          | "ask"
+          | "allow"
+          | "deny"
+          | {
+              [key: string]: "ask" | "allow" | "deny"
+            }
+          | "ask"
+          | "allow"
+          | "deny"
+          | {
+              [key: string]: "ask" | "allow" | "deny"
+            }
+          | "ask"
+          | "allow"
+          | "deny"
+          | "ask"
+          | "allow"
+          | "deny"
+          | "ask"
+          | "allow"
+          | "deny"
+          | "ask"
+          | "allow"
+          | "deny"
+          | {
+              [key: string]: "ask" | "allow" | "deny"
+            }
+          | "ask"
+          | "allow"
+          | "deny"
+          | "ask"
+          | "allow"
+          | "deny"
+          | {
+              [key: string]: "ask" | "allow" | "deny"
+            }
+          | undefined
+      }
+    | "ask"
+    | "allow"
+    | "deny"
+  tools?: {
+    [key: string]: boolean
+  }
+  tool_allowlist?: Array<string>
+  enterprise?: unknown
+  compaction?: {
+    auto?: boolean
+    prune?: boolean
+    reserved?: number
+  }
+  experimental?: {
+    disable_paste_summary?: boolean
+    batch_tool?: boolean
+    openTelemetry?: boolean
+    primary_tools?: Array<string>
+    continue_loop_on_deny?: boolean
+    mcp_timeout?: number
+  }
+}
+
 export type EventSessionStructuredOutput = {
   type: "session.structured_output"
   properties: {

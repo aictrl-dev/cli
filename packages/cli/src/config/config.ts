@@ -1,10 +1,12 @@
+import { ToolSelection } from "../tool/selection"
+import { Project } from "../project/project"
 import { Log } from "../util/log"
 import path from "path"
 import { pathToFileURL, fileURLToPath } from "url"
 import { createRequire } from "module"
 import os from "os"
 import z from "zod"
-import { mergeDeep, pipe, unique } from "remeda"
+import { mergeDeep, unique } from "remeda"
 import { Global } from "../global"
 import fs from "fs/promises"
 import { lazy } from "../util/lazy"
@@ -55,9 +57,15 @@ export namespace Config {
 
   const managedDir = managedConfigDir()
 
-  // Custom merge function that concatenates array fields instead of replacing them
-  function mergeConfigConcatArrays(target: Info, source: Info): Info {
+  function mergeConfig(target: Info, source: Info): Info {
     const merged = mergeDeep(target, source)
+    if (source.tool_allowlist !== undefined) merged.tool_allowlist = source.tool_allowlist
+    return merged
+  }
+
+  // Custom merge function that concatenates plugin/instruction array fields.
+  function mergeConfigConcatArrays(target: Info, source: Info): Info {
+    const merged = mergeConfig(target, source)
     if (target.plugin && source.plugin) {
       merged.plugin = Array.from(new Set([...target.plugin, ...source.plugin]))
     }
@@ -67,7 +75,25 @@ export namespace Config {
     return merged
   }
 
-  export const state = Instance.state(async () => {
+  type ReadOptions = { setup: boolean; environment?: Record<string, string> }
+
+  export const state = Instance.state(() => resolve(true))
+
+  // Attach preflight shares canonical parsing/precedence without local setup.
+  // Configuration discovery may fetch well-known configuration; it never calls
+  // the attach receiver or initializes plugins/dependencies or rewrites config.
+  export async function readToolSelection(directory: string) {
+    const { sandbox } = await Project.locate(directory, { cache: false })
+    const value = (await resolve(false, { directory, worktree: sandbox })).config.tool_allowlist
+    return value === undefined ? undefined : ToolSelection.Names.parse(value)
+  }
+
+  async function resolve(setup: boolean, location = { directory: Instance.directory, worktree: Instance.worktree }) {
+    const environment: Record<string, string> = {}
+    const options: ReadOptions = { setup, environment: setup ? undefined : environment }
+    const content = (text: string, source: { path: string } | { dir: string; source: string }) =>
+      load(text, source, options)
+    const read = (filepath: string) => loadFile(filepath, options)
     const auth = await Auth.all()
 
     // Config loading order (low -> high precedence): https://aictrl.ai/docs/config#precedence-order
@@ -81,7 +107,8 @@ export namespace Config {
     let result: Info = {}
     for (const [key, value] of Object.entries(auth)) {
       if (value.type === "wellknown") {
-        process.env[value.key] = value.token
+        if (setup) process.env[value.key] = value.token
+        else environment[value.key] = value.token
         log.debug("fetching remote config", { url: `${key}/.well-known/aictrl` })
         const response = await fetch(`${key}/.well-known/aictrl`)
         if (!response.ok) {
@@ -93,7 +120,7 @@ export namespace Config {
         if (!remoteConfig.$schema) remoteConfig.$schema = "https://aictrl.ai/config.json"
         result = mergeConfigConcatArrays(
           result,
-          await load(JSON.stringify(remoteConfig), {
+          await content(JSON.stringify(remoteConfig), {
             dir: path.dirname(`${key}/.well-known/aictrl`),
             source: `${key}/.well-known/aictrl`,
           }),
@@ -102,23 +129,26 @@ export namespace Config {
       }
     }
 
-    const token = await Control.token()
+    const settings = ConfigPaths.settings(options.environment)
+    const inline = options.environment?.AICTRL_CONFIG_CONTENT ?? process.env.AICTRL_CONFIG_CONTENT
+
+    const token = setup ? await Control.token() : undefined
     if (token) {
     }
 
     // Global user config overrides remote config.
-    result = mergeConfigConcatArrays(result, await global())
+    result = mergeConfigConcatArrays(result, setup ? await global() : await loadGlobal(options))
 
     // Custom config path overrides global config.
     if (Flag.AICTRL_CONFIG) {
-      result = mergeConfigConcatArrays(result, await loadFile(Flag.AICTRL_CONFIG))
+      result = mergeConfigConcatArrays(result, await read(Flag.AICTRL_CONFIG))
       log.debug("loaded custom config", { path: Flag.AICTRL_CONFIG })
     }
 
     // Project config overrides global and remote config.
-    if (!Flag.AICTRL_DISABLE_PROJECT_CONFIG) {
-      for (const file of await ConfigPaths.projectFiles("aictrl", Instance.directory, Instance.worktree)) {
-        result = mergeConfigConcatArrays(result, await loadFile(file))
+    if (!settings.disableProject) {
+      for (const file of await ConfigPaths.projectFiles("aictrl", location.directory, location.worktree)) {
+        result = mergeConfigConcatArrays(result, await read(file))
       }
     }
 
@@ -126,20 +156,20 @@ export namespace Config {
     result.mode = result.mode || {}
     result.plugin = result.plugin || []
 
-    const directories = await ConfigPaths.directories(Instance.directory, Instance.worktree)
+    const directories = await ConfigPaths.directories(location.directory, location.worktree, options.environment)
 
     // .aictrl directory config overrides (project and global) config sources.
-    if (Flag.AICTRL_CONFIG_DIR) {
-      log.debug("loading config from AICTRL_CONFIG_DIR", { path: Flag.AICTRL_CONFIG_DIR })
+    if (settings.configDir) {
+      log.debug("loading config from AICTRL_CONFIG_DIR", { path: settings.configDir })
     }
 
     const deps = []
 
     for (const dir of unique(directories)) {
-      if (dir.endsWith(".aictrl") || dir === Flag.AICTRL_CONFIG_DIR) {
+      if (dir.endsWith(".aictrl") || dir === settings.configDir) {
         for (const file of ["aictrl.jsonc", "aictrl.json"]) {
           log.debug(`loading config from ${path.join(dir, file)}`)
-          result = mergeConfigConcatArrays(result, await loadFile(path.join(dir, file)))
+          result = mergeConfigConcatArrays(result, await read(path.join(dir, file)))
           // to satisfy the type checker
           result.agent ??= {}
           result.mode ??= {}
@@ -147,27 +177,29 @@ export namespace Config {
         }
       }
 
-      deps.push(
-        iife(async () => {
-          const pkgExists = await Filesystem.exists(path.join(dir, "package.json"))
-          if (!pkgExists) return
-          const shouldInstall = await needsInstall(dir)
-          if (shouldInstall) await installDependencies(dir)
-        }),
-      )
+      if (setup) {
+        deps.push(
+          iife(async () => {
+            const pkgExists = await Filesystem.exists(path.join(dir, "package.json"))
+            if (!pkgExists) return
+            const shouldInstall = await needsInstall(dir)
+            if (shouldInstall) await installDependencies(dir)
+          }),
+        )
 
-      result.command = mergeDeep(result.command ?? {}, await loadCommand(dir))
-      result.agent = mergeDeep(result.agent, await loadAgent(dir))
-      result.agent = mergeDeep(result.agent, await loadMode(dir))
-      result.plugin.push(...(await loadPlugin(dir)))
+        result.command = mergeDeep(result.command ?? {}, await loadCommand(dir))
+        result.agent = mergeDeep(result.agent, await loadAgent(dir))
+        result.agent = mergeDeep(result.agent, await loadMode(dir))
+        result.plugin.push(...(await loadPlugin(dir)))
+      }
     }
 
     // Inline config content overrides all non-managed config sources.
-    if (process.env.AICTRL_CONFIG_CONTENT) {
+    if (inline) {
       result = mergeConfigConcatArrays(
         result,
-        await load(process.env.AICTRL_CONFIG_CONTENT, {
-          dir: Instance.directory,
+        await content(inline, {
+          dir: location.directory,
           source: "AICTRL_CONFIG_CONTENT",
         }),
       )
@@ -180,7 +212,7 @@ export namespace Config {
     // This way it only loads config file and not skills/plugins/commands
     if (existsSync(managedDir)) {
       for (const file of ["aictrl.jsonc", "aictrl.json"]) {
-        result = mergeConfigConcatArrays(result, await loadFile(path.join(managedDir, file)))
+        result = mergeConfigConcatArrays(result, await read(path.join(managedDir, file)))
       }
     }
 
@@ -231,7 +263,7 @@ export namespace Config {
       directories,
       deps,
     }
-  })
+  }
 
   export async function waitForDependencies() {
     const deps = await state().then((x) => x.deps)
@@ -1121,6 +1153,9 @@ export namespace Config {
       layout: Layout.optional().describe("@deprecated Always uses stretch layout."),
       permission: Permission.optional(),
       tools: z.record(z.string(), z.boolean()).optional(),
+      tool_allowlist: ToolSelection.Names.optional().describe(
+        "Default exact work-tool names for each invocation; [] selects no work tools. Permissions still apply.",
+      ),
       enterprise: z.unknown().optional().describe("@deprecated Session sharing was removed; this key is ignored."),
       compaction: z
         .object({
@@ -1163,13 +1198,13 @@ export namespace Config {
 
   export type Info = z.output<typeof Info>
 
-  export const global = lazy(async () => {
-    let result: Info = pipe(
-      {},
-      mergeDeep(await loadFile(path.join(Global.Path.config, "config.json"))),
-      mergeDeep(await loadFile(path.join(Global.Path.config, "aictrl.json"))),
-      mergeDeep(await loadFile(path.join(Global.Path.config, "aictrl.jsonc"))),
-    )
+  export const global = lazy(() => loadGlobal({ setup: true }))
+
+  async function loadGlobal(options: ReadOptions) {
+    let result: Info = {}
+    for (const name of ["config.json", "aictrl.json", "aictrl.jsonc"]) {
+      result = mergeConfig(result, await loadFile(path.join(Global.Path.config, name), options))
+    }
 
     const legacy = path.join(Global.Path.config, "config")
     if (existsSync(legacy)) {
@@ -1182,23 +1217,25 @@ export namespace Config {
           const { provider, model, ...rest } = mod.default
           if (provider && model) result.model = `${provider}/${model}`
           result["$schema"] = "https://aictrl.ai/config.json"
-          result = mergeDeep(result, rest)
-          await Filesystem.writeJson(path.join(Global.Path.config, "config.json"), result)
-          await fs.unlink(legacy)
+          result = mergeConfig(result, rest)
+          if (options.setup) {
+            await Filesystem.writeJson(path.join(Global.Path.config, "config.json"), result)
+            await fs.unlink(legacy)
+          }
         })
         .catch(() => {})
     }
 
     return result
-  })
+  }
 
   export const { readFile } = ConfigPaths
 
-  async function loadFile(filepath: string): Promise<Info> {
+  async function loadFile(filepath: string, options: ReadOptions = { setup: true }): Promise<Info> {
     log.info("loading", { path: filepath })
     const text = await readFile(filepath)
     if (!text) return {}
-    return load(text, { path: filepath })
+    return load(text, { path: filepath }, options)
   }
 
   // Config keys of subsystems that were removed: LSP (#144), worktree snapshots (#181), session
@@ -1217,13 +1254,19 @@ export namespace Config {
     log.warn(`deprecated config is ignored, its subsystem was removed: ${keys.join(", ")}`, { path: source })
   }
 
-  async function load(text: string, options: { path: string } | { dir: string; source: string }) {
+  async function load(
+    text: string,
+    options: { path: string } | { dir: string; source: string },
+    effects: ReadOptions = { setup: true },
+  ) {
     const original = text
     const source = "path" in options ? options.path : options.source
     const isFile = "path" in options
     const data = await ConfigPaths.parseText(
       text,
       "path" in options ? options.path : { source: options.source, dir: options.dir },
+      "error",
+      effects.environment,
     )
 
     const normalized = (() => {
@@ -1241,7 +1284,7 @@ export namespace Config {
 
     const parsed = Info.safeParse(normalized)
     if (parsed.success) {
-      if (!parsed.data.$schema && isFile) {
+      if (!parsed.data.$schema && isFile && effects.setup) {
         parsed.data.$schema = "https://aictrl.ai/config.json"
         const updated = original.replace(/^\s*\{/, '{\n  "$schema": "https://aictrl.ai/config.json",')
         await Bun.write(options.path, updated).catch(() => {})

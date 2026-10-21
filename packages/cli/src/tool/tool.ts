@@ -22,6 +22,22 @@ export namespace Tool {
     abort: AbortSignal
     callID?: string
     extra?: { [key: string]: any }
+    /** Request-local checked dispatch. Absent only for independent/debug tool callers. */
+    selection?: {
+      readonly names: readonly string[]
+      readonly restricted: boolean
+      assert(name: string, batch?: boolean): void
+      execute(
+        name: string,
+        args: unknown,
+        ctx: Context,
+      ): Promise<{
+        title: string
+        metadata: Metadata
+        output: string
+        attachments?: Omit<MessageV2.FilePart, "id" | "sessionID" | "messageID">[]
+      }>
+    }
     messages: MessageV2.WithParts[]
     metadata(input: { title?: string; metadata?: M }): void
     ask(input: Omit<PermissionNext.Request, "id" | "sessionID" | "tool">): Promise<void>

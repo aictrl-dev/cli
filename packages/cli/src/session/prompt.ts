@@ -1,3 +1,7 @@
+import { Config } from "../config/config"
+import { preflightBatch } from "../tool/batch"
+import { ToolSelection } from "../tool/selection"
+import { ToolCatalog } from "./tool-catalog"
 import { OutputSchema } from "./output-schema"
 import path from "path"
 import os from "os"
@@ -121,6 +125,7 @@ export namespace SessionPrompt {
       .optional(),
     agent: z.string().optional(),
     noReply: z.boolean().optional(),
+    toolAllowlist: ToolSelection.Names.optional(),
     tools: z
       .record(z.string(), z.boolean())
       .optional()
@@ -177,28 +182,35 @@ export namespace SessionPrompt {
   })
   export type PromptInput = z.infer<typeof PromptInput>
 
-  export const prompt = fn(PromptInput, async (input) => {
+  export const prompt = fn(PromptInput, (input) => submit(input))
+
+  /** Internal delegation entry: the caller's immutable effective ceiling is never a session default. */
+  export function child(input: PromptInput, ceiling?: readonly string[]) {
+    return submit(PromptInput.parse(input), ceiling)
+  }
+
+  async function submit(input: PromptInput, ceiling?: readonly string[]) {
     // Claim the session before writing the user message, so a second prompt
     // fails before it leaves a message for the running loop to pick up.
     const abort = start(input.sessionID)
-    const message = await recordPrompt(input).catch((error) => {
+    const recorded = await recordPrompt(input, ceiling).catch((error) => {
       endBeforeLoop(input.sessionID, abort)
       throw error
     })
 
     if (input.noReply === true) {
       endBeforeLoop(input.sessionID, abort)
-      return message
+      return recorded.message
     }
 
-    return run(input.sessionID, abort)
-  })
+    return run(input.sessionID, abort, recorded.catalog)
+  }
 
-  async function recordPrompt(input: PromptInput) {
+  async function recordPrompt(input: PromptInput, ceiling?: readonly string[]) {
     if (input.format?.type === "json_schema") OutputSchema.compile(input.format.schema)
     const session = await Session.get(input.sessionID)
 
-    const message = await createUserMessage(input)
+    const { message, catalog } = await createUserMessage(input, ceiling)
     await Session.touch(input.sessionID)
 
     // this is backwards compatibility for allowing `tools` to be specified when
@@ -216,7 +228,7 @@ export namespace SessionPrompt {
       await Session.setPermission({ sessionID: session.id, permission: permissions })
     }
 
-    return message
+    return { message, catalog }
   }
 
   export async function resolvePromptParts(template: string): Promise<PromptInput["parts"]> {
@@ -313,7 +325,7 @@ export namespace SessionPrompt {
   })
   export const loop = fn(LoopInput, async (input) => run(input.sessionID, start(input.sessionID)))
 
-  async function run(sessionID: string, abort: AbortSignal) {
+  async function run(sessionID: string, abort: AbortSignal, prepared?: ToolCatalog.Info) {
     using _ = defer(() => {
       release(sessionID, abort)
       // Keep idle after processor persistence. Headless consumers use this as
@@ -433,13 +445,6 @@ export namespace SessionPrompt {
         await Bus.publish(Session.Event.Error, { sessionID, error })
         break
       }
-      if (step === 1)
-        ensureTitle({
-          session,
-          modelID: lastUser.model.modelID,
-          providerID: lastUser.model.providerID,
-          history: msgs,
-        }).catch((e) => log.error("ensureTitle failed", { error: e }))
 
       const model = await Provider.getModel(lastUser.model.providerID, lastUser.model.modelID).catch((e) => {
         if (Provider.ModelNotFoundError.isInstance(e)) {
@@ -453,12 +458,52 @@ export namespace SessionPrompt {
         }
         throw e
       })
+      const selection = ToolSelection.restore(lastUser.toolSelection)
+      // Reuse validation's catalog only for its first turn. Later turns must
+      // observe MCP discovery invalidation while keeping each request captured.
+      const catalog = prepared ?? (await ToolCatalog.load(agent, model, sessionID))
+      prepared = undefined
+      const names = ToolCatalog.names(
+        catalog,
+        selection,
+        PermissionNext.merge(agent.permission, session.permission ?? []),
+        lastUser.tools,
+        contract ? ["StructuredOutput"] : [],
+      )
+      if (
+        contract &&
+        PermissionNext.disabled(
+          ["StructuredOutput"],
+          PermissionNext.merge(agent.permission, session.permission ?? []),
+        ).has("StructuredOutput")
+      ) {
+        throw new Error(
+          "StructuredOutput is denied by the current permissions. Permit StructuredOutput explicitly or remove schema mode; work-tool selection does not grant protocol permissions.",
+        )
+      }
       const task = tasks.pop()
+      if (task?.type === "subtask" && selection.allowlist !== null) {
+        const entry = catalog.entries.get("task")
+        if (!selection.allowlist.includes("task") || entry?.kind !== "registry" || entry.item.builtin !== "task")
+          throw new Error("Tool 'task' is unavailable or excluded by this invocation's tool selection")
+      }
+      if (step === 1)
+        ensureTitle({
+          session,
+          modelID: lastUser.model.modelID,
+          providerID: lastUser.model.providerID,
+          history: msgs,
+        }).catch((e) => log.error("ensureTitle failed", { error: e }))
 
       // pending subtask
       // TODO: centralize "invoke tool" logic
       if (task?.type === "subtask") {
-        const taskTool = await TaskTool.init()
+        // Explicit caller-directed subtasks retain their historical authorization
+        // exception. Active selection gates identity/eligibility, never injects allows.
+        const entry = catalog.entries.get("task")
+        const taskTool =
+          selection.allowlist === null ? await TaskTool.init() : entry?.kind === "registry" ? entry.item : undefined
+        if (!taskTool) throw new Error("Missing native Task entry after subtask selection preflight")
         const taskModel = task.model ? await Provider.getModel(task.model.providerID, task.model.modelID) : model
         const assistantMessage = (await Session.updateMessage({
           id: Identifier.ascending("message"),
@@ -530,6 +575,17 @@ export namespace SessionPrompt {
           abort,
           callID: part.callID,
           extra: { bypassAgentCheck: true },
+          selection: {
+            names,
+            restricted: selection.allowlist !== null,
+            assert(name) {
+              if (!names.includes(name))
+                throw new Error(`Tool '${name}' is excluded by this invocation's tool selection/permissions`)
+            },
+            async execute() {
+              throw new Error("Nested direct dispatch is unavailable before subtask setup")
+            },
+          },
           messages: msgs,
           async metadata(input) {
             await Session.updatePart({
@@ -619,6 +675,7 @@ export namespace SessionPrompt {
             },
             agent: lastUser.agent,
             model: lastUser.model,
+            toolSelection: lastUser.toolSelection,
           }
           await Session.updateMessage(summaryUserMsg)
           await Session.updatePart({
@@ -660,6 +717,7 @@ export namespace SessionPrompt {
           sessionID,
           agent: lastUser.agent,
           model: lastUser.model,
+          toolSelection: lastUser.toolSelection,
           auto: true,
         })
         continue
@@ -709,6 +767,9 @@ export namespace SessionPrompt {
         session,
         model,
         tools: lastUser.tools,
+        selection,
+        catalog,
+        controls: contract ? ["StructuredOutput"] : [],
         processor,
         bypassAgentCheck,
         messages: msgs,
@@ -829,6 +890,7 @@ export namespace SessionPrompt {
           sessionID,
           agent: lastUser.agent,
           model: lastUser.model,
+          toolSelection: lastUser.toolSelection,
           auto: true,
         })
         continue
@@ -889,12 +951,50 @@ export namespace SessionPrompt {
     model: Provider.Model
     session: Session.Info
     tools?: Record<string, boolean>
+    selection?: ToolSelection.Snapshot
+    catalog?: ToolCatalog.Info
+    controls?: readonly string[]
     processor: SessionProcessor.Info
     bypassAgentCheck: boolean
     messages: MessageV2.WithParts[]
   }) {
     using _ = log.time("resolveTools")
     const tools: Record<string, AITool> = {}
+    const catalog = input.catalog ?? (await ToolCatalog.load(input.agent, input.model, input.session.id))
+    const snapshot = ToolSelection.restore(input.selection)
+    const names = ToolCatalog.names(
+      catalog,
+      snapshot,
+      PermissionNext.merge(input.agent.permission, input.session.permission ?? []),
+      input.tools,
+      input.controls,
+    )
+    const selection: NonNullable<Tool.Context["selection"]> = {
+      names,
+      restricted: snapshot.allowlist !== null,
+      assert(name, batch = false) {
+        if (!names.includes(name))
+          throw new Error(`Tool '${name}' is unavailable or excluded by this invocation's tool selection/permissions`)
+        if (batch && (name === "batch" || catalog.entries.get(name)?.kind !== "registry"))
+          throw new Error(
+            `Tool '${name}' cannot be batched; recursive batch and external MCP tools must be called directly`,
+          )
+      },
+      async execute(name, args, ctx) {
+        selection.assert(name)
+        const definition = tools[name]
+        if (!definition?.execute) throw new Error(`Tool '${name}' has no executable request definition`)
+        const entry = catalog.entries.get(name)
+        const parsed = entry?.kind === "registry" ? entry.item.parameters.parse(args) : args
+        return (await definition.execute(parsed, {
+          toolCallId: ctx.callID ?? Identifier.ascending("part"),
+          messages: [],
+          abortSignal: ctx.abort,
+        })) as Awaited<ReturnType<NonNullable<Tool.Context["selection"]>["execute"]>>
+      },
+    }
+
+    Object.freeze(selection)
 
     const context = (toolId: string, args: any, options: ToolCallOptions): Tool.Context => ({
       sessionID: input.session.id,
@@ -904,6 +1004,7 @@ export namespace SessionPrompt {
       extra: { model: input.model, bypassAgentCheck: input.bypassAgentCheck },
       agent: input.agent.name,
       messages: input.messages,
+      selection,
       metadata: async (val: { title?: string; metadata?: any }) => {
         const match = input.processor.partFromToolCall(options.toolCallId)
         if (match && match.state.status === "running") {
@@ -936,17 +1037,17 @@ export namespace SessionPrompt {
       },
     })
 
-    for (const item of await ToolRegistry.tools(
-      { modelID: input.model.api.id, providerID: input.model.providerID },
-      input.agent,
-      input.session.id,
-    )) {
+    for (const [name, entry] of catalog.entries) {
+      if (entry.kind !== "registry") continue
+      const item = entry.item
       const schema = ProviderTransform.schema(input.model, z.toJSONSchema(item.parameters))
       const definition = tool({
         id: item.id as any,
         description: item.description,
         inputSchema: jsonSchema(schema as any),
         async execute(args, options) {
+          if (ToolCatalog.work(entry)) selection.assert(item.id)
+          if (item.builtin === "batch") preflightBatch(args, selection)
           const ctx = context(item.id, args, options)
           await Plugin.trigger(
             "tool.execute.before",
@@ -985,7 +1086,10 @@ export namespace SessionPrompt {
       tools[item.id] = ToolGuidance.bind(definition, item.builtin, item.renderDescription)
     }
 
-    for (const [key, item] of Object.entries(await MCP.tools())) {
+    for (const [key, entry] of catalog.entries) {
+      if (entry.kind !== "mcp") continue
+      // Never mutate a cached MCP SDK definition between invocations.
+      const item = { ...entry.item }
       const execute = item.execute
       if (!execute) continue
 
@@ -993,6 +1097,7 @@ export namespace SessionPrompt {
       item.inputSchema = jsonSchema(transformed)
       // Wrap execute to add plugin hooks and format output
       item.execute = async (args, opts) => {
+        selection.assert(key)
         const ctx = context(key, args, opts)
 
         await Plugin.trigger(
@@ -1078,7 +1183,9 @@ export namespace SessionPrompt {
       tools[key] = item
     }
 
-    return tools
+    return Object.fromEntries(
+      Object.entries(tools).filter(([name, definition]) => ToolGuidance.isProtocol(definition) || names.includes(name)),
+    )
   }
 
   /** @internal Exported for testing */
@@ -1131,7 +1238,7 @@ export namespace SessionPrompt {
       },
     })
     // Retain the internal identifier used by tool consumers.
-    return Object.assign(result, { id: "StructuredOutput" as const })
+    return Object.assign(ToolGuidance.bindProtocol(result), { id: "StructuredOutput" as const })
   }
 
   // a client can still name an agent that no longer exists, such as the removed plan agent
@@ -1148,10 +1255,34 @@ export namespace SessionPrompt {
     throw error
   }
 
-  async function createUserMessage(input: PromptInput) {
+  async function createUserMessage(input: PromptInput, ceiling?: readonly string[]) {
     const agent = await requireAgent(input.agent ?? (await Agent.defaultAgent()), input.sessionID)
 
     const model = input.model ?? agent.model ?? (await lastModel(input.sessionID))
+    const preference = input.toolAllowlist ?? (await Config.get()).tool_allowlist
+    const selection = ToolSelection.resolve(preference, ceiling, input.toolAllowlist !== undefined)
+    // Omitted selection preserves noReply's ability to record before a provider
+    // is available. An actual selection validates its catalog before persistence.
+    const catalog =
+      selection.allowlist === null
+        ? undefined
+        : await ToolCatalog.load(agent, await Provider.getModel(model.providerID, model.modelID), input.sessionID)
+    // Only a newly explicit preference is validated as input. Inherited names absent
+    // from a child's different model catalog are an ordinary intersection.
+    if (catalog) {
+      const controls = [
+        ...ToolCatalog.controls(catalog),
+        ...(input.format?.type === "json_schema" ? ["StructuredOutput"] : []),
+      ]
+      ToolSelection.validate(
+        input.toolAllowlist ?? (ceiling === undefined ? (preference ?? null) : null),
+        [...catalog.entries.keys()].filter((name) => !controls.includes(name)),
+        catalog.known,
+        controls,
+      )
+    }
+    if (selection.allowlist) Object.freeze(selection.allowlist)
+    Object.freeze(selection)
     const full =
       !input.variant && agent.variant
         ? await Provider.getModel(model.providerID, model.modelID).catch(() => undefined)
@@ -1166,6 +1297,7 @@ export namespace SessionPrompt {
         created: Date.now(),
       },
       tools: input.tools,
+      toolSelection: selection,
       agent: agent.name,
       model,
       system: input.system,
@@ -1484,10 +1616,7 @@ export namespace SessionPrompt {
       await Session.updatePart(part)
     }
 
-    return {
-      info,
-      parts,
-    }
+    return { message: { info, parts }, catalog }
   }
 
   export const CommandInput = z.object({
@@ -1497,6 +1626,7 @@ export namespace SessionPrompt {
     model: z.string().optional(),
     arguments: z.string(),
     command: z.string(),
+    toolAllowlist: ToolSelection.Names.optional(),
     format: MessageV2.Format.optional(),
     variant: z.string().optional(),
     parts: z
@@ -1530,6 +1660,7 @@ export namespace SessionPrompt {
   }
 
   export async function command(input: CommandInput) {
+    input = CommandInput.parse(input)
     log.info("command", input)
     const command = await Command.get(input.command)
     const agentName = command.agent ?? input.agent ?? (await Agent.defaultAgent())
@@ -1651,6 +1782,7 @@ export namespace SessionPrompt {
       agent: userAgent,
       parts,
       format: input.format,
+      toolAllowlist: input.toolAllowlist,
       variant: input.variant,
     })) as MessageV2.WithParts
 

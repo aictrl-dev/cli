@@ -1,4 +1,6 @@
 import { outputSchema, outputResult, OUTPUT_SCHEMA_CONFIG, OUTPUT_CONFIG_EXIT, OUTPUT_FAILED_EXIT } from "./run.output"
+import { ToolSelection } from "../../tool/selection"
+import { Config } from "../../config/config"
 import { OutputSchema } from "@/session/output-schema"
 import type { Argv } from "yargs"
 import path from "path"
@@ -365,99 +367,107 @@ export const RunCommand = cmd({
   command: "run [message..]",
   describe: "run aictrl with a message",
   builder: (yargs: Argv) => {
-    return yargs
-      .positional("message", {
-        describe: "message to send",
-        type: "string",
-        array: true,
-        default: [],
-      })
-      .option("command", {
-        describe: "the command to run, use message for args",
-        type: "string",
-      })
-      .option("continue", {
-        alias: ["c"],
-        describe: "continue the last session",
-        type: "boolean",
-      })
-      .option("session", {
-        alias: ["s"],
-        describe: "session id to continue",
-        type: "string",
-      })
-      .option("fork", {
-        describe: "fork the session before continuing (requires --continue or --session)",
-        type: "boolean",
-      })
-      // Removed (#189); still parsed so the run can fail with a clear error.
-      .option("share", {
-        type: "boolean",
-        hidden: true,
-      })
-      .option("model", {
-        type: "string",
-        alias: ["m"],
-        describe: "model to use in the format of provider/model",
-      })
-      .option("agent", {
-        type: "string",
-        describe: "agent to use",
-      })
-      .option("format", {
-        type: "string",
-        choices: ["default", "json"],
-        default: "default",
-        describe: "format: default (formatted) or json (raw JSON events)",
-      })
-      .option("output-schema", {
-        type: "string",
-        describe:
-          "JSON Schema file for the final result (object root); the agent writes the result to a JSON file in the working directory and passes its path to StructuredOutput",
-      })
-      .option("output-schema-retries", { type: "number", describe: "additional corrective turns (0-10, default: 2)" })
-      .option("output-result", {
-        type: "string",
-        describe: "atomically write only the validated JSON result to this file",
-      })
-      .option("file", {
-        alias: ["f"],
-        type: "string",
-        array: true,
-        describe: "file(s) to attach to message",
-      })
-      .option("title", {
-        type: "string",
-        describe: "title for the session (defaults to the truncated prompt, or /<command> <args> for command runs)",
-      })
-      .option("attach", {
-        type: "string",
-        describe: "attach to a running aictrl server (e.g., http://localhost:4096)",
-      })
-      .option("dir", {
-        type: "string",
-        describe: "directory to run in, path on remote server if attaching",
-      })
-      .option("port", {
-        type: "number",
-        describe: "port for the local server (defaults to random port if no value provided)",
-      })
-      .option("variant", {
-        type: "string",
-        describe: "model variant (provider-specific reasoning effort, e.g., high, max, minimal)",
-      })
-      .option("thinking", {
-        type: "boolean",
-        describe: "show thinking blocks",
-        default: false,
-      })
-      .option("skill", {
-        type: "string",
-        array: true,
-        // One value per flag, so a trailing message is not taken as a skill name.
-        nargs: 1,
-        describe: "only list and load this skill (repeatable); overrides config skills.allow",
-      })
+    return (
+      yargs
+        .positional("message", {
+          describe: "message to send",
+          type: "string",
+          array: true,
+          default: [],
+        })
+        .option("tools", {
+          type: "string",
+          nargs: 1,
+          describe:
+            "exact comma-separated work-tool names; use an empty string for no work tools (permissions still apply)",
+        })
+        .option("command", {
+          describe: "the command to run, use message for args",
+          type: "string",
+        })
+        .option("continue", {
+          alias: ["c"],
+          describe: "continue the last session",
+          type: "boolean",
+        })
+        .option("session", {
+          alias: ["s"],
+          describe: "session id to continue",
+          type: "string",
+        })
+        .option("fork", {
+          describe: "fork the session before continuing (requires --continue or --session)",
+          type: "boolean",
+        })
+        // Removed (#189); still parsed so the run can fail with a clear error.
+        .option("share", {
+          type: "boolean",
+          hidden: true,
+        })
+        .option("model", {
+          type: "string",
+          alias: ["m"],
+          describe: "model to use in the format of provider/model",
+        })
+        .option("agent", {
+          type: "string",
+          describe: "agent to use",
+        })
+        .option("format", {
+          type: "string",
+          choices: ["default", "json"],
+          default: "default",
+          describe: "format: default (formatted) or json (raw JSON events)",
+        })
+        .option("output-schema", {
+          type: "string",
+          describe:
+            "JSON Schema file for the final result (object root); the agent writes the result to a JSON file in the working directory and passes its path to StructuredOutput",
+        })
+        .option("output-schema-retries", { type: "number", describe: "additional corrective turns (0-10, default: 2)" })
+        .option("output-result", {
+          type: "string",
+          describe: "atomically write only the validated JSON result to this file",
+        })
+        .option("file", {
+          alias: ["f"],
+          type: "string",
+          array: true,
+          describe: "file(s) to attach to message",
+        })
+        .option("title", {
+          type: "string",
+          describe: "title for the session (defaults to the truncated prompt, or /<command> <args> for command runs)",
+        })
+        .option("attach", {
+          type: "string",
+          describe: "attach to a running aictrl server (e.g., http://localhost:4096)",
+        })
+        .option("dir", {
+          type: "string",
+          describe: "directory to run in, path on remote server if attaching",
+        })
+        .option("port", {
+          type: "number",
+          describe: "port for the local server (defaults to random port if no value provided)",
+        })
+        .option("variant", {
+          type: "string",
+          describe: "model variant (provider-specific reasoning effort, e.g., high, max, minimal)",
+        })
+        .option("thinking", {
+          type: "boolean",
+          describe: "show thinking blocks",
+          default: false,
+        })
+        .option("skill", {
+          type: "string",
+          array: true,
+          // One value per flag, so a trailing message is not taken as a skill name.
+          nargs: 1,
+          describe: "only list and load this skill (repeatable); overrides config skills.allow",
+        })
+    )
   },
   handler: async (args) => {
     const invocation = createRunInvocation(args.format === "json")
@@ -466,6 +476,27 @@ export const RunCommand = cmd({
       UI.error(message)
       await invocation.abort(message, code)
       process.exit(exit)
+    }
+
+    const requested = args.tools
+    if (requested !== undefined && typeof requested !== "string") {
+      await fail(
+        "Use --tools once with one comma-separated argument (for example, --tools read,bash).",
+        "INVOCATION_INVALID_ARGUMENTS",
+      )
+    }
+    const toolAllowlist =
+      requested === undefined
+        ? undefined
+        : await Promise.resolve()
+            .then(() => ToolSelection.parse(requested))
+            .catch((error) => fail(error.message, "INVOCATION_INVALID_ARGUMENTS"))
+
+    if (args.attach && requested !== undefined) {
+      await fail(
+        "Work-tool selection is not supported with --attach: this client cannot verify server-side enforcement. Remove --tools or run locally.",
+        "INVOCATION_INVALID_ARGUMENTS",
+      )
     }
 
     if (args.share === true) {
@@ -794,7 +825,12 @@ export const RunCommand = cmd({
                 const message = await completedMessage(info)
                 // message_complete stays primary-session only; child turns get their own event (#213)
                 if (own) emit("message_complete", message)
-                else emit("subagent_message_complete", { subagentSessionID: info.sessionID, parentSessionID: sessionID, ...message })
+                else
+                  emit("subagent_message_complete", {
+                    subagentSessionID: info.sessionID,
+                    parentSessionID: sessionID,
+                    ...message,
+                  })
               }
             } else if (toggles.get("start") !== true) {
               UI.empty()
@@ -1120,6 +1156,7 @@ export const RunCommand = cmd({
       if (args.command) {
         const opts = {
           agent,
+          toolAllowlist,
           model: args.model,
           command: args.command,
           arguments: message,
@@ -1132,6 +1169,7 @@ export const RunCommand = cmd({
         const model = args.model ? Provider.parseModel(args.model) : undefined
         const opts = {
           agent,
+          toolAllowlist,
           model,
           variant: args.variant,
           parts: [...files, { type: "text", text: message }],
@@ -1174,6 +1212,14 @@ export const RunCommand = cmd({
 
     invocation.phase("bootstrap")
     if (args.attach) {
+      // This checkout has no receiver/capability contract that can enforce selection.
+      const configured = await Config.readToolSelection(process.cwd())
+      if (configured !== undefined) {
+        await fail(
+          "Work-tool selection is not supported with --attach: this client cannot verify server-side enforcement. Remove --tools and local tool_allowlist or run locally.",
+          "INVOCATION_INVALID_ARGUMENTS",
+        )
+      }
       return await invocation.run(() => execute(createAictrlClient({ baseUrl: args.attach, directory })))
     }
 
@@ -1209,6 +1255,7 @@ export const RunCommand = cmd({
               sessionID: opts.sessionID,
               parts: opts.parts,
               agent: opts.agent,
+              toolAllowlist: opts.toolAllowlist,
               model: opts.model,
               variant: opts.variant,
               ...(opts.format ? { format: opts.format } : {}),
@@ -1220,6 +1267,7 @@ export const RunCommand = cmd({
               command: opts.command,
               arguments: opts.arguments ?? "",
               agent: opts.agent,
+              toolAllowlist: opts.toolAllowlist,
               model: opts.model,
               variant: opts.variant,
               ...(opts.format ? { format: opts.format } : {}),

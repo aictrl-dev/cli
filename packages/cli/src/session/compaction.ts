@@ -1,3 +1,4 @@
+import { ToolSelection } from "../tool/selection"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { Session } from "."
@@ -210,6 +211,7 @@ When constructing the summary, try to stick to this template:
         },
         agent: userMessage.agent,
         model: userMessage.model,
+        toolSelection: userMessage.toolSelection,
       })
       await Session.updatePart({
         id: Identifier.ascending("part"),
@@ -238,14 +240,19 @@ When constructing the summary, try to stick to this template:
         modelID: z.string(),
       }),
       auto: z.boolean(),
+      toolSelection: ToolSelection.Snapshot.optional(),
     }),
     async (input) => {
+      const previous = (await MessageV2.filterCompacted(MessageV2.stream(input.sessionID))).findLast(
+        (message) => message.info.role === "user",
+      )?.info
       const msg = await Session.updateMessage({
         id: Identifier.ascending("message"),
         role: "user",
         model: input.model,
         sessionID: input.sessionID,
         agent: input.agent,
+        toolSelection: input.toolSelection ?? (previous?.role === "user" ? previous.toolSelection : undefined),
         time: {
           created: Date.now(),
         },

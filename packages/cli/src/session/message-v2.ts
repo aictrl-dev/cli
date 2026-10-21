@@ -1,3 +1,4 @@
+import { ToolSelection } from "../tool/selection"
 import { BusEvent } from "@/bus/bus-event"
 import z from "zod"
 import { NamedError } from "@aictrl/util/error"
@@ -374,6 +375,7 @@ export namespace MessageV2 {
     }),
     system: z.string().optional(),
     tools: z.record(z.string(), z.boolean()).optional(),
+    toolSelection: ToolSelection.Snapshot.optional(),
     variant: z.string().optional(),
   }).meta({
     ref: "UserMessage",

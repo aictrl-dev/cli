@@ -45,6 +45,8 @@ let source = await legacy.text()
 for (const name of [
   "StepFinishPart",
   "AssistantMessage",
+  "UserMessage",
+  "Config",
   "OutputFormat",
   "EventSessionStructuredOutput",
   "EventSessionStructuredOutputRejected",
@@ -82,5 +84,6 @@ await legacy.write(source)
 await $`bun prettier --write src/gen`
 await $`bun prettier --write src/v2`
 await $`rm -rf dist`
-await $`bun tsc`
+// dist was removed deliberately; a surviving composite cache must not skip emit.
+await $`bun tsc --build --force`
 await $`rm openapi.json`
