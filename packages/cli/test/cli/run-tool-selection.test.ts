@@ -1793,7 +1793,16 @@ export default {description:"Actual permitted runtime failure",args:{},execute:a
 })
 
 test("forced CLI fixture deadline cannot pass as an expected negative exit", async () => {
-  await expect(run({ label: "forced-cli-deadline", runtime: "deadline-hang", deadlineMs: 20 })).rejects.toThrow(
-    /child deadline exceeded after 20ms; providerRequests=0/,
+  const failure: unknown = await run({ label: "forced-cli-deadline", runtime: "deadline-hang", deadlineMs: 20 }).catch(
+    (error: unknown) => error,
   )
+  expect(failure).toBeInstanceOf(Error)
+  expect(failure).not.toBeInstanceOf(AggregateError)
+  expect(failure).toHaveProperty(
+    "message",
+    expect.stringMatching(/^forced-cli-deadline: child deadline exceeded after 20ms; providerRequests=0;/),
+  )
+  expect(failure).not.toHaveProperty("message", expect.stringContaining("fixture cleanup"))
+  expect(failure).not.toHaveProperty("cause")
+  expect(failure).not.toHaveProperty("errors")
 }, 20000)
