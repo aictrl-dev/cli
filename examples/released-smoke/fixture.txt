@@ -1,0 +1,1 @@
+CI_FIXTURE_BYTES_20261021=owned-and-inert

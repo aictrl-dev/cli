@@ -3,6 +3,7 @@ import z from "zod"
 import { Config } from "@/config/config"
 import { MessageV2 } from "@/session/message-v2"
 import { Session } from "@/session"
+import { SessionPrompt } from "@/session/prompt"
 import { ProviderTermination } from "@/provider/termination"
 
 export const GenerateCommand = {
@@ -10,6 +11,8 @@ export const GenerateCommand = {
   handler: async () => {
     // Keep OpenAPI component identities separate from legacy Zod metadata.
     const registry = z.registry<{ id: string }>()
+    registry.add(SessionPrompt.CommandArguments, { id: "CommandArguments" })
+    registry.add(SessionPrompt.CommandInput, { id: "CommandInput" })
     registry.add(MessageV2.StepFinishPart, { id: "StepFinishPart" })
     registry.add(ProviderTermination.Info, { id: "ProviderTermination" })
     registry.add(MessageV2.Format, { id: "OutputFormat" })

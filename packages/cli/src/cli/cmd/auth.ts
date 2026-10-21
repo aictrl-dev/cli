@@ -1,4 +1,5 @@
 import { Auth } from "../../auth"
+import { WellKnownAuth } from "../../auth/wellknown"
 import { cmd } from "./cmd"
 import * as prompts from "@clack/prompts"
 import { UI } from "../ui"
@@ -263,9 +264,17 @@ export const AuthLoginCommand = cmd({
         UI.empty()
         prompts.intro("Add credential")
         if (args.url) {
-          const wellknown = await fetch(`${args.url}/.well-known/aictrl`).then((x) => x.json() as any)
-          prompts.log.info(`Running \`${wellknown.auth.command.join(" ")}\``)
-          const proc = Process.spawn(wellknown.auth.command, {
+          const wellknown = await WellKnownAuth.fetchCommand(args.url)
+          const approved = await prompts.confirm({
+            message: `${WellKnownAuth.display(args.url)} wants to run ${WellKnownAuth.display(wellknown.command)} to get a token. Run it?`,
+            initialValue: false,
+          })
+          if (prompts.isCancel(approved)) throw new UI.CancelledError()
+          if (!approved) {
+            prompts.outro("Cancelled")
+            return
+          }
+          const proc = Process.spawn(wellknown.command, {
             stdout: "pipe",
           })
           if (!proc.stdout) {
@@ -281,10 +290,10 @@ export const AuthLoginCommand = cmd({
           }
           await Auth.set(args.url, {
             type: "wellknown",
-            key: wellknown.auth.env,
+            key: wellknown.env,
             token: token.trim(),
           })
-          prompts.log.success("Logged into " + args.url)
+          prompts.log.success("Logged into " + WellKnownAuth.display(args.url))
           prompts.outro("Done")
           return
         }

@@ -4,6 +4,73 @@ export type ClientOptions = {
   baseUrl: `${string}://${string}` | (string & {})
 }
 
+export type CommandArguments =
+  | string
+  | {
+      argv: Array<string>
+      stdin?: string
+    }
+
+export type CommandInput = {
+  messageID?: string
+  sessionID: string
+  agent?: string
+  model?: string
+  arguments: CommandArguments
+  command: string
+  toolAllowlist?: Array<string>
+  format?: OutputFormat
+  variant?: string
+  parts?: Array<{
+    id?: string
+    type: "file"
+    mime: string
+    filename?: string
+    url: string
+    source?:
+      | {
+          text: {
+            value: string
+            start: number
+            end: number
+          }
+          type: "file"
+          path: string
+        }
+      | {
+          text: {
+            value: string
+            start: number
+            end: number
+          }
+          type: "symbol"
+          path: string
+          range: {
+            start: {
+              line: number
+              character: number
+            }
+            end: {
+              line: number
+              character: number
+            }
+          }
+          name: string
+          kind: number
+        }
+      | {
+          text: {
+            value: string
+            start: number
+            end: number
+          }
+          type: "resource"
+          clientName: string
+          uri: string
+        }
+  }>
+}
+
 export type StepFinishPart = {
   id: string
   sessionID: string
