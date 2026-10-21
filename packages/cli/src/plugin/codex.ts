@@ -20,20 +20,13 @@ interface PkceCodes {
 }
 
 async function generatePKCE(): Promise<PkceCodes> {
-  const verifier = generateRandomString(43)
+  // RFC 7636: base64url-encode 32 random bytes to get an unbiased 43-character verifier.
+  const verifier = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)).buffer)
   const encoder = new TextEncoder()
   const data = encoder.encode(verifier)
   const hash = await crypto.subtle.digest("SHA-256", data)
   const challenge = base64UrlEncode(hash)
   return { verifier, challenge }
-}
-
-function generateRandomString(length: number): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
-  const bytes = crypto.getRandomValues(new Uint8Array(length))
-  return Array.from(bytes)
-    .map((b) => chars[b % chars.length])
-    .join("")
 }
 
 function base64UrlEncode(buffer: ArrayBuffer): string {

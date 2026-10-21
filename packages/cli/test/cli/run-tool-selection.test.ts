@@ -146,126 +146,242 @@ async function run(input: Input) {
       )
     },
   })
-  const config = {
-    enabled_providers: [input.codex ? "openai" : "fixture"],
-    provider: {
-      [input.codex ? "openai" : "fixture"]: {
-        npm: input.codex ? "@ai-sdk/openai" : "@ai-sdk/openai-compatible",
-        options: {
-          apiKey: "fixture",
-          baseURL: `${server.url.origin}/v1`,
-          ...(input.proxy ? { litellmProxy: true } : {}),
-        },
-        ...(input.codex
-          ? {}
-          : {
-              models: Object.fromEntries(
-                ["fixture", "gpt-5"].map((id) => [
-                  id,
-                  { name: id, tool_call: true, limit: { context: 200000, output: 1000 } },
-                ]),
-              ),
-            }),
-      },
-    },
-    agent: { title: { disable: true } },
-    permission: { "*": "allow" },
-    ...input.config,
-    ...(extra ?? {}),
-  }
-  const home = path.join(tmp.path, "home")
-  const preload = path.join(tmp.path, "network-guard.ts")
-  const ledger = path.join(tmp.path, "network.jsonl")
-  await fs.mkdir(home)
-  await Bun.write(preload, guard)
-  await Bun.write(ledger, "")
-  const codexLog = path.join(tmp.path, "codex-captures.jsonl")
-  await Bun.write(codexLog, "")
-  if (input.codex)
-    await Bun.write(
-      path.join(tmp.path, "data/aictrl/auth.json"),
-      JSON.stringify({
-        openai: { type: "oauth", access: "fixture-access", refresh: "fixture-refresh", expires: Date.now() + 60000 },
-      }),
-    )
-  const selected = input.entry ?? entry
-  const program = path.join(tmp.path, "record-only.ts")
-  if (input.noReply)
-    await Bun.write(
-      program,
-      [
-        "const root = process.env.SELECTOR_RUNTIME_ROOT",
-        'const [{ Instance }, { Session }, { SessionPrompt }] = await Promise.all([import(root + "/project/instance.ts"), import(root + "/session/index.ts"), import(root + "/session/prompt.ts")])',
-        "try { await Instance.provide({ directory: process.cwd(), fn: async () => {",
-        '  const session = await Session.create({ title: "Record unavailable model" })',
-        '  const message = await SessionPrompt.prompt({ sessionID: session.id, noReply: true, model: { providerID: "fixture", modelID: "unavailable-model" }, parts: [{ type: "text", text: "Record only; do not run a model." }] })',
-        "  console.log(JSON.stringify({ role: message.info.role, model: message.info.model, saved: (await Session.messages({ sessionID: session.id })).length }))",
-        "} }) } catch (error) { console.error(String(error)); process.exitCode = 1 }",
-        "await Instance.disposeAll()",
-      ].join("\n"),
-    )
-  const command = [
-    process.execPath,
-    "run",
-    "--preload",
-    preload,
-    "--conditions=browser",
-    ...(input.runtime
-      ? [path.resolve(import.meta.dir, "../fixture/tool-selection-runtime.ts")]
-      : input.noReply
-        ? [program]
-        : [
-            selected,
-            "run",
-            "--format",
-            "json",
-            "--model",
-            input.codex ? "openai/gpt-5.2" : "fixture/" + (input.model ?? "fixture"),
-            ...(input.args ?? []),
-            ...(input.noMessage ? [] : ["Say fixture complete without tools."]),
-          ]),
-  ]
-  const process_ = Bun.spawn(command, {
-    cwd: tmp.path,
-    env: {
-      PATH: fixturePath,
-      SHELL: "/bin/bash",
-      HOME: home,
-      AICTRL_TEST_HOME: home,
-      AICTRL_TEST_MANAGED_CONFIG_DIR: path.join(tmp.path, "managed"),
-      XDG_DATA_HOME: path.join(tmp.path, "data"),
-      XDG_CONFIG_HOME: path.join(tmp.path, "config"),
-      XDG_STATE_HOME: path.join(tmp.path, "state"),
-      XDG_CACHE_HOME: path.join(tmp.path, "cache"),
-      AICTRL_CONFIG_CONTENT: JSON.stringify(config),
-      AICTRL_DISABLE_DEFAULT_PLUGINS: "true",
-      AICTRL_DISABLE_AUTOCOMPACT: "true",
-      AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS: "5000",
-      SELECTOR_FIXTURE_ORIGIN: server.url.origin,
-      SELECTOR_FIXTURE_GUARD_LOG: ledger,
-      SELECTOR_FIXTURE_ZOD: import.meta.resolve("zod"),
-      SELECTOR_RUNTIME_ROOT: path.dirname(selected),
-      SELECTOR_RUNTIME_MODE: input.runtime ?? "",
-      SELECTOR_RUNTIME_PRELOAD: preload,
-      SELECTOR_FIXTURE_CODEX: String(!!input.codex),
-      SELECTOR_FIXTURE_CODEX_LOG: codexLog,
-    },
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  })
-  const deadlineMs = input.deadlineMs ?? 15000
-  let deadlineFired = false
-  const timeout = setTimeout(() => {
-    deadlineFired = true
-    process_.kill("SIGKILL")
-  }, deadlineMs)
+  const cleanup: (() => unknown | Promise<unknown>)[] = [() => server.stop(true)]
+  let primaryFailure: { error: unknown } | undefined
   try {
-    const [stdout, stderr, exit] = await Promise.all([
-      new Response(process_.stdout).text(),
-      new Response(process_.stderr).text(),
-      process_.exited,
-    ])
+    const config = {
+      enabled_providers: [input.codex ? "openai" : "fixture"],
+      provider: {
+        [input.codex ? "openai" : "fixture"]: {
+          npm: input.codex ? "@ai-sdk/openai" : "@ai-sdk/openai-compatible",
+          options: {
+            apiKey: "fixture",
+            baseURL: `${server.url.origin}/v1`,
+            ...(input.proxy ? { litellmProxy: true } : {}),
+          },
+          ...(input.codex
+            ? {}
+            : {
+                models: Object.fromEntries(
+                  ["fixture", "gpt-5"].map((id) => [
+                    id,
+                    { name: id, tool_call: true, limit: { context: 200000, output: 1000 } },
+                  ]),
+                ),
+              }),
+        },
+      },
+      agent: { title: { disable: true } },
+      permission: { "*": "allow" },
+      ...input.config,
+      ...(extra ?? {}),
+    }
+    const home = path.join(tmp.path, "home")
+    const preload = path.join(tmp.path, "network-guard.ts")
+    const ledger = path.join(tmp.path, "network.jsonl")
+    await fs.mkdir(home)
+    await Bun.write(preload, guard)
+    await Bun.write(ledger, "")
+    const codexLog = path.join(tmp.path, "codex-captures.jsonl")
+    await Bun.write(codexLog, "")
+    if (input.codex)
+      await Bun.write(
+        path.join(tmp.path, "data/aictrl/auth.json"),
+        JSON.stringify({
+          openai: { type: "oauth", access: "fixture-access", refresh: "fixture-refresh", expires: Date.now() + 60000 },
+        }),
+      )
+    const selected = input.entry ?? entry
+    const program = path.join(tmp.path, "record-only.ts")
+    if (input.noReply)
+      await Bun.write(
+        program,
+        [
+          "const root = process.env.SELECTOR_RUNTIME_ROOT",
+          'const [{ Instance }, { Session }, { SessionPrompt }] = await Promise.all([import(root + "/project/instance.ts"), import(root + "/session/index.ts"), import(root + "/session/prompt.ts")])',
+          "try { await Instance.provide({ directory: process.cwd(), fn: async () => {",
+          '  const session = await Session.create({ title: "Record unavailable model" })',
+          '  const message = await SessionPrompt.prompt({ sessionID: session.id, noReply: true, model: { providerID: "fixture", modelID: "unavailable-model" }, parts: [{ type: "text", text: "Record only; do not run a model." }] })',
+          "  console.log(JSON.stringify({ role: message.info.role, model: message.info.model, saved: (await Session.messages({ sessionID: session.id })).length }))",
+          "} }) } catch (error) { console.error(String(error)); process.exitCode = 1 }",
+          "await Instance.disposeAll()",
+        ].join("\n"),
+      )
+    const command = [
+      process.execPath,
+      "run",
+      "--preload",
+      preload,
+      "--conditions=browser",
+      ...(input.runtime
+        ? [path.resolve(import.meta.dir, "../fixture/tool-selection-runtime.ts")]
+        : input.noReply
+          ? [program]
+          : [
+              selected,
+              "run",
+              "--format",
+              "json",
+              "--model",
+              input.codex ? "openai/gpt-5.2" : "fixture/" + (input.model ?? "fixture"),
+              ...(input.args ?? []),
+              ...(input.noMessage ? [] : ["Say fixture complete without tools."]),
+            ]),
+    ]
+    const process_ = Bun.spawn(command, {
+      cwd: tmp.path,
+      env: {
+        PATH: fixturePath,
+        SHELL: "/bin/bash",
+        HOME: home,
+        AICTRL_TEST_HOME: home,
+        AICTRL_TEST_MANAGED_CONFIG_DIR: path.join(tmp.path, "managed"),
+        XDG_DATA_HOME: path.join(tmp.path, "data"),
+        XDG_CONFIG_HOME: path.join(tmp.path, "config"),
+        XDG_STATE_HOME: path.join(tmp.path, "state"),
+        XDG_CACHE_HOME: path.join(tmp.path, "cache"),
+        AICTRL_CONFIG_CONTENT: JSON.stringify(config),
+        AICTRL_DISABLE_DEFAULT_PLUGINS: "true",
+        AICTRL_DISABLE_AUTOCOMPACT: "true",
+        AICTRL_MODEL_STREAM_IDLE_TIMEOUT_MS: "5000",
+        SELECTOR_FIXTURE_ORIGIN: server.url.origin,
+        SELECTOR_FIXTURE_GUARD_LOG: ledger,
+        SELECTOR_FIXTURE_ZOD: import.meta.resolve("zod"),
+        SELECTOR_RUNTIME_ROOT: path.dirname(selected),
+        SELECTOR_RUNTIME_MODE: input.runtime ?? "",
+        SELECTOR_RUNTIME_PRELOAD: preload,
+        SELECTOR_FIXTURE_CODEX: String(!!input.codex),
+        SELECTOR_FIXTURE_CODEX_LOG: codexLog,
+      },
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+      detached: true,
+    })
+    const deadlineMs = input.deadlineMs ?? 15000
+    let deadlineFired = false
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    const output = { stdout: "", stderr: "" }
+    const readers: ReadableStreamDefaultReader<Uint8Array>[] = []
+    async function read(reader: (typeof readers)[number], name: keyof typeof output) {
+      const decoder = new TextDecoder()
+      while (true) {
+        const chunk = await reader.read()
+        if (chunk.done) break
+        output[name] += decoder.decode(chunk.value, { stream: true })
+      }
+      output[name] += decoder.decode()
+      return output[name]
+    }
+    function signalGroup(signal: NodeJS.Signals | 0) {
+      try {
+        process.kill(-process_.pid, signal)
+        return true
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ESRCH") return false
+        throw error
+      }
+    }
+    async function waitGroupGone(milliseconds: number) {
+      const until = Date.now() + milliseconds
+      while (signalGroup(0)) {
+        if (Date.now() >= until) return false
+        await Bun.sleep(10)
+      }
+      return true
+    }
+    let stopping: Promise<void> | undefined
+    function stopGroup() {
+      return (stopping ??= (async () => {
+        const errors: unknown[] = []
+        let gone = false
+        try {
+          gone = !signalGroup("SIGTERM") || (await waitGroupGone(200))
+        } catch (error) {
+          errors.push(error)
+        }
+        if (!gone) {
+          try {
+            signalGroup("SIGKILL")
+          } catch (error) {
+            errors.push(error)
+          }
+          try {
+            if (!(await waitGroupGone(2000))) throw new Error("Owned selector process group remains after SIGKILL")
+          } catch (error) {
+            errors.push(error)
+          }
+        }
+        if (errors.length) throw new AggregateError(errors, "Owned selector group termination failed")
+      })())
+    }
+    async function bounded<T>(task: Promise<T>, milliseconds: number, message: string): Promise<T> {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        return await Promise.race([
+          task,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error(message)), milliseconds)
+          }),
+        ])
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+    const drains: Promise<string>[] = []
+    cleanup.push(async () => {
+      clearTimeout(timeout)
+      const errors: unknown[] = []
+      for (const operation of [
+        () => stopGroup(),
+        () => bounded(process_.exited, 1000, "Owned selector child was not reaped after termination"),
+        ...readers.map((reader) => () => bounded(reader.cancel(), 500, "Owned selector pipe cancellation timed out")),
+        () => bounded(Promise.allSettled(drains), 500, "Owned selector output did not settle after cancellation"),
+      ]) {
+        try {
+          await operation()
+        } catch (error) {
+          errors.push(error)
+        }
+      }
+      for (const reader of readers) {
+        try {
+          reader.releaseLock()
+        } catch (error) {
+          errors.push(error)
+        }
+      }
+      if (errors.length) throw new AggregateError(errors, "Owned selector process cleanup failed")
+    })
+    readers.push(process_.stdout.getReader())
+    readers.push(process_.stderr.getReader())
+    drains.push(read(readers[0], "stdout"), read(readers[1], "stderr"))
+    const exited = process_.exited.then(async (exit) => {
+      if (signalGroup(0)) {
+        try {
+          await stopGroup()
+        } catch (error) {
+          if (!deadlineFired) throw error
+        }
+        if (!deadlineFired) throw new Error("Owned selector descendants outlived the fixture child")
+      }
+      return exit
+    })
+    const deadlineFailure = () =>
+      new Error(
+        `${input.label}: child deadline exceeded after ${deadlineMs}ms; providerRequests=${requests.length}; stdout=${output.stdout.slice(-2000)}; stderr=${output.stderr.slice(-2000)}`,
+      )
+    const deadline = new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => {
+        deadlineFired = true
+        // The deadline also interrupts collection when descendants retain the pipes.
+        void stopGroup().then(
+          () => reject(deadlineFailure()),
+          () => reject(deadlineFailure()),
+        )
+      }, deadlineMs)
+    })
+    const [stdout, stderr, exit] = await Promise.race([Promise.all([drains[0], drains[1], exited]), deadline])
     clearTimeout(timeout)
     const network = (await Bun.file(ledger).text())
       .split("\n")
@@ -315,10 +431,27 @@ async function run(input: Input) {
       )
     expect(network.filter((request) => !request.allowed)).toEqual([])
     return result
+  } catch (error) {
+    primaryFailure = { error }
+    throw error
   } finally {
-    clearTimeout(timeout)
-    process_.kill("SIGKILL")
-    server.stop(true)
+    const errors: unknown[] = []
+    for (const dispose of cleanup.reverse()) {
+      try {
+        await dispose()
+      } catch (error) {
+        errors.push(error)
+      }
+    }
+    if (errors.length) {
+      throw new AggregateError(
+        [...(primaryFailure ? [primaryFailure.error] : []), ...errors],
+        primaryFailure
+          ? `${input.label}: ${String(primaryFailure.error)}; fixture cleanup also failed`
+          : `${input.label}: fixture cleanup failed`,
+        primaryFailure ? { cause: primaryFailure.error } : undefined,
+      )
+    }
   }
 }
 
@@ -1660,7 +1793,16 @@ export default {description:"Actual permitted runtime failure",args:{},execute:a
 })
 
 test("forced CLI fixture deadline cannot pass as an expected negative exit", async () => {
-  await expect(run({ label: "forced-cli-deadline", runtime: "deadline-hang", deadlineMs: 20 })).rejects.toThrow(
-    /child deadline exceeded after 20ms; providerRequests=0/,
+  const failure: unknown = await run({ label: "forced-cli-deadline", runtime: "deadline-hang", deadlineMs: 20 }).catch(
+    (error: unknown) => error,
   )
+  expect(failure).toBeInstanceOf(Error)
+  expect(failure).not.toBeInstanceOf(AggregateError)
+  expect(failure).toHaveProperty(
+    "message",
+    expect.stringMatching(/^forced-cli-deadline: child deadline exceeded after 20ms; providerRequests=0;/),
+  )
+  expect(failure).not.toHaveProperty("message", expect.stringContaining("fixture cleanup"))
+  expect(failure).not.toHaveProperty("cause")
+  expect(failure).not.toHaveProperty("errors")
 }, 20000)

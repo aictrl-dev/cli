@@ -151,7 +151,7 @@ export class Stub {
     const tools = toolList(json, api)
     const main = tools.length > 0 && body.includes(MARKER)
     const resultEvidence = fixtureEvidence(json, api, this.scenario)
-    const done = scriptProgress(resultEvidence)
+    const done = main ? scriptProgress(resultEvidence) : 0
     const furthest = Math.max(0, ...this.log.filter((r) => r.kind === "main").map((r) => r.step))
     if (main && done < furthest) throw new Error(`Tool history regressed from scripted step ${furthest} to ${done}`)
     const turn = main ? this.next(done, tools) : { text: "Bench title" }

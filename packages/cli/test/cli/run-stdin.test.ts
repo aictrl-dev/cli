@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import { spawn } from "node:child_process"
 import fs from "node:fs/promises"
 import os from "node:os"
@@ -19,196 +19,275 @@ async function run(input: {
   deadlineMs?: number
 }) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "aictrl-stdin-"))
-  for (const [name, text] of Object.entries(input.files ?? {})) await fs.writeFile(path.join(directory, name), text)
-  const ledger = path.join(directory, "network.jsonl")
-  await fs.writeFile(ledger, "")
-  const requests: { method: string; path: string; body: Record<string, unknown> | undefined }[] = []
-  let stream: ReadableStreamDefaultController<Uint8Array> | undefined
-  const sessionID = "ses_stdin_fixture"
-  const server = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    async fetch(request) {
-      const url = new URL(request.url)
-      const body = request.method === "POST" ? ((await request.json()) as Record<string, unknown>) : undefined
-      requests.push({ method: request.method, path: url.pathname, body })
-      if (url.pathname === "/event")
-        return new Response(
-          new ReadableStream<Uint8Array>({
-            start(controller) {
-              stream = controller
-              controller.enqueue(new TextEncoder().encode(": ready\n\n"))
-            },
-          }),
-          { headers: { "content-type": "text/event-stream" } },
-        )
-      if (url.pathname === "/session") return Response.json({ id: sessionID })
-      if (url.pathname === `/session/${sessionID}/message` || url.pathname === `/session/${sessionID}/command`) {
-        stream?.enqueue(
-          new TextEncoder().encode(
-            `data: ${JSON.stringify({ type: "session.status", properties: { sessionID, status: { type: "idle" } } })}\n\n`,
-          ),
-        )
-        return Response.json({})
-      }
-      return Response.json({ unexpected: url.pathname }, { status: 500 })
+  const evidence = process.env.STDIN_TEST_EVIDENCE
+  const cleanup: (() => void | Promise<void>)[] = [
+    async () => {
+      if (!evidence) await fs.rm(directory, { recursive: true, force: true })
     },
-  })
-  const env = {
-    PATH: [path.dirname(process.execPath), "/usr/local/bin", "/usr/bin", "/bin"].join(path.delimiter),
-    SHELL: "/bin/bash",
-    TZ: "UTC",
-    HOME: path.join(directory, "home"),
-    AICTRL_TEST_HOME: path.join(directory, "home"),
-    AICTRL_TEST_MANAGED_CONFIG_DIR: path.join(directory, "managed"),
-    XDG_CONFIG_HOME: path.join(directory, "config"),
-    XDG_DATA_HOME: path.join(directory, "data"),
-    XDG_STATE_HOME: path.join(directory, "state"),
-    XDG_CACHE_HOME: path.join(directory, "cache"),
-    BUN_RUNTIME_TRANSPILER_CACHE_PATH: path.join(directory, "bun-cache"),
-    GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: "/dev/null",
-    AICTRL_DISABLE_PROJECT_CONFIG: "true",
-    AICTRL_DISABLE_DEFAULT_PLUGINS: "true",
-    STDIN_FIXTURE_ORIGIN: server.url.origin,
-    STDIN_FIXTURE_LEDGER: ledger,
-  }
-  const command = [
-    "run",
-    "--no-install",
-    "--no-env-file",
-    "--preload",
-    guard,
-    "--conditions=browser",
-    path.resolve(import.meta.dir, `../../src/${input.entry}.ts`),
-    ...(input.rootArgs ?? ["run", "--format", "json", "--attach", server.url.origin, ...input.args]),
   ]
-  const child = spawn(process.execPath, command, {
-    cwd: directory,
-    env,
-    detached: true,
-    stdio: ["pipe", "pipe", "pipe"],
-  })
-  let stdout = ""
-  let stderr = ""
-  let deadline = false
-  let kill = false
-  let signal: NodeJS.Signals | null = null
-  const started = performance.now()
-  const exists = () => {
-    try {
-      process.kill(-child.pid!, 0)
-      return true
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ESRCH") return false
-      throw error
-    }
-  }
-  const staged: ReturnType<typeof setTimeout>[] = []
-  let firstBytesAt: number | undefined
-  let eofAt: number | undefined
-  let requestsBeforeEOF: number | undefined
-  let stagedInput = false
-  child.stdout.on("data", (data) => {
-    stdout += data.toString()
-    if (input.stdin === "late" && !stagedInput && stdout.includes('"type":"invocation_start"')) {
-      stagedInput = true
-      staged.push(
-        setTimeout(() => {
-          firstBytesAt = performance.now() - started
-          child.stdin.write(input.payload ?? "")
-          staged.push(
-            setTimeout(() => {
-              eofAt = performance.now() - started
-              requestsBeforeEOF = requests.length
-              child.stdin.end()
-            }, 150),
+  let failed = false
+  try {
+    for (const [name, text] of Object.entries(input.files ?? {})) await fs.writeFile(path.join(directory, name), text)
+    const ledger = path.join(directory, "network.jsonl")
+    await fs.writeFile(ledger, "")
+    const requests: { method: string; path: string; body: Record<string, unknown> | undefined }[] = []
+    let stream: ReadableStreamDefaultController<Uint8Array> | undefined
+    const sessionID = "ses_stdin_fixture"
+    let requestArrivals = 0
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        requestArrivals++
+        const url = new URL(request.url)
+        const body = request.method === "POST" ? ((await request.json()) as Record<string, unknown>) : undefined
+        requests.push({ method: request.method, path: url.pathname, body })
+        if (url.pathname === "/event")
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                stream = controller
+                controller.enqueue(new TextEncoder().encode(": ready\n\n"))
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
           )
-        }, 150),
+        if (url.pathname === "/session") return Response.json({ id: sessionID })
+        if (url.pathname === `/session/${sessionID}/message` || url.pathname === `/session/${sessionID}/command`) {
+          stream?.enqueue(
+            new TextEncoder().encode(
+              `data: ${JSON.stringify({ type: "session.status", properties: { sessionID, status: { type: "idle" } } })}\n\n`,
+            ),
+          )
+          return Response.json({})
+        }
+        return Response.json({ unexpected: url.pathname }, { status: 500 })
+      },
+    })
+    cleanup.push(() => server.stop(true))
+    const env = {
+      PATH: [path.dirname(process.execPath), "/usr/local/bin", "/usr/bin", "/bin"].join(path.delimiter),
+      SHELL: "/bin/bash",
+      TZ: "UTC",
+      HOME: path.join(directory, "home"),
+      AICTRL_TEST_HOME: path.join(directory, "home"),
+      AICTRL_TEST_MANAGED_CONFIG_DIR: path.join(directory, "managed"),
+      XDG_CONFIG_HOME: path.join(directory, "config"),
+      XDG_DATA_HOME: path.join(directory, "data"),
+      XDG_STATE_HOME: path.join(directory, "state"),
+      XDG_CACHE_HOME: path.join(directory, "cache"),
+      BUN_RUNTIME_TRANSPILER_CACHE_PATH: path.join(directory, "bun-cache"),
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      AICTRL_DISABLE_PROJECT_CONFIG: "true",
+      AICTRL_DISABLE_DEFAULT_PLUGINS: "true",
+      STDIN_FIXTURE_ORIGIN: server.url.origin,
+      STDIN_FIXTURE_LEDGER: ledger,
+    }
+    const command = [
+      "run",
+      "--no-install",
+      "--no-env-file",
+      "--preload",
+      guard,
+      "--conditions=browser",
+      path.resolve(import.meta.dir, `../../src/${input.entry}.ts`),
+      ...(input.rootArgs ?? ["run", "--format", "json", "--attach", server.url.origin, ...input.args]),
+    ]
+    const child = spawn(process.execPath, command, {
+      cwd: directory,
+      env,
+      detached: true,
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+    cleanup.push(async () => {
+      if (!child.pid) return
+      try {
+        process.kill(-child.pid, "SIGKILL")
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ESRCH") return
+        throw error
+      }
+      await delay(150)
+      try {
+        process.kill(-child.pid, 0)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ESRCH") return
+        throw error
+      }
+      throw new Error("Fixture process group remains after final cleanup")
+    })
+    let stdout = ""
+    let stderr = ""
+    let deadline = false
+    let kill = false
+    let signal: NodeJS.Signals | null = null
+    const started = performance.now()
+    const exists = () => {
+      try {
+        process.kill(-child.pid!, 0)
+        return true
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ESRCH") return false
+        throw error
+      }
+    }
+    const staged: ReturnType<typeof setTimeout>[] = []
+    let firstBytesAt: number | undefined
+    let eofAt: number | undefined
+    let requestsBeforeEOF: number | undefined
+    let stagedInput = false
+    child.stdout.on("data", (data) => {
+      stdout += data.toString()
+      if (input.stdin === "late" && !stagedInput && stdout.includes('"type":"invocation_start"')) {
+        stagedInput = true
+        staged.push(
+          setTimeout(() => {
+            firstBytesAt = performance.now() - started
+            child.stdin.write(input.payload ?? "")
+            staged.push(
+              setTimeout(() => {
+                eofAt = performance.now() - started
+                requestsBeforeEOF = requestArrivals
+                child.stdin.end()
+              }, 150),
+            )
+          }, 150),
+        )
+      }
+    })
+    child.stderr.on("data", (data) => {
+      stderr += data.toString()
+    })
+    child.stdin.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code !== "EPIPE") stderr += String(error)
+    })
+    if (input.payload && input.stdin !== "late") child.stdin.write(input.payload)
+    if (input.stdin === "closed") child.stdin.end()
+    const timer = setTimeout(() => {
+      deadline = true
+      if (exists()) process.kill(-child.pid!, "SIGTERM")
+    }, input.deadlineMs ?? 3000)
+    const escalation = setTimeout(
+      () => {
+        if (deadline && exists()) {
+          kill = true
+          process.kill(-child.pid!, "SIGKILL")
+        }
+      },
+      (input.deadlineMs ?? 3000) + 200,
+    )
+    cleanup.push(() => {
+      for (const stage of staged) clearTimeout(stage)
+      clearTimeout(timer)
+      clearTimeout(escalation)
+      child.stdin.destroy()
+    })
+    let code: number | null = null
+    try {
+      code = await new Promise<number | null>((resolve, reject) => {
+        child.once("error", reject)
+        child.once("close", (status, reason) => {
+          signal = reason
+          resolve(status)
+        })
+      })
+    } catch (error) {
+      failed = true
+      throw error
+    } finally {
+      try {
+        for (const timer of staged) clearTimeout(timer)
+        clearTimeout(timer)
+        clearTimeout(escalation)
+        child.stdin.destroy()
+        if (exists()) {
+          process.kill(-child.pid!, "SIGTERM")
+          await delay(150)
+          if (exists()) {
+            kill = true
+            process.kill(-child.pid!, "SIGKILL")
+          }
+        }
+      } catch (error) {
+        console.error("Fixture child cleanup failed", { directory, error })
+        if (!failed) throw error
+      }
+    }
+    const groupGone = !exists()
+    // Partial fetch/install observations only; coverage is documented in fixture/README.md.
+    const network = (await fs.readFile(ledger, "utf8"))
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+    const result = {
+      ...input,
+      directory,
+      command,
+      code,
+      signal,
+      deadline,
+      kill,
+      groupGone,
+      milliseconds: performance.now() - started,
+      firstBytesAt,
+      eofAt,
+      requestsBeforeEOF,
+      requestArrivals,
+      stdout,
+      stderr,
+      requests,
+      network,
+    }
+    if (evidence) {
+      await fs.mkdir(evidence, { recursive: true })
+      await fs.writeFile(
+        path.join(evidence, `${input.entry}-${input.name}.json`),
+        JSON.stringify(result, null, 2) + "\n",
       )
     }
-  })
-  child.stderr.on("data", (data) => {
-    stderr += data.toString()
-  })
-  child.stdin.on("error", (error: NodeJS.ErrnoException) => {
-    if (error.code !== "EPIPE") stderr += String(error)
-  })
-  if (input.payload && input.stdin !== "late") child.stdin.write(input.payload)
-  if (input.stdin === "closed") child.stdin.end()
-  const timer = setTimeout(() => {
-    deadline = true
-    if (exists()) process.kill(-child.pid!, "SIGTERM")
-  }, input.deadlineMs ?? 3000)
-  const escalation = setTimeout(
-    () => {
-      if (deadline && exists()) {
-        kill = true
-        process.kill(-child.pid!, "SIGKILL")
-      }
-    },
-    (input.deadlineMs ?? 3000) + 200,
-  )
-  let code: number | null = null
-  try {
-    code = await new Promise<number | null>((resolve, reject) => {
-      child.once("error", reject)
-      child.once("close", (status, reason) => {
-        signal = reason
-        resolve(status)
-      })
-    })
+    if (deadline) throw new Error(`CLI deadline fired (never a successful rejection): ${JSON.stringify(result)}`)
+    if (!groupGone) throw new Error("Stdin test child process group remains")
+    if (network.some((row) => row.allowed === false))
+      throw new Error("Stdin test attempted forbidden network: " + JSON.stringify(network))
+    return result
+  } catch (error) {
+    failed = true
+    throw error
   } finally {
-    for (const timer of staged) clearTimeout(timer)
-    clearTimeout(timer)
-    clearTimeout(escalation)
-    child.stdin.destroy()
-    if (exists()) {
-      process.kill(-child.pid!, "SIGTERM")
-      await delay(150)
-      if (exists()) {
-        kill = true
-        process.kill(-child.pid!, "SIGKILL")
+    const errors: unknown[] = []
+    for (const dispose of cleanup.reverse()) {
+      try {
+        await dispose()
+      } catch (error) {
+        errors.push(error)
       }
     }
-    server.stop(true)
+    if (errors.length) {
+      console.error("Fixture cleanup failed", { directory, errors })
+      if (!failed) throw new AggregateError(errors, "Fixture cleanup failed")
+    }
   }
-  const groupGone = !exists()
-  const network = (await fs.readFile(ledger, "utf8"))
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => JSON.parse(line))
-  const result = {
-    ...input,
-    directory,
-    command,
-    code,
-    signal,
-    deadline,
-    kill,
-    groupGone,
-    milliseconds: performance.now() - started,
-    firstBytesAt,
-    eofAt,
-    requestsBeforeEOF,
-    stdout,
-    stderr,
-    requests,
-    network,
-  }
-  if (process.env.STDIN_TEST_EVIDENCE) {
-    await fs.mkdir(process.env.STDIN_TEST_EVIDENCE, { recursive: true })
-    await fs.writeFile(
-      path.join(process.env.STDIN_TEST_EVIDENCE, `${input.entry}-${input.name}.json`),
-      JSON.stringify(result, null, 2) + "\n",
-    )
-  }
-  if (deadline) throw new Error(`CLI deadline fired (never a successful rejection): ${JSON.stringify(result)}`)
-  if (!groupGone) throw new Error("Stdin test child process group remains")
-  if (network.some((row) => row.allowed === false))
-    throw new Error("Stdin test attempted forbidden network: " + JSON.stringify(network))
-  return result
 }
+
+test("stdin fixture setup failure removes its owned directory before listener creation", async () => {
+  const primary = new Error("stdin fixture setup write failed")
+  const listener = spyOn(Bun, "serve")
+  let directory: string | undefined
+  const write = spyOn(fs, "writeFile").mockImplementationOnce(async (file) => {
+    directory = path.dirname(String(file))
+    throw primary
+  })
+  try {
+    await expect(run({ entry: "index", name: "setup-failure", args: ["inert"], stdin: "closed" })).rejects.toBe(primary)
+    expect(listener).not.toHaveBeenCalled()
+    expect(directory).toBeDefined()
+    if (!process.env.STDIN_TEST_EVIDENCE) await expect(fs.stat(directory!)).rejects.toMatchObject({ code: "ENOENT" })
+  } finally {
+    write.mockRestore()
+    listener.mockRestore()
+  }
+})
 
 function message(result: Awaited<ReturnType<typeof run>>) {
   const body = result.requests.find((request) => request.path.endsWith("/message"))?.body
@@ -253,6 +332,8 @@ describe("explicit stdin contract (#210)", () => {
         payload: "context λ\n",
       })
       expect(result.code, result.stderr + result.stdout).toBe(0)
+      if (!process.env.STDIN_TEST_EVIDENCE)
+        await expect(fs.stat(result.directory)).rejects.toMatchObject({ code: "ENOENT" })
       // Structured operands preserve raw decoded prompt text; quotes are not added.
       expect(message(result)).toBe("summarize this\ncontext λ\n")
       expect(title(result)).toBe("summarize this")

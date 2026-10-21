@@ -95,6 +95,6 @@ await legacy.write(source)
 await $`bun prettier --write src/gen`
 await $`bun prettier --write src/v2`
 await $`rm -rf dist`
-// dist was removed deliberately; a surviving composite cache must not skip emit.
+// Dist was removed above; force emission even when the composite build cache is current.
 await $`bun tsc --build --force`
 await $`rm openapi.json`

@@ -1231,7 +1231,7 @@ export const RunCommand = cmd({
     invocation.phase("bootstrap")
     if (args.attach) {
       // This checkout has no receiver/capability contract that can enforce selection.
-      const configured = await Config.readToolSelection(process.cwd())
+      const configured = await invocation.guard(() => Config.readToolSelection(process.cwd()))
       if (configured !== undefined) {
         await fail(
           "Work-tool selection is not supported with --attach: this client cannot verify server-side enforcement. Remove --tools and local tool_allowlist or run locally.",

@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -47,6 +50,10 @@ jobs:
 
       - name: Enforce actual SDK prefix token budgets
         run: '"$RUNNER_TEMP/token-budget-environment/venv/bin/python3" -I -B script/token-budget/run.py --output "$RUNNER_TEMP/token-budget-evidence"'
+
+      - name: Verify token fixture loopback binding
+        working-directory: script/token-budget/release-fixtures
+        run: bun test token-stub.test.ts
 
       - name: Verify token-budget fault controls
         run: '"$RUNNER_TEMP/token-budget-environment/venv/bin/python3" -I -B -m unittest discover -s script/token-budget -p "test_*.py" -v'

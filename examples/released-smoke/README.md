@@ -18,7 +18,7 @@ node examples/released-smoke/smoke.mjs \
 
 The runner verifies the native hash/version, two provider requests, an effective wire catalog containing only `read`, the completed read result, schema-version-1 NDJSON, successful terminal events and exit 0. A second invocation supplies invalid root schema `[]`: it must exit 2 with `OUTPUT_SCHEMA_CONFIG` before any additional model request. This is schema rejection, not successful structured output.
 
-The CLI gets closed stdin, fresh HOME/XDG/workspace directories and an explicit environment allowlist without host credentials. Each subprocess has a 30-second deadline; the whole run has 60 seconds. Cleanup terminates POSIX process groups, escalates to SIGKILL after five seconds, and removes temporary state. A successful run prints `"status": "pass"`; a nonzero exit is failure. Evidence contains only the fixed inert fixture, public prompts and a placeholder key. Remove `CLI_DIR` after inspecting its evidence.
+The CLI gets closed stdin, fresh HOME/XDG/workspace directories and an explicit environment allowlist without host credentials. Each CLI subprocess has a 30-second deadline. After setup and before cleanup/evidence writing, the execution phase has a shared 60-second abort timer. Setup, cleanup and evidence I/O are outside that timer; CI imposes an enclosing five-minute job timeout. Local callers that need a whole-process bound must provide their own external timeout. Cleanup terminates POSIX process groups, escalates to SIGKILL after five seconds, and removes temporary state. A successful run prints `"status": "pass"`; a nonzero exit is failure. Evidence contains only the fixed inert fixture, public prompts and a placeholder key. Remove `CLI_DIR` after inspecting its evidence.
 
 ## GitHub Actions
 

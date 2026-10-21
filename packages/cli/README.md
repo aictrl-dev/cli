@@ -65,8 +65,10 @@ eligible native Task tool to be selected, without adding permission allow rules.
 are protocol/control tools, outside the work allowlist. Schema mode still needs
 permission to call `StructuredOutput`; selecting work tools never grants that
 permission. An empty work allowlist can therefore coexist with an explicitly
-permitted StructuredOutput protocol tool. Custom tools with those names are still
-work tools; protocol identity belongs to the harness-created definition.
+permitted StructuredOutput protocol tool. Custom tools with protocol-like names
+remain work tools, except that an active output schema reserves the
+`StructuredOutput` wire name for the harness-created protocol tool. A custom
+`StructuredOutput` is selectable as work only outside schema mode.
 
 Custom tools can use the optional typed `context.selection` facade to inspect
 `names`/`restricted`, assert availability, or call

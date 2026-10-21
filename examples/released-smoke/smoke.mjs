@@ -34,10 +34,11 @@ let root
 let server
 let overallTimer
 let pendingFailure
+let signalVersion = 0
 const report = {
   recipe: marker,
   expectedVersion: "0.5.4",
-  sourceCommit: "6c661f4cf3e3d555a0f290bc22e071c6de4bd19b",
+  releaseSourceCommit: "6c661f4cf3e3d555a0f290bc22e071c6de4bd19b",
   startedUTC: new Date().toISOString(),
   nodeVersion: process.version,
   binary,
@@ -45,6 +46,7 @@ const report = {
   runs,
   requests,
   protocolErrors,
+  cleanupErrors: [],
 }
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 function signalGroup(pid, signal) {
@@ -61,7 +63,14 @@ function abort(reason) {
   controller.abort(new Error(reason))
   for (const pid of groups) signalGroup(pid, "SIGTERM")
 }
-const interrupted = (signal) => abort(`Runner received ${signal}`)
+const interrupted = (signal) => {
+  if (signalVersion) return
+  signalVersion = 1
+  pendingFailure ??= controller.signal.aborted ? controller.signal.reason : new Error(`Runner received ${signal}`)
+  report.status = "fail"
+  report.error ??= { message: pendingFailure.message, stack: pendingFailure.stack }
+  abort(`Runner received ${signal}`)
+}
 const onINT = () => interrupted("SIGINT")
 const onTERM = () => interrupted("SIGTERM")
 process.on("SIGINT", onINT)
@@ -102,16 +111,31 @@ async function run(label, argv, env, cwd) {
     term()
   }, 30_000)
   controller.signal.addEventListener("abort", term, { once: true })
+  const captureLimit = 2 * 1024 * 1024
+  const capturedBytes = { stdout: 0, stderr: 0 }
+  const overflowed = new Set()
   const collect = (name, data) => {
-    record[name] += data.toString("utf8")
-    if (Buffer.byteLength(record[name]) > 2 * 1024 * 1024) {
-      abort(`${label} ${name} exceeds the fixture's 2 MiB capture bound`)
+    if (overflowed.has(name)) return
+    const bytes = Buffer.byteLength(data)
+    const remaining = captureLimit - capturedBytes[name]
+    if (bytes <= remaining) {
+      record[name] += data
+      capturedBytes[name] += bytes
+      return
     }
+    const encoded = Buffer.from(data, "utf8")
+    let end = remaining
+    while (end > 0 && (encoded[end] & 0xc0) === 0x80) end--
+    record[name] += encoded.subarray(0, end).toString("utf8")
+    capturedBytes[name] += end
+    overflowed.add(name)
+    abort(`${label} ${name} exceeds the fixture's 2 MiB capture bound`)
   }
   child.stdout.setEncoding("utf8")
   child.stderr.setEncoding("utf8")
   child.stdout.on("data", (data) => collect("stdout", data))
   child.stderr.on("data", (data) => collect("stderr", data))
+  let failure
   try {
     const result = await new Promise((resolve, reject) => {
       child.once("error", reject)
@@ -121,13 +145,21 @@ async function run(label, argv, env, cwd) {
     if (deadline) throw new Error(`${label} exceeded its external 30-second deadline`)
     controller.signal.throwIfAborted()
     return record
+  } catch (error) {
+    failure = error
+    throw error
   } finally {
     clearTimeout(timer)
     clearTimeout(killTimer)
     controller.signal.removeEventListener("abort", term)
     if (pid) {
-      await cleanupGroup(pid)
-      groups.delete(pid)
+      try {
+        await cleanupGroup(pid)
+        groups.delete(pid)
+      } catch (error) {
+        report.cleanupErrors.push(error.message)
+        if (!failure) throw error
+      }
     }
   }
 }
@@ -346,16 +378,15 @@ try {
   }
   report.status = "pass"
 } catch (error) {
-  pendingFailure = error
+  pendingFailure ??= error
   report.status = "fail"
-  report.error = { message: error.message, stack: error.stack }
+  report.error ??= { message: pendingFailure.message, stack: pendingFailure.stack }
 } finally {
   clearTimeout(overallTimer)
   if (server?.listening) {
     server.closeAllConnections()
     await new Promise((resolve) => server.close(resolve))
   }
-  report.cleanupErrors = []
   for (const pid of groups) {
     try {
       await cleanupGroup(pid)
@@ -376,18 +407,28 @@ try {
     report.cleanupErrors.push(error.message)
   }
   report.cleanup = { processGroupsRemaining: groups.size, temporaryRootRemoved: removed }
-  process.removeListener("SIGINT", onINT)
-  process.removeListener("SIGTERM", onTERM)
   report.finishedUTC = new Date().toISOString()
-  if (evidence) {
-    await mkdir(evidence, { recursive: true })
-    await writeFile(path.join(evidence, "report.json"), JSON.stringify(report, null, 2) + "\n")
-    for (const record of runs) {
-      await writeFile(path.join(evidence, `${record.label}.stdout`), record.stdout)
-      await writeFile(path.join(evidence, `${record.label}.stderr`), record.stderr)
+  try {
+    if (evidence) {
+      await mkdir(evidence, { recursive: true })
+      for (const record of runs) {
+        await writeFile(path.join(evidence, `${record.label}.stdout`), record.stdout)
+        await writeFile(path.join(evidence, `${record.label}.stderr`), record.stderr)
+      }
+      const version = signalVersion
+      await writeFile(path.join(evidence, "report.json"), JSON.stringify(report, null, 2) + "\n")
+      if (version !== signalVersion)
+        await writeFile(path.join(evidence, "report.json"), JSON.stringify(report, null, 2) + "\n")
     }
+  } catch (error) {
+    pendingFailure ??= error
+    report.status = "fail"
+    report.error ??= { message: pendingFailure.message, stack: pendingFailure.stack }
+    report.evidenceError = { message: error.message, stack: error.stack }
   }
   console.log(JSON.stringify(report, null, 2))
+  process.removeListener("SIGINT", onINT)
+  process.removeListener("SIGTERM", onTERM)
 }
 if (pendingFailure) {
   console.error(`[owned CLI smoke] ${pendingFailure.message}`)
