@@ -1,6 +1,7 @@
 import z from "zod"
 import path from "path"
 import { Tool } from "./tool"
+import { ToolGuidance } from "./guidance"
 import { Filesystem } from "../util/filesystem"
 import DESCRIPTION from "./glob.txt"
 import { Ripgrep } from "../file/ripgrep"
@@ -9,6 +10,7 @@ import { assertExternalDirectory } from "./external-directory"
 
 export const GlobTool = Tool.define("glob", {
   description: DESCRIPTION,
+  renderDescription: ToolGuidance.glob,
   parameters: z.object({
     pattern: z.string().describe("The glob pattern to match files against"),
     path: z

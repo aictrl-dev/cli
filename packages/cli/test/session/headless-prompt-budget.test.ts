@@ -23,28 +23,32 @@ const HEADLESS_PREFIX_BUDGET = 15_000
 type Piece = { name: string; chars: number }
 
 /** System prompt pieces, assembled the way SessionPrompt and LLM.stream assemble them. */
-async function systemPieces(model: Provider.Model): Promise<Piece[]> {
+async function systemPieces(model: Provider.Model, capabilities: ReadonlySet<string>): Promise<Piece[]> {
   const instructions = await InstructionPrompt.system()
   return [
-    { name: "system: base prompt", chars: SystemPrompt.base().length },
+    { name: "system: base prompt", chars: SystemPrompt.base(capabilities).length },
     { name: "system: environment", chars: (await SystemPrompt.environment(model)).join("\n").length },
     { name: "system: instructions", chars: instructions.join("\n").length },
   ]
 }
 
 /** Tool definitions the model receives: the registry list minus what LLM.stream drops. */
-async function toolPieces(model: Provider.Model, agent: Agent.Info): Promise<Piece[]> {
+async function toolPieces(model: Provider.Model, agent: Agent.Info) {
   const tools = await ToolRegistry.tools({ providerID: model.providerID, modelID: model.api.id }, agent)
   const disabled = PermissionNext.disabled(
     tools.map((tool) => tool.id),
     agent.permission,
   )
-  return tools
-    .filter((tool) => tool.id !== "invalid" && !disabled.has(tool.id))
-    .map((tool) => ({
-      name: `tool: ${tool.id}`,
-      chars: tool.id.length + tool.description.length + JSON.stringify(z.toJSONSchema(tool.parameters)).length,
-    }))
+  const selected = tools.filter((tool) => tool.id !== "invalid" && !disabled.has(tool.id))
+  const capabilities = new Set(selected.flatMap((tool) => (tool.builtin === tool.id ? [tool.id] : [])))
+  const pieces = selected.map((tool) => ({
+    name: `tool: ${tool.id}`,
+    chars:
+      tool.id.length +
+      (tool.renderDescription?.(tool.description, capabilities) ?? tool.description).length +
+      JSON.stringify(z.toJSONSchema(tool.parameters)).length,
+  }))
+  return { capabilities, pieces }
 }
 
 function breakdown(pieces: Piece[]) {
@@ -75,7 +79,8 @@ describe("headless request prefix budget (#160)", () => {
 
         const model = await Provider.getModel("alibaba", "qwen-plus")
         const agent = await Agent.get("build")
-        const pieces = [...(await systemPieces(model)), ...(await toolPieces(model, agent))]
+        const rendered = await toolPieces(model, agent)
+        const pieces = [...(await systemPieces(model, rendered.capabilities)), ...rendered.pieces]
         const total = pieces.reduce((sum, piece) => sum + piece.chars, 0)
 
         const report = [

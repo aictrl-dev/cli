@@ -21,6 +21,7 @@ import { Plugin } from "../plugin"
 import MAX_STEPS from "../session/prompt/max-steps.txt"
 import { defer } from "../util/defer"
 import { ToolRegistry } from "../tool/registry"
+import { ToolGuidance } from "../tool/guidance"
 import { MCP } from "../mcp"
 import { ReadTool } from "../tool/read"
 import { FileTime } from "../file/time"
@@ -941,7 +942,7 @@ export namespace SessionPrompt {
       input.session.id,
     )) {
       const schema = ProviderTransform.schema(input.model, z.toJSONSchema(item.parameters))
-      tools[item.id] = tool({
+      const definition = tool({
         id: item.id as any,
         description: item.description,
         inputSchema: jsonSchema(schema as any),
@@ -981,6 +982,7 @@ export namespace SessionPrompt {
           return output
         },
       })
+      tools[item.id] = ToolGuidance.bind(definition, item.builtin, item.renderDescription)
     }
 
     for (const [key, item] of Object.entries(await MCP.tools())) {

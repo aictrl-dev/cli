@@ -6,6 +6,7 @@
 import z from "zod"
 import * as path from "path"
 import { Tool } from "./tool"
+import { ToolGuidance } from "./guidance"
 import { createTwoFilesPatch, diffLines } from "diff"
 import DESCRIPTION from "./edit.txt"
 import { File } from "../file"
@@ -21,6 +22,7 @@ function normalizeLineEndings(text: string): string {
 
 export const EditTool = Tool.define("edit", {
   description: DESCRIPTION,
+  renderDescription: ToolGuidance.edit,
   parameters: z.object({
     filePath: z.string().describe("The absolute path to the file to modify"),
     oldString: z.string().describe("The text to replace"),

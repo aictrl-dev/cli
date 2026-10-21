@@ -3,6 +3,7 @@ import type { MessageV2 } from "../session/message-v2"
 import type { Agent } from "../agent/agent"
 import type { PermissionNext } from "../permission/next"
 import { Truncate } from "./truncation"
+import type { ToolGuidance } from "./guidance"
 
 export namespace Tool {
   interface Metadata {
@@ -29,6 +30,7 @@ export namespace Tool {
     id: string
     init: (ctx?: InitContext) => Promise<{
       description: string
+      renderDescription?: ToolGuidance.Renderer
       parameters: Parameters
       execute(
         args: z.infer<Parameters>,

@@ -1,6 +1,7 @@
 import z from "zod"
 import * as path from "path"
 import { Tool } from "./tool"
+import { ToolGuidance } from "./guidance"
 import { createTwoFilesPatch } from "diff"
 import DESCRIPTION from "./write.txt"
 import { Bus } from "../bus"
@@ -13,6 +14,7 @@ import { assertExternalDirectory } from "./external-directory"
 
 export const WriteTool = Tool.define("write", {
   description: DESCRIPTION,
+  renderDescription: ToolGuidance.write,
   parameters: z.object({
     content: z.string().describe("The content to write to the file"),
     filePath: z.string().describe("The absolute path to the file to write (must be absolute, not relative)"),
