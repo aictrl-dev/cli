@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test"
+import { afterAll, beforeAll, describe, expect, spyOn, test, type Mock } from "bun:test"
 import path from "node:path"
 
 // Install before runtime imports: every model request is local or an intercepted
@@ -149,65 +149,16 @@ async function fixture(
   } = {},
   fn: (context: Fixture) => Promise<void>,
 ) {
-  transport.captures = []
-  transport.codex = options.codex ?? false
   const providerID = options.gpt || options.codex ? "openai" : "fixture"
   const modelID = providerID === "openai" ? "gpt-5.2" : "fixture"
-  const server = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    async fetch(request) {
-      transport.captures.push((await request.json()) as Wire)
-      if (options.call && transport.captures.length === 1) {
-        const call = options.call()
-        return sse([
-          {
-            id: "fixture-call",
-            object: "chat.completion.chunk",
-            choices: [
-              {
-                index: 0,
-                delta: {
-                  role: "assistant",
-                  tool_calls: [
-                    {
-                      index: 0,
-                      id: "runtime-call",
-                      type: "function",
-                      function: { name: call.name, arguments: JSON.stringify(call.arguments) },
-                    },
-                  ],
-                },
-              },
-            ],
-          },
-          {
-            id: "fixture-call",
-            object: "chat.completion.chunk",
-            choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
-          },
-        ])
-      }
-      return providerID === "openai" ? responses() : chat()
-    },
-  })
-  transport.origin = server.url.origin
-  const previousAuth = options.codex ? await Auth.get("openai") : undefined
-  if (options.codex)
-    await Auth.set("openai", {
-      type: "oauth",
-      access: "fixture-access",
-      refresh: "fixture-refresh",
-      expires: Date.now() + 60_000,
-    })
+  let server: Bun.Server<undefined> | undefined
+  let previousAuth: { value: Awaited<ReturnType<typeof Auth.get>> } | undefined
+  let authSwapAttempted = false
   const original = LLM.stream
   let last: StreamInput | undefined
   let persisted: unknown
   const persistedCheckpoints: unknown[] = []
-  const spy = spyOn(LLM, "stream").mockImplementation(async (input) => {
-    last = input
-    return original(input)
-  })
+  let spy: Mock<typeof LLM.stream> | undefined
   let primaryFailure: { error: unknown } | undefined
   const cleanupErrors: Error[] = []
   const diagnosticErrors: Error[] = []
@@ -219,6 +170,62 @@ async function fixture(
     }
   }
   try {
+    transport.captures = []
+    transport.codex = options.codex ?? false
+    server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        transport.captures.push((await request.json()) as Wire)
+        if (options.call && transport.captures.length === 1) {
+          const call = options.call()
+          return sse([
+            {
+              id: "fixture-call",
+              object: "chat.completion.chunk",
+              choices: [
+                {
+                  index: 0,
+                  delta: {
+                    role: "assistant",
+                    tool_calls: [
+                      {
+                        index: 0,
+                        id: "runtime-call",
+                        type: "function",
+                        function: { name: call.name, arguments: JSON.stringify(call.arguments) },
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+            {
+              id: "fixture-call",
+              object: "chat.completion.chunk",
+              choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+            },
+          ])
+        }
+        return providerID === "openai" ? responses() : chat()
+      },
+    })
+    transport.origin = server.url.origin
+    if (options.codex) {
+      previousAuth = { value: await Auth.get("openai") }
+      authSwapAttempted = true
+      await Auth.set("openai", {
+        type: "oauth",
+        access: "fixture-access",
+        refresh: "fixture-refresh",
+        expires: Date.now() + 60_000,
+      })
+    }
+    spy = spyOn(LLM, "stream")
+    spy.mockImplementation(async (input) => {
+      last = input
+      return original(input)
+    })
     await using tmp = await tmpdir({
       init: options.init,
       config: {
@@ -324,15 +331,18 @@ async function fixture(
   } catch (error) {
     primaryFailure = { error }
   } finally {
-    await attempt(cleanupErrors, "Failed to restore LLM.stream", () => spy.mockRestore())
-    await attempt(cleanupErrors, "Failed to stop fixture server", () => server.stop(true))
+    const acquiredSpy = spy
+    if (acquiredSpy) await attempt(cleanupErrors, "Failed to restore LLM.stream", () => acquiredSpy.mockRestore())
+    const acquiredServer = server
+    if (acquiredServer) await attempt(cleanupErrors, "Failed to stop fixture server", () => acquiredServer.stop(true))
     await attempt(cleanupErrors, "Failed to reset fixture transport", () => {
       transport.origin = ""
       transport.codex = false
     })
-    if (options.codex) {
+    if (authSwapAttempted && previousAuth) {
+      const snapshot = previousAuth.value
       await attempt(cleanupErrors, "Failed to restore fixture auth", async () => {
-        if (previousAuth) await Auth.set("openai", previousAuth)
+        if (snapshot) await Auth.set("openai", snapshot)
         else await Auth.remove("openai")
       })
     }
