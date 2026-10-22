@@ -10,6 +10,29 @@
    bun test test/cli/run-mcp-discovery.test.ts test/mcp/discovery-recovery.test.ts test/cli/publish-workflow.test.ts test/cli/run-provider-finish.test.ts test/cli/run-signal-cancellation.test.ts test/cli/classify-session-error.test.ts test/session/idle.test.ts test/session/processor-idle.test.ts
    ```
 
+   Before publication, run the separate current-versus-previous native release
+   comparison. Prepare and review explicit candidate and previous published binary
+   artifacts, their SHA256/version/provenance pins and one existing immutable
+   fixture image using [the manifest contract](script/token-budget/release-fixtures/README.md).
+   Provision the pinned Python counter in a fresh directory (requires Python3.12
+   and network access during setup only), then capture and count offline:
+
+   ```bash
+   python3.12 -I -B script/token-budget/setup.py --directory /absolute/new-counter-env
+   bun run --no-install --no-env-file script/token-budget/release.ts /absolute/release-inputs.json /absolute/new-release-evidence
+   /absolute/new-counter-env/venv/bin/python3 -I -B script/token-budget/release-count.py /absolute/new-release-evidence/campaign.json
+   ```
+
+   Run these commands from the repository root. Require valid current-default and
+   previous-default task runs, raw requests/responses and actual Read-result
+   evidence, verified versions/binary hashes, successful cleanup and
+   `release-comparison.json`. Review first-input and session input/output/total
+   deltas before publication and record any accepted regression with rationale.
+   Minimal arms are measured only when each actual binary advertises `--tools`;
+   an unsupported previous arm must be labeled UNSUPPORTED, never synthesized
+   through permission settings. This scripted reference-token gate is separate
+   from source CI token budgets and from provider billing or model-quality claims.
+
    Wait for CI build, workspace typecheck and tests to pass and address reviews.
 
 3. Merge the approved PR and record the resulting `main` commit SHA. Confirm
@@ -43,15 +66,15 @@
 publish workflow publishes each as a platform package. It then lists them in
 the wrapper's `optionalDependencies`:
 
-| Package | `os` | `cpu` | `libc` |
-| --- | --- | --- | --- |
-| `@aictrl/cli-linux-x64-baseline` | linux | x64 | glibc |
-| `@aictrl/cli-linux-x64-baseline-musl` | linux | x64 | musl |
-| `@aictrl/cli-linux-arm64` | linux | arm64 | glibc |
-| `@aictrl/cli-linux-arm64-musl` | linux | arm64 | musl |
-| `@aictrl/cli-darwin-x64-baseline` | darwin | x64 | |
-| `@aictrl/cli-darwin-arm64` | darwin | arm64 | |
-| `@aictrl/cli-windows-x64-baseline` | win32 | x64 | |
+| Package                               | `os`   | `cpu` | `libc` |
+| ------------------------------------- | ------ | ----- | ------ |
+| `@aictrl/cli-linux-x64-baseline`      | linux  | x64   | glibc  |
+| `@aictrl/cli-linux-x64-baseline-musl` | linux  | x64   | musl   |
+| `@aictrl/cli-linux-arm64`             | linux  | arm64 | glibc  |
+| `@aictrl/cli-linux-arm64-musl`        | linux  | arm64 | musl   |
+| `@aictrl/cli-darwin-x64-baseline`     | darwin | x64   |        |
+| `@aictrl/cli-darwin-arm64`            | darwin | arm64 |        |
+| `@aictrl/cli-windows-x64-baseline`    | win32  | x64   |        |
 
 npm installs only the package that matches the host. Every x64 package is the
 baseline (no AVX2) build: Bun ships the same binary for its baseline and AVX2

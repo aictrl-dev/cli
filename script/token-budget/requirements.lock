@@ -1,0 +1,8 @@
+# Python 3.12 Linux x86_64; wheels only, official PyPI. Tokenizer stays fixed; support libraries use patched official releases.
+tiktoken==0.12.0 --hash=sha256:edde1ec917dfd21c1f2f8046b86348b0f54a2c0547f68149d8600859598769ad
+regex==2026.1.15 --hash=sha256:c32bef3e7aeee75746748643667668ef941d28b003bfc89994ecf09a10f7a1b5
+requests==2.34.2 --hash=sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0
+charset-normalizer==3.4.4 --hash=sha256:11d694519d7f29d6cd09f6ac70028dba10f92f6cdd059096db198c283794ac86
+idna==3.20 --hash=sha256:ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c
+urllib3==2.8.0 --hash=sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3
+certifi==2026.10.19 --hash=sha256:42d35340cc5b9ba78e818ddbff0c5b1c2b779de448a340fd1b989f5fa8670e1b

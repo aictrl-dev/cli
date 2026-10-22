@@ -104,7 +104,7 @@ Aictrl is built to be used in non-interactive environments.
 ### Stdin Piping
 
 ```bash
-cat diff.txt | aictrl run "review this code change"
+cat diff.txt | aictrl run "review this code change" -
 ```
 
 ### JSON Events
@@ -276,6 +276,25 @@ spelling, for example a script that runs git.
 If your agents should commit or open PRs, supply your own procedure through a
 skill, `AGENTS.md` or the `instructions` config, and run the CLI in an isolated
 environment with credentials scoped to what the task needs.
+
+## Project instruction isolation
+
+Set `AICTRL_DISABLE_PROJECT_CONFIG=true` to disable automatic project instruction
+discovery as well as project configuration. This excludes root `AGENTS.md`,
+`.opencode/AGENTS.md`, and nested `AGENTS.md` files that would otherwise be
+attached when a tool reads a project file.
+
+Trusted global instruction files (`~/.config/aictrl/AGENTS.md` and
+`AICTRL_CONFIG_DIR/AGENTS.md`) and explicit `instructions` entries in caller
+configuration remain available. Relative caller instructions resolve from
+`AICTRL_CONFIG_DIR` when project configuration is disabled; without that directory,
+relative entries are skipped. Absolute paths and URLs remain explicit inputs.
+
+This controls automatic instruction discovery. Project files and tool output
+remain untrusted task data, so CI jobs still need scoped credentials, configured
+permissions, and process isolation. Keep any existing instruction-file deletion
+workaround until the installed release includes this behavior and has been
+verified.
 
 ## Local Development
 
