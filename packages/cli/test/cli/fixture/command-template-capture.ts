@@ -25,10 +25,12 @@ export async function capture(input: Input) {
     const ownedFile = input.ownedRedirect ? path.join(cwd, "target; /usr/bin/printf INERT_REDIRECT") : undefined
     if (ownedFile) await fs.mkdir(path.dirname(ownedFile), { recursive: true })
     const requests: Record<string, unknown>[] = []
+    let requestArrivals = 0
     const server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
       async fetch(request) {
+        requestArrivals++
         if (new URL(request.url).pathname !== "/v1/chat/completions") throw new Error("Unexpected provider path")
         requests.push((await request.json()) as Record<string, unknown>)
         const chunks = [
@@ -165,7 +167,7 @@ export async function capture(input: Input) {
             stages.push(
               setTimeout(() => {
                 eofAt = performance.now() - started
-                requestsBeforeEOF = requests.length
+                requestsBeforeEOF = requestArrivals
                 child.stdin!.end()
               }, 100),
             )
@@ -249,6 +251,7 @@ export async function capture(input: Input) {
       firstBytesAt,
       eofAt,
       requestsBeforeEOF,
+      requestArrivals,
       command,
       cwd,
       code,

@@ -33,10 +33,12 @@ async function run(input: {
     const requests: { method: string; path: string; body: Record<string, unknown> | undefined }[] = []
     let stream: ReadableStreamDefaultController<Uint8Array> | undefined
     const sessionID = "ses_stdin_fixture"
+    let requestArrivals = 0
     const server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
       async fetch(request) {
+        requestArrivals++
         const url = new URL(request.url)
         const body = request.method === "POST" ? ((await request.json()) as Record<string, unknown>) : undefined
         requests.push({ method: request.method, path: url.pathname, body })
@@ -146,7 +148,7 @@ async function run(input: {
             staged.push(
               setTimeout(() => {
                 eofAt = performance.now() - started
-                requestsBeforeEOF = requests.length
+                requestsBeforeEOF = requestArrivals
                 child.stdin.end()
               }, 150),
             )
@@ -231,6 +233,7 @@ async function run(input: {
       firstBytesAt,
       eofAt,
       requestsBeforeEOF,
+      requestArrivals,
       stdout,
       stderr,
       requests,
