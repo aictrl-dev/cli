@@ -92,7 +92,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
 
   meta = {
     description = "Aictrl Desktop App";
-    homepage = "https://aictrl.ai";
+    homepage = "https://aictrl.dev/agent";
     license = lib.licenses.mit;
     mainProgram = "aictrl-desktop";
     inherit (aictrl.meta) platforms;

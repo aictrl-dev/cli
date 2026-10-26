@@ -10,12 +10,7 @@ import { Global } from "../../src/global"
 test("GitLab Duo: loads provider with API key from environment", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
-      await Bun.write(
-        path.join(dir, "aictrl.json"),
-        JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
-        }),
-      )
+      await Bun.write(path.join(dir, "aictrl.json"), JSON.stringify({}))
     },
   })
   await Instance.provide({
@@ -37,7 +32,6 @@ test("GitLab Duo: config instanceUrl option sets baseURL", async () => {
       await Bun.write(
         path.join(dir, "aictrl.json"),
         JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
           provider: {
             gitlab: {
               options: {
@@ -66,12 +60,7 @@ test("GitLab Duo: config instanceUrl option sets baseURL", async () => {
 test("GitLab Duo: loads with OAuth token from auth.json", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
-      await Bun.write(
-        path.join(dir, "aictrl.json"),
-        JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
-        }),
-      )
+      await Bun.write(path.join(dir, "aictrl.json"), JSON.stringify({}))
     },
   })
 
@@ -103,12 +92,7 @@ test("GitLab Duo: loads with OAuth token from auth.json", async () => {
 test("GitLab Duo: loads with Personal Access Token from auth.json", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
-      await Bun.write(
-        path.join(dir, "aictrl.json"),
-        JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
-        }),
-      )
+      await Bun.write(path.join(dir, "aictrl.json"), JSON.stringify({}))
     },
   })
 
@@ -142,7 +126,6 @@ test("GitLab Duo: supports self-hosted instance configuration", async () => {
       await Bun.write(
         path.join(dir, "aictrl.json"),
         JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
           provider: {
             gitlab: {
               options: {
@@ -174,7 +157,6 @@ test("GitLab Duo: config apiKey takes precedence over environment variable", asy
       await Bun.write(
         path.join(dir, "aictrl.json"),
         JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
           provider: {
             gitlab: {
               options: {
@@ -204,7 +186,6 @@ test("GitLab Duo: supports feature flags configuration", async () => {
       await Bun.write(
         path.join(dir, "aictrl.json"),
         JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
           provider: {
             gitlab: {
               options: {
@@ -236,12 +217,7 @@ test("GitLab Duo: supports feature flags configuration", async () => {
 test("GitLab Duo: has multiple agentic chat models available", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
-      await Bun.write(
-        path.join(dir, "aictrl.json"),
-        JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
-        }),
-      )
+      await Bun.write(path.join(dir, "aictrl.json"), JSON.stringify({}))
     },
   })
   await Instance.provide({

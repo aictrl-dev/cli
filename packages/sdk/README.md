@@ -75,4 +75,4 @@ schemas and rebuild; do not hand-edit either generated declaration. The temporar
 `openapi.json` is deleted after a successful build; the repository does not use
 a checked-in `docs/architecture/openapi.yaml` contract.
 
-For more information, visit [aictrl.ai](https://aictrl.ai).
+For more information, visit [aictrl.dev/agent](https://aictrl.dev/agent).

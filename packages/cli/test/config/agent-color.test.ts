@@ -12,7 +12,6 @@ test("agent color parsed from project config", async () => {
       await Bun.write(
         path.join(dir, "aictrl.json"),
         JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
           agent: {
             build: { color: "#FFA500" },
             general: { color: "primary" },
@@ -37,7 +36,6 @@ test("Agent.get includes color from config", async () => {
       await Bun.write(
         path.join(dir, "aictrl.json"),
         JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
           agent: {
             general: { color: "#A855F7" },
             build: { color: "accent" },

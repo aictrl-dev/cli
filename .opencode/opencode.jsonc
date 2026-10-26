@@ -1,5 +1,4 @@
 {
-  "$schema": "https://aictrl.ai/config.json",
   "provider": {
     "aictrl": {
       "options": {},

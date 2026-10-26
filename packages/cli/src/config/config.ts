@@ -96,7 +96,7 @@ export namespace Config {
     const read = (filepath: string) => loadFile(filepath, options)
     const auth = await Auth.all()
 
-    // Config loading order (low -> high precedence): https://aictrl.ai/docs/config#precedence-order
+    // Config loading order (low -> high precedence):
     // 1) Remote .well-known/aictrl (org defaults)
     // 2) Global config (~/.config/aictrl/aictrl.json{,c})
     // 3) Custom config (AICTRL_CONFIG)
@@ -116,8 +116,6 @@ export namespace Config {
         }
         const wellknown = (await response.json()) as any
         const remoteConfig = wellknown.config ?? {}
-        // Add $schema to prevent load() from trying to write back to a non-existent file
-        if (!remoteConfig.$schema) remoteConfig.$schema = "https://aictrl.ai/config.json"
         result = mergeConfigConcatArrays(
           result,
           await content(JSON.stringify(remoteConfig), {
@@ -1058,10 +1056,7 @@ export namespace Config {
     .object({
       $schema: z.string().optional().describe("JSON schema reference for configuration validation"),
       logLevel: Log.Level.optional().describe("Log level"),
-      command: z
-        .record(z.string(), Command)
-        .optional()
-        .describe("Command configuration, see https://aictrl.ai/docs/commands"),
+      command: z.record(z.string(), Command).optional().describe("Command configuration"),
       skills: Skills.optional().describe("Additional skill folder paths"),
       watcher: z.unknown().optional().describe("@deprecated The file watcher was removed; this key is ignored."),
       plugin: z.string().array().optional(),
@@ -1115,7 +1110,7 @@ export namespace Config {
         })
         .catchall(Agent)
         .optional()
-        .describe("Agent configuration, see https://aictrl.ai/docs/agents"),
+        .describe("Agent configuration"),
       provider: z
         .record(z.string(), Provider)
         .optional()
@@ -1216,7 +1211,6 @@ export namespace Config {
         .then(async (mod) => {
           const { provider, model, ...rest } = mod.default
           if (provider && model) result.model = `${provider}/${model}`
-          result["$schema"] = "https://aictrl.ai/config.json"
           result = mergeConfig(result, rest)
           if (options.setup) {
             await Filesystem.writeJson(path.join(Global.Path.config, "config.json"), result)
@@ -1259,7 +1253,6 @@ export namespace Config {
     options: { path: string } | { dir: string; source: string },
     effects: ReadOptions = { setup: true },
   ) {
-    const original = text
     const source = "path" in options ? options.path : options.source
     const isFile = "path" in options
     const data = await ConfigPaths.parseText(
@@ -1284,11 +1277,6 @@ export namespace Config {
 
     const parsed = Info.safeParse(normalized)
     if (parsed.success) {
-      if (!parsed.data.$schema && isFile && effects.setup) {
-        parsed.data.$schema = "https://aictrl.ai/config.json"
-        const updated = original.replace(/^\s*\{/, '{\n  "$schema": "https://aictrl.ai/config.json",')
-        await Bun.write(options.path, updated).catch(() => {})
-      }
       const data = parsed.data
       if (data.plugin && isFile) {
         for (let i = 0; i < data.plugin.length; i++) {

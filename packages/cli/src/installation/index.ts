@@ -116,11 +116,11 @@ export namespace Installation {
     let cmd
     switch (method) {
       case "curl":
-        cmd = $`curl -fsSL https://aictrl.ai/install | bash`.env({
-          ...process.env,
-          VERSION: target,
+        // No standalone binaries are published, so there is no remote installer to run.
+        // Fail without executing anything and point at the npm package instead.
+        throw new UpgradeFailedError({
+          stderr: `Standalone binaries cannot upgrade themselves. Install the npm package instead: npm install -g @aictrl/cli@${target}`,
         })
-        break
       case "npm":
         cmd = $`npm install -g @aictrl/cli@${target}`
         break

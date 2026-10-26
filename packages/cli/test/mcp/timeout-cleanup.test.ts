@@ -117,7 +117,6 @@ describe("MCP timeout transport cleanup", () => {
         await Bun.write(
           `${dir}/aictrl.json`,
           JSON.stringify({
-            $schema: "https://aictrl.ai/config.json",
             mcp: {
               "test-remote-timeout": {
                 type: "remote",

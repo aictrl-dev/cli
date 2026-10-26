@@ -190,7 +190,6 @@ describe("session prompt tool-call continuation", () => {
           await Bun.write(
             path.join(dir, "aictrl.json"),
             JSON.stringify({
-              $schema: "https://aictrl.ai/config.json",
               enabled_providers: ["alibaba"],
               provider: {
                 alibaba: {
