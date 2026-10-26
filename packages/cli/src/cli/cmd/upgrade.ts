@@ -50,13 +50,20 @@ export const UpgradeCommand = {
       method = managed
     }
     prompts.log.info("Using method: " + method)
-    const latest = args.target ? undefined : await Installation.latest(method).catch((err: unknown) => err)
+    const latest = args.target
+      ? undefined
+      : await Installation.latest(method).catch((err: unknown) => (err instanceof Error ? err : new Error(String(err))))
     if (latest instanceof Error) {
       prompts.log.error(`Could not resolve the latest version: ${latest.message}`)
       prompts.outro("Done")
       return
     }
-    const target = args.target ? args.target.replace(/^v/, "") : String(latest)
+    if (!args.target && (typeof latest !== "string" || !latest)) {
+      prompts.log.error("Could not resolve the latest version from the registry")
+      prompts.outro("Done")
+      return
+    }
+    const target = args.target ? args.target.replace(/^v/, "") : (latest as string)
 
     if (Installation.VERSION === target) {
       prompts.log.warn(`aictrl upgrade skipped: ${target} is already installed`)

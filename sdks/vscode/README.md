@@ -15,7 +15,7 @@ This extension requires the [aictrl CLI](https://aictrl.dev/agent) to be install
 
 ## Support
 
-This is an early release. If you encounter issues or have feedback, please create an issue at https://github.com/anomalyco/aictrl/issues.
+This is an early release. If you encounter issues or have feedback, please create an issue at https://github.com/aictrl-dev/cli/issues.
 
 ## Development
 

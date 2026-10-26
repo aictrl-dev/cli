@@ -136,13 +136,13 @@ export namespace Installation {
     return "aictrl"
   }
 
-  export async function upgrade(method: Method, target: string) {
+  export async function upgrade(method: Method, target: string, execPath = process.execPath) {
     let cmd
     switch (method) {
       case "curl": {
         // No standalone binaries are published, so there is no remote installer to run.
-        const managed = await standaloneUpgradeMethod()
-        if (managed) return upgrade(managed, target)
+        const managed = await standaloneUpgradeMethod(execPath)
+        if (managed) return upgrade(managed, target, execPath)
         throw standaloneUpgradeError(target)
       }
       case "npm":
@@ -197,6 +197,9 @@ export namespace Installation {
     await $`${process.execPath} --version`.nothrow().quiet().text()
   }
 
+  const PUBLIC_REGISTRY = "https://registry.npmjs.org"
+  const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
+
   export const VERSION = typeof AICTRL_VERSION === "string" ? AICTRL_VERSION : "local"
   export const CHANNEL = typeof AICTRL_CHANNEL === "string" ? AICTRL_CHANNEL : "local"
   export const USER_AGENT = `aictrl/${CHANNEL}/${VERSION}/${Flag.AICTRL_CLIENT}`
@@ -245,17 +248,27 @@ export namespace Installation {
     }
 
     // Every other method, including standalone binaries, resolves releases from the npm registry.
-    const registry = await iife(async () => {
-      const r = (await $`npm config get registry`.quiet().nothrow().text()).trim()
-      const reg = r || "https://registry.npmjs.org"
-      return reg.endsWith("/") ? reg.slice(0, -1) : reg
-    })
+    // Only package-manager installs honour the configured registry, which a project .npmrc can set.
+    const registry =
+      detectedMethod === "npm" || detectedMethod === "pnpm" || detectedMethod === "bun"
+        ? await iife(async () => {
+            const r = (await $`npm config get registry`.quiet().nothrow().text()).trim()
+            const reg = r || PUBLIC_REGISTRY
+            return reg.endsWith("/") ? reg.slice(0, -1) : reg
+          })
+        : PUBLIC_REGISTRY
     const channel = CHANNEL
     return fetch(`${registry}/@aictrl/cli/${channel}`)
       .then((res) => {
         if (!res.ok) throw new Error(res.statusText)
         return res.json()
       })
-      .then((data: any) => data.version)
+      .then((data: any) => {
+        const version = data?.version
+        if (typeof version !== "string" || !SEMVER.test(version)) {
+          throw new Error(`${registry} returned no valid version for @aictrl/cli@${channel}`)
+        }
+        return version
+      })
   }
 }
