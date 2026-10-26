@@ -41,9 +41,18 @@ export namespace Installation {
     return CHANNEL === "local"
   }
 
+  // npm, pnpm and bun installs run the native binary from inside the package's node_modules tree.
+  export function isPackageManaged(execPath = process.execPath) {
+    return execPath.split(/[\\/]/).includes("node_modules")
+  }
+
+  export function isStandalone(execPath = process.execPath) {
+    if (isPackageManaged(execPath)) return false
+    return [path.join(".aictrl", "bin"), path.join(".local", "bin")].some((dir) => execPath.includes(dir))
+  }
+
   export async function method() {
-    if (process.execPath.includes(path.join(".aictrl", "bin"))) return "curl"
-    if (process.execPath.includes(path.join(".local", "bin"))) return "curl"
+    if (isStandalone()) return "curl"
     const exec = process.execPath.toLowerCase()
 
     const checks = [
@@ -104,6 +113,21 @@ export namespace Installation {
     }),
   )
 
+  // A binary detected as standalone, or forced with --method curl, may still live in a
+  // package manager's tree. Upgrade through that package manager when one owns it.
+  export async function standaloneUpgradeMethod(execPath = process.execPath, detect: () => Promise<Method> = method) {
+    if (!isPackageManaged(execPath)) return undefined
+    const managed = await detect()
+    if (managed === "npm" || managed === "pnpm" || managed === "bun") return managed
+    return undefined
+  }
+
+  export function standaloneUpgradeError(target: string) {
+    return new UpgradeFailedError({
+      stderr: `Standalone binaries cannot upgrade themselves. Install the npm package instead: npm install -g @aictrl/cli@${target}`,
+    })
+  }
+
   async function getBrewFormula() {
     const tapFormula = await $`brew list --formula anomalyco/tap/aictrl`.throws(false).quiet().text()
     if (tapFormula.includes("aictrl")) return "anomalyco/tap/aictrl"
@@ -115,12 +139,12 @@ export namespace Installation {
   export async function upgrade(method: Method, target: string) {
     let cmd
     switch (method) {
-      case "curl":
+      case "curl": {
         // No standalone binaries are published, so there is no remote installer to run.
-        // Fail without executing anything and point at the npm package instead.
-        throw new UpgradeFailedError({
-          stderr: `Standalone binaries cannot upgrade themselves. Install the npm package instead: npm install -g @aictrl/cli@${target}`,
-        })
+        const managed = await standaloneUpgradeMethod()
+        if (managed) return upgrade(managed, target)
+        throw standaloneUpgradeError(target)
+      }
       case "npm":
         cmd = $`npm install -g @aictrl/cli@${target}`
         break
@@ -197,21 +221,6 @@ export namespace Installation {
         .then((data: any) => data.versions.stable)
     }
 
-    if (detectedMethod === "npm" || detectedMethod === "bun" || detectedMethod === "pnpm") {
-      const registry = await iife(async () => {
-        const r = (await $`npm config get registry`.quiet().nothrow().text()).trim()
-        const reg = r || "https://registry.npmjs.org"
-        return reg.endsWith("/") ? reg.slice(0, -1) : reg
-      })
-      const channel = CHANNEL
-      return fetch(`${registry}/@aictrl/cli/${channel}`)
-        .then((res) => {
-          if (!res.ok) throw new Error(res.statusText)
-          return res.json()
-        })
-        .then((data: any) => data.version)
-    }
-
     if (detectedMethod === "choco") {
       return fetch(
         "https://community.chocolatey.org/api/v2/Packages?$filter=Id%20eq%20%27aictrl%27%20and%20IsLatestVersion&$select=Version",
@@ -235,11 +244,18 @@ export namespace Installation {
         .then((data: any) => data.version)
     }
 
-    return fetch("https://api.github.com/repos/anomalyco/aictrl/releases/latest")
+    // Every other method, including standalone binaries, resolves releases from the npm registry.
+    const registry = await iife(async () => {
+      const r = (await $`npm config get registry`.quiet().nothrow().text()).trim()
+      const reg = r || "https://registry.npmjs.org"
+      return reg.endsWith("/") ? reg.slice(0, -1) : reg
+    })
+    const channel = CHANNEL
+    return fetch(`${registry}/@aictrl/cli/${channel}`)
       .then((res) => {
         if (!res.ok) throw new Error(res.statusText)
         return res.json()
       })
-      .then((data: any) => data.tag_name.replace(/^v/, ""))
+      .then((data: any) => data.version)
   }
 }
