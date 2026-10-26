@@ -21,7 +21,6 @@ test.each([
       await Bun.write(
         path.join(dir, "aictrl.json"),
         JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
           provider: {
             "google-vertex": {
               options: {
@@ -260,7 +259,6 @@ test("Google Vertex requests the cloud-platform OAuth scope", async () => {
       await Bun.write(
         path.join(dir, "aictrl.json"),
         JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
           provider: {
             "google-vertex": {
               options: {

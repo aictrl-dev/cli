@@ -1659,7 +1659,7 @@ describe("ProviderTransform.message - strip openai metadata when store=false", (
       providerID: "aictrl",
       api: {
         id: "aictrl-test",
-        url: "https://api.aictrl.ai",
+        url: "https://api.example.com",
         npm: "@ai-sdk/openai-compatible",
       },
     }
@@ -1693,7 +1693,7 @@ describe("ProviderTransform.message - strip openai metadata when store=false", (
       providerID: "aictrl",
       api: {
         id: "aictrl-test",
-        url: "https://api.aictrl.ai",
+        url: "https://api.example.com",
         npm: "@ai-sdk/openai-compatible",
       },
     }

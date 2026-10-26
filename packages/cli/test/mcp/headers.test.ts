@@ -53,7 +53,6 @@ test("headers are passed to transports when oauth is enabled (default)", async (
       await Bun.write(
         `${dir}/aictrl.json`,
         JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
           mcp: {
             "test-server": {
               type: "remote",

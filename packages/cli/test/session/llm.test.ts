@@ -273,7 +273,6 @@ describe("session.llm.stream", () => {
         await Bun.write(
           path.join(dir, "aictrl.json"),
           JSON.stringify({
-            $schema: "https://aictrl.ai/config.json",
             enabled_providers: [providerID],
             provider: {
               [providerID]: {
@@ -373,7 +372,6 @@ describe("session.llm.stream", () => {
         await Bun.write(
           path.join(dir, "aictrl.json"),
           JSON.stringify({
-            $schema: "https://aictrl.ai/config.json",
             enabled_providers: [providerID],
             provider: {
               [providerID]: {
@@ -495,7 +493,6 @@ describe("session.llm.stream", () => {
         await Bun.write(
           path.join(dir, "aictrl.json"),
           JSON.stringify({
-            $schema: "https://aictrl.ai/config.json",
             enabled_providers: ["openai"],
             provider: {
               openai: {
@@ -621,7 +618,6 @@ describe("session.llm.stream", () => {
         await Bun.write(
           path.join(dir, "aictrl.json"),
           JSON.stringify({
-            $schema: "https://aictrl.ai/config.json",
             enabled_providers: [providerID],
             provider: {
               [providerID]: {
@@ -721,7 +717,6 @@ describe("session.llm.stream", () => {
         await Bun.write(
           path.join(dir, "aictrl.json"),
           JSON.stringify({
-            $schema: "https://aictrl.ai/config.json",
             enabled_providers: [providerID],
             provider: {
               [providerID]: {
@@ -847,7 +842,6 @@ describe("session.llm.stream", () => {
         await Bun.write(
           path.join(dir, "aictrl.json"),
           JSON.stringify({
-            $schema: "https://aictrl.ai/config.json",
             enabled_providers: [providerID],
             provider: {
               [providerID]: {

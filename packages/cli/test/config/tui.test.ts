@@ -70,6 +70,7 @@ test("migrates tui-specific keys from aictrl.json when tui.json does not exist",
         theme: "migrated-theme",
         scroll_speed: 5,
       })
+      expect(JSON.parse(text).$schema).toBeUndefined()
       const server = JSON.parse(await Filesystem.readText(path.join(tmp.path, "aictrl.json")))
       expect(server.theme).toBeUndefined()
       expect(server.keybinds).toBeUndefined()

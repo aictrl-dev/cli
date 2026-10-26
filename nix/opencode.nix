@@ -85,7 +85,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
 
   meta = {
     description = "The open source coding agent";
-    homepage = "https://aictrl.ai/";
+    homepage = "https://aictrl.dev/agent";
     license = lib.licenses.mit;
     mainProgram = "aictrl";
     inherit (node_modules.meta) platforms;

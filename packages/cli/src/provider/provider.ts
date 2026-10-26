@@ -317,7 +317,7 @@ export namespace Provider {
         autoload: false,
         options: {
           headers: {
-            "HTTP-Referer": "https://aictrl.ai/",
+            "HTTP-Referer": "https://aictrl.dev/",
             "X-Title": "aictrl",
           },
         },
@@ -328,7 +328,7 @@ export namespace Provider {
         autoload: false,
         options: {
           headers: {
-            "http-referer": "https://aictrl.ai/",
+            "http-referer": "https://aictrl.dev/",
             "x-title": "aictrl",
           },
         },
@@ -428,7 +428,7 @@ export namespace Provider {
         autoload: false,
         options: {
           headers: {
-            "HTTP-Referer": "https://aictrl.ai/",
+            "HTTP-Referer": "https://aictrl.dev/",
             "X-Title": "aictrl",
           },
         },
@@ -552,7 +552,7 @@ export namespace Provider {
         autoload: false,
         options: {
           headers: {
-            "HTTP-Referer": "https://aictrl.ai/",
+            "HTTP-Referer": "https://aictrl.dev/",
             "X-Title": "aictrl",
           },
         },

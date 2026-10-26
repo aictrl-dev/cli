@@ -28,7 +28,6 @@ export async function tmpdir<T>(options?: TmpDirOptions<T>) {
     await Bun.write(
       path.join(dirpath, "aictrl.json"),
       JSON.stringify({
-        $schema: "https://aictrl.ai/config.json",
         ...options.config,
       }),
     )

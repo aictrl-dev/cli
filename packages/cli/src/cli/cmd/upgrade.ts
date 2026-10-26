@@ -14,7 +14,8 @@ export const UpgradeCommand = {
       })
       .option("method", {
         alias: "m",
-        describe: "installation method to use",
+        describe:
+          "installation method to use; standalone binaries (curl) cannot upgrade themselves, install with npm instead",
         type: "string",
         choices: ["curl", "npm", "pnpm", "bun", "brew", "choco", "scoop"],
       })
@@ -22,8 +23,7 @@ export const UpgradeCommand = {
   handler: async (args: { target?: string; method?: string }) => {
     UI.empty()
     prompts.intro("Upgrade")
-    const detectedMethod = await Installation.method()
-    const method = (args.method as Installation.Method) ?? detectedMethod
+    let method = (args.method as Installation.Method | undefined) ?? (await Installation.method())
     if (method === "unknown") {
       prompts.log.error(`aictrl is installed to ${process.execPath} and may be managed by a package manager`)
       const install = await prompts.select({
@@ -39,8 +39,31 @@ export const UpgradeCommand = {
         return
       }
     }
+    if (method === "curl") {
+      const managed = await Installation.standaloneUpgradeMethod()
+      if (!managed) {
+        const target = args.target ? args.target.replace(/^v/, "") : "latest"
+        prompts.log.error(Installation.standaloneUpgradeError(target).data.stderr)
+        prompts.outro("Done")
+        return
+      }
+      method = managed
+    }
     prompts.log.info("Using method: " + method)
-    const target = args.target ? args.target.replace(/^v/, "") : await Installation.latest()
+    const latest = args.target
+      ? undefined
+      : await Installation.latest(method).catch((err: unknown) => (err instanceof Error ? err : new Error(String(err))))
+    if (latest instanceof Error) {
+      prompts.log.error(`Could not resolve the latest version: ${latest.message}`)
+      prompts.outro("Done")
+      return
+    }
+    if (!args.target && (typeof latest !== "string" || !latest)) {
+      prompts.log.error("Could not resolve the latest version from the registry")
+      prompts.outro("Done")
+      return
+    }
+    const target = args.target ? args.target.replace(/^v/, "") : (latest as string)
 
     if (Installation.VERSION === target) {
       prompts.log.warn(`aictrl upgrade skipped: ${target} is already installed`)

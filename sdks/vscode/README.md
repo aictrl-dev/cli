@@ -1,10 +1,10 @@
 # aictrl VS Code Extension
 
-A Visual Studio Code extension that integrates [aictrl](https://aictrl.ai) directly into your development workflow.
+A Visual Studio Code extension that integrates [aictrl](https://aictrl.dev/agent) directly into your development workflow.
 
 ## Prerequisites
 
-This extension requires the [aictrl CLI](https://aictrl.ai) to be installed on your system. Visit [aictrl.ai](https://aictrl.ai) for installation instructions.
+This extension requires the [aictrl CLI](https://aictrl.dev/agent) to be installed on your system. Install it with `npm install -g @aictrl/cli`.
 
 ## Features
 
@@ -15,7 +15,7 @@ This extension requires the [aictrl CLI](https://aictrl.ai) to be installed on y
 
 ## Support
 
-This is an early release. If you encounter issues or have feedback, please create an issue at https://github.com/anomalyco/aictrl/issues.
+This is an early release. If you encounter issues or have feedback, please create an issue at https://github.com/aictrl-dev/cli/issues.
 
 ## Development
 

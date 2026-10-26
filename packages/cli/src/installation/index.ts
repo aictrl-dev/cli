@@ -41,9 +41,18 @@ export namespace Installation {
     return CHANNEL === "local"
   }
 
+  // npm, pnpm and bun installs run the native binary from inside the package's node_modules tree.
+  export function isPackageManaged(execPath = process.execPath) {
+    return execPath.split(/[\\/]/).includes("node_modules")
+  }
+
+  export function isStandalone(execPath = process.execPath) {
+    if (isPackageManaged(execPath)) return false
+    return [path.join(".aictrl", "bin"), path.join(".local", "bin")].some((dir) => execPath.includes(dir))
+  }
+
   export async function method() {
-    if (process.execPath.includes(path.join(".aictrl", "bin"))) return "curl"
-    if (process.execPath.includes(path.join(".local", "bin"))) return "curl"
+    if (isStandalone()) return "curl"
     const exec = process.execPath.toLowerCase()
 
     const checks = [
@@ -104,6 +113,21 @@ export namespace Installation {
     }),
   )
 
+  // A binary detected as standalone, or forced with --method curl, may still live in a
+  // package manager's tree. Upgrade through that package manager when one owns it.
+  export async function standaloneUpgradeMethod(execPath = process.execPath, detect: () => Promise<Method> = method) {
+    if (!isPackageManaged(execPath)) return undefined
+    const managed = await detect()
+    if (managed === "npm" || managed === "pnpm" || managed === "bun") return managed
+    return undefined
+  }
+
+  export function standaloneUpgradeError(target: string) {
+    return new UpgradeFailedError({
+      stderr: `Standalone binaries cannot upgrade themselves. Install the npm package instead: npm install -g @aictrl/cli@${target}`,
+    })
+  }
+
   async function getBrewFormula() {
     const tapFormula = await $`brew list --formula anomalyco/tap/aictrl`.throws(false).quiet().text()
     if (tapFormula.includes("aictrl")) return "anomalyco/tap/aictrl"
@@ -112,15 +136,15 @@ export namespace Installation {
     return "aictrl"
   }
 
-  export async function upgrade(method: Method, target: string) {
+  export async function upgrade(method: Method, target: string, execPath = process.execPath) {
     let cmd
     switch (method) {
-      case "curl":
-        cmd = $`curl -fsSL https://aictrl.ai/install | bash`.env({
-          ...process.env,
-          VERSION: target,
-        })
-        break
+      case "curl": {
+        // No standalone binaries are published, so there is no remote installer to run.
+        const managed = await standaloneUpgradeMethod(execPath)
+        if (managed) return upgrade(managed, target, execPath)
+        throw standaloneUpgradeError(target)
+      }
       case "npm":
         cmd = $`npm install -g @aictrl/cli@${target}`
         break
@@ -173,6 +197,9 @@ export namespace Installation {
     await $`${process.execPath} --version`.nothrow().quiet().text()
   }
 
+  const PUBLIC_REGISTRY = "https://registry.npmjs.org"
+  const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
+
   export const VERSION = typeof AICTRL_VERSION === "string" ? AICTRL_VERSION : "local"
   export const CHANNEL = typeof AICTRL_CHANNEL === "string" ? AICTRL_CHANNEL : "local"
   export const USER_AGENT = `aictrl/${CHANNEL}/${VERSION}/${Flag.AICTRL_CLIENT}`
@@ -195,21 +222,6 @@ export namespace Installation {
           return res.json()
         })
         .then((data: any) => data.versions.stable)
-    }
-
-    if (detectedMethod === "npm" || detectedMethod === "bun" || detectedMethod === "pnpm") {
-      const registry = await iife(async () => {
-        const r = (await $`npm config get registry`.quiet().nothrow().text()).trim()
-        const reg = r || "https://registry.npmjs.org"
-        return reg.endsWith("/") ? reg.slice(0, -1) : reg
-      })
-      const channel = CHANNEL
-      return fetch(`${registry}/@aictrl/cli/${channel}`)
-        .then((res) => {
-          if (!res.ok) throw new Error(res.statusText)
-          return res.json()
-        })
-        .then((data: any) => data.version)
     }
 
     if (detectedMethod === "choco") {
@@ -235,11 +247,28 @@ export namespace Installation {
         .then((data: any) => data.version)
     }
 
-    return fetch("https://api.github.com/repos/anomalyco/aictrl/releases/latest")
+    // Every other method, including standalone binaries, resolves releases from the npm registry.
+    // Only package-manager installs honour the configured registry, which a project .npmrc can set.
+    const registry =
+      detectedMethod === "npm" || detectedMethod === "pnpm" || detectedMethod === "bun"
+        ? await iife(async () => {
+            const r = (await $`npm config get registry`.quiet().nothrow().text()).trim()
+            const reg = r || PUBLIC_REGISTRY
+            return reg.endsWith("/") ? reg.slice(0, -1) : reg
+          })
+        : PUBLIC_REGISTRY
+    const channel = CHANNEL
+    return fetch(`${registry}/@aictrl/cli/${channel}`)
       .then((res) => {
         if (!res.ok) throw new Error(res.statusText)
         return res.json()
       })
-      .then((data: any) => data.tag_name.replace(/^v/, ""))
+      .then((data: any) => {
+        const version = data?.version
+        if (typeof version !== "string" || !SEMVER.test(version)) {
+          throw new Error(`${registry} returned no valid version for @aictrl/cli@${channel}`)
+        }
+        return version
+      })
   }
 }

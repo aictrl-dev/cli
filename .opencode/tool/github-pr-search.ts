@@ -31,8 +31,8 @@ export default tool({
     offset: tool.schema.number().describe("Number of results to skip for pagination").default(0),
   },
   async execute(args) {
-    const owner = "anomalyco"
-    const repo = "aictrl"
+    const owner = "aictrl-dev"
+    const repo = "cli"
 
     const page = Math.floor(args.offset / args.limit) + 1
     const searchQuery = encodeURIComponent(`${args.query} repo:${owner}/${repo} type:pr state:open`)

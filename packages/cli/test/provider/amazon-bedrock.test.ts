@@ -15,7 +15,6 @@ test("Bedrock: config region takes precedence over AWS_REGION env var", async ()
       await Filesystem.write(
         path.join(dir, "aictrl.json"),
         JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
           provider: {
             "amazon-bedrock": {
               options: {
@@ -44,12 +43,7 @@ test("Bedrock: config region takes precedence over AWS_REGION env var", async ()
 test("Bedrock: falls back to AWS_REGION env var when no config region", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
-      await Filesystem.write(
-        path.join(dir, "aictrl.json"),
-        JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
-        }),
-      )
+      await Filesystem.write(path.join(dir, "aictrl.json"), JSON.stringify({}))
     },
   })
   await Instance.provide({
@@ -72,7 +66,6 @@ test("Bedrock: loads when bearer token from auth.json is present", async () => {
       await Filesystem.write(
         path.join(dir, "aictrl.json"),
         JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
           provider: {
             "amazon-bedrock": {
               options: {
@@ -140,7 +133,6 @@ test("Bedrock: config profile takes precedence over AWS_PROFILE env var", async 
       await Filesystem.write(
         path.join(dir, "aictrl.json"),
         JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
           provider: {
             "amazon-bedrock": {
               options: {
@@ -173,7 +165,6 @@ test("Bedrock: includes custom endpoint in options when specified", async () => 
       await Filesystem.write(
         path.join(dir, "aictrl.json"),
         JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
           provider: {
             "amazon-bedrock": {
               options: {
@@ -206,7 +197,6 @@ test("Bedrock: autoloads when AWS_WEB_IDENTITY_TOKEN_FILE is present", async () 
       await Filesystem.write(
         path.join(dir, "aictrl.json"),
         JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
           provider: {
             "amazon-bedrock": {
               options: {
@@ -244,7 +234,6 @@ test("Bedrock: model with us. prefix should not be double-prefixed", async () =>
       await Filesystem.write(
         path.join(dir, "aictrl.json"),
         JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
           provider: {
             "amazon-bedrock": {
               options: {
@@ -281,7 +270,6 @@ test("Bedrock: model with global. prefix should not be prefixed", async () => {
       await Filesystem.write(
         path.join(dir, "aictrl.json"),
         JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
           provider: {
             "amazon-bedrock": {
               options: {
@@ -317,7 +305,6 @@ test("Bedrock: model with eu. prefix should not be double-prefixed", async () =>
       await Filesystem.write(
         path.join(dir, "aictrl.json"),
         JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
           provider: {
             "amazon-bedrock": {
               options: {
@@ -353,7 +340,6 @@ test("Bedrock: model without prefix in US region should get us. prefix added", a
       await Filesystem.write(
         path.join(dir, "aictrl.json"),
         JSON.stringify({
-          $schema: "https://aictrl.ai/config.json",
           provider: {
             "amazon-bedrock": {
               options: {
