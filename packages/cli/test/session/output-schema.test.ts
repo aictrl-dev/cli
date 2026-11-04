@@ -35,6 +35,7 @@ async function run(
     denied?: boolean
     beside?: boolean
     invalid?: boolean
+    anthropic?: string
   } = {},
 ) {
   const requests: Record<string, unknown>[] = []
@@ -47,6 +48,20 @@ async function run(
     port: 0,
     async fetch(request) {
       requests.push((await request.json()) as Record<string, unknown>)
+      if (options.anthropic === "claude-sonnet-5-5") {
+        const choice = requests.at(-1)?.tool_choice as { type?: string } | undefined
+        if (choice?.type === "any" || choice?.type === "tool")
+          return Response.json(
+            {
+              type: "error",
+              error: {
+                type: "invalid_request_error",
+                message: 'tool_choice: type "tool" and "any" are not supported for this model.',
+              },
+            },
+            { status: 400 },
+          )
+      }
       if (
         requests.length > (inputs.length === 1 && inputs[0] === "{}" ? retryCount + 1 : retryCount + inputs.length + 1)
       )
@@ -87,6 +102,49 @@ async function run(
         if (options.beside)
           calls.push({ index: calls.length, id: `read_${requests.length}`, type: "function", function: read })
         else calls[0].function = read
+      }
+      if (options.anthropic) {
+        const prose = args === "prose"
+        const chunks = [
+          {
+            type: "message_start",
+            message: {
+              id: `msg_${requests.length}`,
+              type: "message",
+              role: "assistant",
+              model: options.anthropic,
+              content: [],
+              stop_reason: null,
+              stop_sequence: null,
+              usage: { input_tokens: 1, output_tokens: 0 },
+            },
+          },
+          {
+            type: "content_block_start",
+            index: 0,
+            content_block: prose
+              ? { type: "text", text: "" }
+              : { type: "tool_use", id: calls[0].id, name: "StructuredOutput", input: {} },
+          },
+          {
+            type: "content_block_delta",
+            index: 0,
+            delta: prose
+              ? { type: "text_delta", text: "No final tool call" }
+              : { type: "input_json_delta", partial_json: calls[0].function.arguments },
+          },
+          { type: "content_block_stop", index: 0 },
+          {
+            type: "message_delta",
+            delta: { stop_reason: prose ? "end_turn" : "tool_use", stop_sequence: null, container: null },
+            usage: { input_tokens: 1, output_tokens: 1 },
+          },
+          { type: "message_stop" },
+        ]
+        return new Response(
+          chunks.map((chunk) => `event: ${chunk.type}\ndata: ${JSON.stringify(chunk)}\n\n`).join(""),
+          { headers: { "Content-Type": "text/event-stream" } },
+        )
       }
       const chunks = [
         { choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }] },
@@ -196,16 +254,31 @@ async function run(
       config: {
         ...(options.steps ? { agent: { build: { steps: options.steps } } } : {}),
         ...(options.compact ? { compaction: { auto: true } } : {}),
-        enabled_providers: options.gemini ? ["fixture"] : ["alibaba"],
-        provider: options.gemini
+        enabled_providers: options.gemini || options.anthropic ? ["fixture"] : ["alibaba"],
+        provider: options.anthropic
           ? {
               fixture: {
-                npm: "@ai-sdk/openai-compatible",
+                npm: "@ai-sdk/anthropic",
                 options: { apiKey: "test-key", baseURL: `${server.url.origin}/v1` },
-                models: { "gemini-fixture": { name: "fixture", limit: { context: 100000, output: 1000 } } },
+                models: {
+                  [options.anthropic]: {
+                    name: "Anthropic fixture",
+                    tool_call: true,
+                    reasoning: false,
+                    limit: { context: 100000, output: 1000 },
+                  },
+                },
               },
             }
-          : { alibaba: { ...alibabaProvider, options: { apiKey: "test-key", baseURL: `${server.url.origin}/v1` } } },
+          : options.gemini
+            ? {
+                fixture: {
+                  npm: "@ai-sdk/openai-compatible",
+                  options: { apiKey: "test-key", baseURL: `${server.url.origin}/v1` },
+                  models: { "gemini-fixture": { name: "fixture", limit: { context: 100000, output: 1000 } } },
+                },
+              }
+            : { alibaba: { ...alibabaProvider, options: { apiKey: "test-key", baseURL: `${server.url.origin}/v1` } } },
       },
     })
     return await Instance.provide({
@@ -250,9 +323,11 @@ async function run(
         try {
           const result = await SessionPrompt.prompt({
             sessionID: session.id,
-            model: options.gemini
-              ? { providerID: "fixture", modelID: "gemini-fixture" }
-              : { providerID: "alibaba", modelID: "qwen-plus" },
+            model: options.anthropic
+              ? { providerID: "fixture", modelID: options.anthropic }
+              : options.gemini
+                ? { providerID: "fixture", modelID: "gemini-fixture" }
+                : { providerID: "alibaba", modelID: "qwen-plus" },
             parts: [{ type: "text", text: "Return a result." }],
             ...(options.plain
               ? {}
@@ -294,6 +369,53 @@ test("missing required field crosses real tool boundary and must be repaired bef
   expect(result.info.structured).toEqual({ result: "repaired" })
   expect(result.requests).toHaveLength(2)
   expect(result.info.error).toBeUndefined()
+}, 15_000)
+
+test("Sonnet 5.5 uses auto through validation and missing-output corrective turns", async () => {
+  const result = await run(["{}", "prose", '{"result":"repaired"}'], 2, { anthropic: "claude-sonnet-5-5" })
+  expect(result.requests.map((request) => request.tool_choice)).toEqual([
+    { type: "auto" },
+    { type: "auto" },
+    { type: "auto" },
+  ])
+  expect(result.requests.every((request) => request.model === "claude-sonnet-5-5")).toBe(true)
+  expect(result.info.error).toBeUndefined()
+  expect(result.info.structured).toEqual({ result: "repaired" })
+  expect(result.rejected.map((event) => event.errors[0].keyword)).toEqual(["required", "missing"])
+  expect(result.outcomes).toEqual([{ status: "accepted", attempts: 3, value: { result: "repaired" } }])
+}, 15_000)
+
+test("Sonnet 5.5 auto tool choice still enforces the invalid-output retry budget", async () => {
+  const result = await run(["{}"], 2, { anthropic: "claude-sonnet-5-5" })
+  expect(result.requests.map((request) => request.tool_choice)).toEqual([
+    { type: "auto" },
+    { type: "auto" },
+    { type: "auto" },
+  ])
+  expect(result.rejected.map((event) => event.attempt)).toEqual([1, 2, 3])
+  expect(result.info.structured).toBeUndefined()
+  expect(result.info.error).toMatchObject({ name: "StructuredOutputError", data: { retries: 2 } })
+  expect(result.outcomes).toEqual([{ status: "failed", reason: "exhausted", attempts: 3 }])
+}, 15_000)
+
+test("Sonnet 5.5 auto tool choice still fails when structured output is missing", async () => {
+  const result = await run(["prose"], 1, { anthropic: "claude-sonnet-5-5" })
+  expect(result.requests.map((request) => request.tool_choice)).toEqual([{ type: "auto" }, { type: "auto" }])
+  expect(result.rejected.map((event) => event.errors[0].keyword)).toEqual(["missing", "missing"])
+  expect(result.info.structured).toBeUndefined()
+  expect(result.info.error).toMatchObject({ name: "StructuredOutputError", data: { retries: 1 } })
+  expect(result.outcomes).toEqual([{ status: "failed", reason: "missing", attempts: 2 }])
+}, 15_000)
+
+test("compatible Anthropic model retains required initial and forced corrective tool choice", async () => {
+  const result = await run(["prose", '{"result":"repaired"}'], 1, { anthropic: "claude-sonnet-4-5" })
+  expect(result.requests.map((request) => request.tool_choice)).toEqual([
+    { type: "any" },
+    { type: "tool", name: "StructuredOutput" },
+  ])
+  expect(result.info.error).toBeUndefined()
+  expect(result.info.structured).toEqual({ result: "repaired" })
+  expect(result.outcomes).toEqual([{ status: "accepted", attempts: 2, value: { result: "repaired" } }])
 }, 15_000)
 
 for (const [name, value] of [

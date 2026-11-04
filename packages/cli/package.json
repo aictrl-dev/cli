@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "name": "@aictrl/cli",
   "description": "The headless agent harness for CI, cron jobs, and container workflows",
   "type": "module",

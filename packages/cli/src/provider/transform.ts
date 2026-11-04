@@ -76,6 +76,15 @@ function mimeToModality(mime: string): Modality | undefined {
 }
 
 export namespace ProviderTransform {
+  export function supportsForcedToolChoice(model: Provider.Model) {
+    // These Claude revisions reject forced tools even with adaptive thinking.
+    // Match the API target so aliases and routed provider IDs behave alike.
+    // https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools
+    return !/(?:^|[/.:])claude-(?:(?:sonnet|opus)-5[-.]5|(?:fable|mythos)-5[-.]1)(?:$|[-@:.])/.test(
+      model.api.id.toLowerCase(),
+    )
+  }
+
   export const OUTPUT_TOKEN_MAX = Flag.AICTRL_EXPERIMENTAL_OUTPUT_TOKEN_MAX || 32_000
 
   export function isGeminiTarget(model: Provider.Model) {
