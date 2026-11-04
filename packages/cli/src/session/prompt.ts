@@ -66,6 +66,12 @@ const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested struc
 export namespace SessionPrompt {
   const log = Log.create({ service: "session.prompt" })
 
+  function structuredToolChoice(model: Provider.Model, reminder?: string) {
+    if (!ProviderTransform.supportsForcedToolChoice(model)) return "auto" as const
+    if (reminder) return { type: "tool" as const, toolName: "StructuredOutput" }
+    return "required" as const
+  }
+
   export function hasToolCalls(parts: MessageV2.Part[]) {
     return parts.some(
       (part) =>
@@ -851,7 +857,7 @@ export namespace SessionPrompt {
         ],
         tools,
         model,
-        toolChoice: contract ? (reminder ? { type: "tool", toolName: "StructuredOutput" } : "required") : undefined,
+        toolChoice: contract ? structuredToolChoice(model, reminder) : undefined,
         structured: contract
           ? {
               reject,

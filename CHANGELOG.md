@@ -1,14 +1,37 @@
 # Changelog
 
-## Unreleased
+## 0.5.5 (2026-11-04)
+
+### Behaviour changes
+
+- **Piped stdin is read only when requested**: when a prompt is supplied, `aictrl run` no longer reads non-terminal stdin unless a standalone `-` is one of its message operands. For example, use `git diff origin/main...HEAD | aictrl run "Summarize the changes" -` to include piped context. With no message operands, non-terminal stdin is still read to EOF. Selected stdin has no read timeout; close the producer or apply your own deadline. A `-` used as an option value, such as `--model -` or `--command -`, does not select stdin. (#256)
+- **Config loading stops inserting `$schema`**: loading `aictrl.json` or `aictrl.jsonc` no longer inserts a `$schema` property. A `tui.json` created while migrating TUI configuration also omits the inserted property. Existing `$schema` values remain unchanged. (#256)
+- **Standalone upgrades use npm installation instructions**: a binary outside a package manager's installation tree no longer downloads and runs a remote installer during `aictrl upgrade`. It stops with `npm install -g @aictrl/cli@<version>` instead. Installations owned by npm, pnpm, or Bun continue to upgrade through their package manager. Standalone version lookups use the public npm registry and reject responses without a valid version. (#261)
 
 ### Features
 
+- **Select work tools per run**: `aictrl run --tools read,glob,grep` selects exact registered work-tool names, and `--tools ''` selects none. The optional `tool_allowlist` configuration sets a default that the CLI option replaces for one invocation. Selection only narrows availability; permission denials still apply. Continuation retains the selection, and delegated tasks inherit its ceiling. Unknown or unavailable names fail before inference, and a selection with `--attach` fails before contacting the receiver. (#254)
+- **Command arguments retain their boundaries**: `--command` passes operands as an argument list and selected stdin as a separate final value, preserving empty, quoted, and multiline operands. SDK callers can still supply the existing `arguments` string. (#256)
 - **GPT-6 models default to `low` text verbosity** — `gpt-6.1-sol`, `gpt-6-astra`, `gpt-6-sol` and `gpt-6-luna` now send `text.verbosity: "low"` on the Responses API, as GPT-5.x models already did. GPT-5.x and GPT-6 now share one rule, adapted from opencode v2 (`plugin/verbosity.ts`). It applies on `@ai-sdk/openai`, on `@ai-sdk/azure` and on `openai/*` models on the Vercel AI Gateway, and skips `-chat`, `-image` and `codex` ids. A `textVerbosity` in the model's `options` or in a variant in `aictrl.json` still overrides the default. (#243)
 
 ### Fixes
 
+- **Structured output works with Claude revisions that reject forced tool choice**: schema-mode requests targeting Claude Sonnet 5.5, Opus 5.5, Fable 5.1, or Mythos 5.1 now use automatic tool choice for the initial request and corrective turns. Matching uses the API model ID, including aliases and routed provider IDs. The model must still call `StructuredOutput` with a result-file path; schema validation, retry limits, missing-result failures, and permission checks remain in force. Other model revisions retain their existing forced tool choice. (#262)
+- **Built-in guidance follows the available tools**: system instructions and recovery messages no longer tell the model to delegate, search, or edit with tools absent from its request catalog. Custom instructions and plugin text remain unchanged. (#252)
 - **GPT-5.x no longer sends `textVerbosity` to providers that do not take OpenAI's option** — GPT-5.x ids on OpenRouter, OpenAI-compatible gateways (such as kilo and zenmux), Bedrock and other non-OpenAI packages used to get `textVerbosity: "low"` only because their id contained `gpt-5.`. They now leave it unset. Upstream found OpenRouter's GPT endpoints report no verbosity support. GPT-5.x on Azure (`@ai-sdk/azure`) now gets `low`, as in upstream. Before, only providers with the id `azure` were skipped, so `azure-cognitive-services` already sent it. `-image` ids are now left unset like `-chat` ids. (#243)
+
+### Security
+
+- **Provider commands require confirmation**: `aictrl auth login <url>` validates the provider's `.well-known/aictrl` document, rejects redirects, and requires HTTPS except for HTTP on `localhost`, `127.0.0.1`, or `[::1]`. It displays the command and asks before executing it. The default answer is No, so non-interactive use cancels. (#215)
+- **Codex sign-in removes PKCE verifier bias**: the verifier is the base64url encoding of 32 random bytes instead of selecting characters with modulo arithmetic. (#215)
+- **Command-template shell spans treat caller arguments as data**: `$N` and `$ARGUMENTS` inside a template's shell spans are passed as shell data. Operands, selected stdin, and shell output cannot introduce another shell span or another round of placeholder substitution. Shell syntax written in the original template continues to run. (#256)
+- **Project isolation also skips checkout instruction files**: `AICTRL_DISABLE_PROJECT_CONFIG` now skips project and nested instruction files, including `.opencode/AGENTS.md`. Global instructions and explicitly configured instructions remain available. (#256)
+
+### Documentation and internal changes
+
+- The README documents the headless execution contracts, tool selection, published benchmark results, and a GitHub Actions example that keeps the model key and GitHub token in separate steps. A released-consumer smoke example verifies the published CLI. `SECURITY.md` describes private vulnerability reporting. (#249, #253, #258)
+- Source CI checks reference-token budgets and retains raw captures. The release procedure separately requires a candidate-versus-previous native binary comparison with pinned artifact provenance and reviewed token deltas. These checks make no provider-billing or model-quality claim. (#255)
+- Package and documentation links now point to `aictrl.dev`. Outgoing OpenRouter, Vercel AI Gateway, ZenMux, and Kilo metadata uses `https://aictrl.dev/`, and MCP OAuth registration uses `https://aictrl.dev/agent` as `client_uri`. The retired curl installer is removed; npm remains the supported installation route. (#261)
 
 ## 0.5.4 (2026-10-19)
 
